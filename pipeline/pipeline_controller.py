@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 from models.paper import PaperMetadata, ScreeningResult
@@ -34,12 +35,24 @@ from utils.text_processing import stable_hash
 LOGGER = logging.getLogger(__name__)
 
 
+class PipelineStoppedError(RuntimeError):
+    """Raised when the user requests a controlled stop of the active pipeline run."""
+
+
 class PipelineController:
     """Coordinate the end-to-end literature review workflow for one run configuration."""
 
-    def __init__(self, config: ResearchConfig, *, event_sink: Callable[[dict[str, Any]], None] | None = None) -> None:
+    def __init__(
+        self,
+        config: ResearchConfig,
+        *,
+        event_sink: Callable[[dict[str, Any]], None] | None = None,
+        stop_event: Event | None = None,
+    ) -> None:
         self.config = config.finalize()
         self.event_sink = event_sink
+        self.stop_event = stop_event or Event()
+        self._active_executors: list[ThreadPoolExecutor] = []
         configure_http_logging(
             enabled=self.config.log_http_requests and self.config.verbosity in {"verbose", "debug"},
             log_payloads=self.config.log_http_payloads and self.config.verbosity == "debug",
@@ -70,6 +83,7 @@ class PipelineController:
         """Execute the configured workflow and return paths plus summary statistics."""
 
         try:
+            self._check_stop()
             self._emit_event("stage_started", stage="pipeline")
             LOGGER.info(
                 "Starting literature pipeline in %s mode for topic '%s'.",
@@ -78,18 +92,30 @@ class PipelineController:
             )
             self._log_verbose("Search query: %s", self.config.search_query)
             self.config.save_snapshot()
-            self._emit_event("stage_started", stage="discovery")
-            discovered = self._discover()
-            self._emit_event("stage_finished", stage="discovery", record_count=len(discovered))
-            LOGGER.info("Discovery completed with %s records.", len(discovered))
-            deduplicated = deduplicate_papers(
-                discovered,
-                title_similarity_threshold=self.config.title_similarity_threshold,
-            )
-            deduplicated = self._apply_discovery_limits(deduplicated)
-            LOGGER.info("Deduplication completed with %s unique records.", len(deduplicated))
-            stored = self.database.upsert_papers(deduplicated, self.config.query_key or "")
-            self._log_verbose("Stored %s records in SQLite.", len(stored))
+            if self.config.skip_discovery:
+                self._emit_event("stage_started", stage="load_existing")
+                stored = self._apply_discovery_limits(self.database.get_papers_for_query(self.config.query_key or ""))
+                discovered = list(stored)
+                deduplicated = list(stored)
+                self._emit_event("stage_finished", stage="load_existing", record_count=len(stored))
+                LOGGER.info(
+                    "Skipping discovery and loading %s stored records for query '%s'.",
+                    len(stored),
+                    self.config.query_key,
+                )
+            else:
+                self._emit_event("stage_started", stage="discovery")
+                discovered = self._discover()
+                self._emit_event("stage_finished", stage="discovery", record_count=len(discovered))
+                LOGGER.info("Discovery completed with %s records.", len(discovered))
+                deduplicated = deduplicate_papers(
+                    discovered,
+                    title_similarity_threshold=self.config.title_similarity_threshold,
+                )
+                deduplicated = self._apply_discovery_limits(deduplicated)
+                LOGGER.info("Deduplication completed with %s unique records.", len(deduplicated))
+                stored = self.database.upsert_papers(deduplicated, self.config.query_key or "")
+                self._log_verbose("Stored %s records in SQLite.", len(stored))
             if self._below_minimum_discovery_threshold(len(deduplicated)):
                 reason = (
                     f"Discovered {len(deduplicated)} unique records, below the configured minimum of "
@@ -122,7 +148,10 @@ class PipelineController:
                 }
 
             expanded: list[PaperMetadata] = []
-            if self.config.max_discovered_records is not None and len(stored) >= self.config.max_discovered_records:
+            self._check_stop()
+            if self.config.skip_discovery:
+                LOGGER.info("Skip discovery is enabled; citation snowballing is skipped for this run.")
+            elif self.config.max_discovered_records is not None and len(stored) >= self.config.max_discovered_records:
                 LOGGER.info(
                     "Skipping citation snowballing because the discovery cap of %s records is already reached.",
                     self.config.max_discovered_records,
@@ -189,22 +218,48 @@ class PipelineController:
                 "database_count": len(final_papers),
                 "run_status": "completed",
             }
+        except PipelineStoppedError as exc:
+            LOGGER.warning("Pipeline stopped on request: %s", exc)
+            self._emit_event("run_stopped", stage="pipeline", reason=str(exc))
+            database_count = 0
+            if self.config.query_key:
+                database_count = self.database.count_papers(self.config.query_key)
+            return {
+                "discovered_count": 0,
+                "deduplicated_count": 0,
+                "database_count": database_count,
+                "run_status": "stopped",
+                "run_error": str(exc),
+            }
         finally:
             self.close()
 
     def close(self) -> None:
         """Release external resources held by the controller."""
 
+        for executor in list(self._active_executors):
+            executor.shutdown(wait=False, cancel_futures=True)
+        self._active_executors.clear()
         self.database.close()
+
+    def request_stop(self) -> None:
+        """Signal the controller to stop as soon as the current operation reaches a safe boundary."""
+
+        self.stop_event.set()
+        for executor in list(self._active_executors):
+            executor.shutdown(wait=False, cancel_futures=True)
+        self._emit_event("stop_requested", stage="pipeline")
 
     def _discover(self) -> list[PaperMetadata]:
         """Collect metadata from fixtures, manual imports, and enabled API clients."""
 
+        self._check_stop()
         if self.fixture_client:
             self._log_verbose("Loading discovery records from fixture file %s.", self.config.fixture_data_path)
             return self.fixture_client.search()
         imported: list[PaperMetadata] = []
         for manual_client in self.manual_import_clients:
+            self._check_stop()
             self._log_verbose("Importing discovery records from %s.", manual_client.path)
             imported.extend(manual_client.search())
 
@@ -213,45 +268,51 @@ class PipelineController:
         if not clients:
             return discovered
         with ThreadPoolExecutor(max_workers=min(self.config.max_workers, len(clients))) as executor:
-            future_map = {
-                executor.submit(self._discover_from_source, name, callable_): name
-                for name, callable_ in clients.items()
-            }
-            for future in tqdm(
-                as_completed(future_map),
-                total=len(future_map),
-                desc="Discovery sources",
-                unit="source",
-                disable=self.config.disable_progress_bars,
-            ):
-                source_name = future_map[future]
-                try:
-                    source_records = future.result()
-                    discovered.extend(source_records)
-                    self._emit_event(
-                        "source_completed",
-                        source=source_name,
-                        record_count=len(source_records),
-                    )
-                    if self.config.max_discovered_records is not None:
-                        limited = deduplicate_papers(
-                            discovered,
-                            title_similarity_threshold=self.config.title_similarity_threshold,
+            self._active_executors.append(executor)
+            try:
+                future_map = {
+                    executor.submit(self._discover_from_source, name, callable_): name
+                    for name, callable_ in clients.items()
+                }
+                for future in tqdm(
+                    as_completed(future_map),
+                    total=len(future_map),
+                    desc="Discovery sources",
+                    unit="source",
+                    disable=self.config.disable_progress_bars,
+                ):
+                    self._check_stop()
+                    source_name = future_map[future]
+                    try:
+                        source_records = future.result()
+                        discovered.extend(source_records)
+                        self._emit_event(
+                            "source_completed",
+                            source=source_name,
+                            record_count=len(source_records),
                         )
-                        # The cap is enforced on the merged global result set, not per source.
-                        if len(limited) >= self.config.max_discovered_records:
-                            LOGGER.info(
-                                "Discovery cap of %s unique records reached; trimming the result set.",
-                                self.config.max_discovered_records,
+                        if self.config.max_discovered_records is not None:
+                            limited = deduplicate_papers(
+                                discovered,
+                                title_similarity_threshold=self.config.title_similarity_threshold,
                             )
-                            self._emit_event(
-                                "discovery_limit_reached",
-                                limit=self.config.max_discovered_records,
-                                record_count=len(limited),
-                            )
-                            return limited[: self.config.max_discovered_records]
-                except Exception as exc:  # noqa: BLE001
-                    LOGGER.exception("Discovery failed for %s: %s", source_name, exc)
+                            # The cap is enforced on the merged global result set, not per source.
+                            if len(limited) >= self.config.max_discovered_records:
+                                LOGGER.info(
+                                    "Discovery cap of %s unique records reached; trimming the result set.",
+                                    self.config.max_discovered_records,
+                                )
+                                self._emit_event(
+                                    "discovery_limit_reached",
+                                    limit=self.config.max_discovered_records,
+                                    record_count=len(limited),
+                                )
+                                return limited[: self.config.max_discovered_records]
+                    except Exception as exc:  # noqa: BLE001
+                        LOGGER.exception("Discovery failed for %s: %s", source_name, exc)
+            finally:
+                if executor in self._active_executors:
+                    self._active_executors.remove(executor)
         return discovered
 
     def _build_discovery_clients(self, *, allow_empty: bool = False) -> dict[str, Callable[[], list[PaperMetadata]]]:
@@ -286,6 +347,7 @@ class PipelineController:
             unit="paper",
             disable=self.config.disable_progress_bars,
         ):
+            self._check_stop()
             if paper.pdf_path or (paper.pdf_link and not download_now):
                 enriched.append(paper)
                 continue
@@ -321,6 +383,7 @@ class PipelineController:
                 unit="paper",
                 disable=self.config.disable_progress_bars,
         ):
+            self._check_stop()
             try:
                 downloaded.append(
                     self.pdf_fetcher.fetch_for_paper(
@@ -375,31 +438,37 @@ class PipelineController:
 
         screening_workers = self._screening_worker_count()
         with ThreadPoolExecutor(max_workers=screening_workers) as executor:
-            future_map = {
-                executor.submit(self._screen_paper_with_passes, paper): paper
-                for paper in uncached_candidates
-                if paper.database_id is not None
-            }
-            for future in tqdm(
-                as_completed(future_map),
-                total=len(future_map),
-                desc="AI screening",
-                unit="paper",
-                disable=self.config.disable_progress_bars,
-            ):
-                paper = future_map[future]
-                try:
-                    result, screening_details = future.result()
-                    self.database.cache_screening_result(
-                        paper=paper,
-                        paper_cache_key=self._paper_cache_key(paper),
-                        screening_context_key=self.config.screening_context_key,
-                        result=result,
-                        screening_details=screening_details,
-                    )
-                    results.append((paper.database_id or 0, result, screening_details))
-                except Exception as exc:  # noqa: BLE001
-                    LOGGER.exception("Screening failed for %s: %s", paper.title, exc)
+            self._active_executors.append(executor)
+            try:
+                future_map = {
+                    executor.submit(self._screen_paper_with_passes, paper): paper
+                    for paper in uncached_candidates
+                    if paper.database_id is not None
+                }
+                for future in tqdm(
+                    as_completed(future_map),
+                    total=len(future_map),
+                    desc="AI screening",
+                    unit="paper",
+                    disable=self.config.disable_progress_bars,
+                ):
+                    self._check_stop()
+                    paper = future_map[future]
+                    try:
+                        result, screening_details = future.result()
+                        self.database.cache_screening_result(
+                            paper=paper,
+                            paper_cache_key=self._paper_cache_key(paper),
+                            screening_context_key=self.config.screening_context_key,
+                            result=result,
+                            screening_details=screening_details,
+                        )
+                        results.append((paper.database_id or 0, result, screening_details))
+                    except Exception as exc:  # noqa: BLE001
+                        LOGGER.exception("Screening failed for %s: %s", paper.title, exc)
+            finally:
+                if executor in self._active_executors:
+                    self._active_executors.remove(executor)
 
         for database_id, result, screening_details in [*cached_results, *results]:
             self.database.update_screening_result(database_id, result, screening_details=screening_details)
@@ -425,6 +494,7 @@ class PipelineController:
         final_result: ScreeningResult | None = None
         final_pass_name = ""
         for analysis_pass in self.config.resolved_analysis_passes:
+            self._check_stop()
             self._log_verbose(
                 "Analyzing '%s' with pass '%s' using %s.",
                 paper.title,
@@ -636,3 +706,9 @@ class PipelineController:
 
         for label, path in report_paths.items():
             self._emit_event("artifact_written", label=label, path=path)
+
+    def _check_stop(self) -> None:
+        """Raise a controlled stop exception when the user has requested cancellation."""
+
+        if self.stop_event.is_set():
+            raise PipelineStoppedError("Stopped by user request")

@@ -132,6 +132,7 @@ class DesktopWorkbench:
                 "year_range_start",
                 "year_range_end",
                 "max_papers_to_analyze",
+                "skip_discovery",
                 "citation_snowballing_enabled",
                 "openalex_enabled",
                 "semantic_scholar_enabled",
@@ -161,6 +162,7 @@ class DesktopWorkbench:
                 "ollama_base_url",
                 "ollama_model",
                 "ollama_api_key",
+                "llm_temperature",
                 "huggingface_model",
                 "huggingface_task",
                 "huggingface_device",
@@ -218,6 +220,7 @@ class DesktopWorkbench:
         "year_range_start": "Year start",
         "year_range_end": "Year end",
         "max_papers_to_analyze": "Max papers to analyze",
+        "skip_discovery": "Skip discovery",
         "relevance_threshold": "Relevance threshold",
         "maybe_threshold_margin": "Maybe margin",
         "full_text_max_chars": "Full-text chars",
@@ -229,6 +232,7 @@ class DesktopWorkbench:
         "ollama_base_url": "Ollama base URL",
         "ollama_model": "Ollama model",
         "ollama_api_key": "Ollama API key",
+        "llm_temperature": "LLM temperature",
         "huggingface_model": "HF model",
         "huggingface_task": "HF task",
         "huggingface_device": "HF device",
@@ -239,6 +243,59 @@ class DesktopWorkbench:
         "springer_api_key": "Springer API key",
         "crossref_mailto": "Crossref mailto",
         "unpaywall_email": "Unpaywall email",
+    }
+
+    PATH_FIELD_MODES = {
+        "fixture_data_path": "file",
+        "manual_source_path": "file",
+        "google_scholar_import_path": "file",
+        "researchgate_import_path": "file",
+        "database_path": "save_file",
+        "data_dir": "directory",
+        "papers_dir": "directory",
+        "relevant_pdfs_dir": "directory",
+        "results_dir": "directory",
+        "huggingface_cache_dir": "directory",
+    }
+
+    HANDBOOK_GUIDES = {
+        "guide:outputs": (
+            "Guide",
+            "Where CSV, JSON, SQLite, and PDFs go",
+            "Use the 'PDFs and Outputs' section in Settings. There you can turn CSV, JSON, Markdown, and SQLite "
+            "exports on or off, choose whether PDFs should be downloaded, and set the data, papers, results, "
+            "database, and relevant-PDF directories. If you only want PDFs for accepted papers, enable "
+            "'Download PDFs' and set 'PDF download mode' to 'relevant_only'.",
+        ),
+        "guide:models": (
+            "Guide",
+            "How to choose the AI model",
+            "Use the 'Screening and Models' section. 'LLM provider' decides whether the run uses heuristic scoring, "
+            "OpenAI-compatible APIs, Ollama, or a local Hugging Face model. Then configure the matching model fields "
+            "such as OpenAI model, Ollama model, or HF model. Thresholds and decision mode in the same section "
+            "control how strict the keep/exclude decisions are.",
+        ),
+        "guide:verbose": (
+            "Guide",
+            "How to make the run fully verbose",
+            "Use the 'Execution and Logging' section. Set 'Verbosity' to 'verbose' or 'debug', and keep the logging "
+            "toggles enabled for HTTP requests, payloads, LLM prompts, LLM responses, and screening decisions. "
+            "Verbose is good for normal auditing. Debug adds truncated payload and prompt details.",
+        ),
+        "guide:rate_limits": (
+            "Guide",
+            "Why Semantic Scholar shows 429 rate limits",
+            "A 429 means the remote API refused additional requests for a while. That is usually a provider-side "
+            "limit, not a crash in your pipeline. To reduce pressure, lower pages per source or results per page, "
+            "disable the source temporarily, or supply a provider API key when supported.",
+        ),
+        "guide:actions": (
+            "Guide",
+            "What Start Run, Analyze Stored Results, and Force Stop do",
+            "Start Run follows the current settings as shown in the form. Analyze Stored Results skips new discovery "
+            "for this run and jumps directly into analysis using already stored records for the current query. "
+            "Force Stop requests a controlled shutdown of the running pipeline and cancels queued work where possible.",
+        ),
     }
 
     SECTION_HELP_TEXTS = {
@@ -318,6 +375,10 @@ class DesktopWorkbench:
             "Limit on how many discovered papers move on to screening. Useful when discovery is broad but you want "
             "to cap LLM cost or runtime."
         ),
+        "skip_discovery": (
+            "Skip new discovery API calls for this run and continue from records already stored in SQLite for the "
+            "current query. This is useful when you want to re-run screening or reporting without searching again."
+        ),
         "citation_snowballing_enabled": (
             "Enable backward and forward citation expansion after initial discovery. This can improve recall but "
             "adds more API calls and follow-up papers."
@@ -394,6 +455,10 @@ class DesktopWorkbench:
         "ollama_base_url": "Local or remote Ollama server URL, usually http://localhost:11434.",
         "ollama_model": "Installed Ollama model tag used for local screening, for example qwen3:8b.",
         "ollama_api_key": "Optional Ollama gateway key if your endpoint requires authentication.",
+        "llm_temperature": (
+            "Sampling temperature for supported LLM backends. Lower values are more deterministic, while higher values "
+            "allow more variation in the screening explanation."
+        ),
         "huggingface_model": (
             "Local Hugging Face model used for screening. The default Qwen/Qwen3-14B is the balanced local choice for "
             "this project, but you can replace it with any compatible instruct model."
@@ -470,6 +535,7 @@ class DesktopWorkbench:
         self.profile_manager = ProfileManager()
         self.message_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.run_thread: threading.Thread | None = None
+        self.current_controller: PipelineController | None = None
         self.current_result: dict[str, Any] = {}
         self.log_handler = UILogHandler(self.message_queue)
         self.log_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
@@ -486,6 +552,8 @@ class DesktopWorkbench:
         self.treeviews: dict[str, ttk.Treeview] = {}
         self.table_frames: dict[str, ttk.Frame] = {}
         self.outputs_tree: ttk.Treeview | None = None
+        self.handbook_tree: ttk.Treeview | None = None
+        self.handbook_text: scrolledtext.ScrolledText | None = None
         self.base_status_message = "Ready."
         self.status_var = tk.StringVar(value=self.base_status_message)
         self.hover_help_enabled = tk.BooleanVar(value=True)
@@ -493,6 +561,8 @@ class DesktopWorkbench:
         self._hover_message_active = False
         self.all_filter_var = tk.StringVar(value="all")
         self.all_search_var = tk.StringVar(value="")
+        self.handbook_search_var = tk.StringVar(value="")
+        self.handbook_entries = self._build_handbook_entries()
 
         self._build_layout()
         self._apply_form_values(self.form_values)
@@ -511,18 +581,46 @@ class DesktopWorkbench:
 
         toolbar = ttk.Frame(self.root, padding=8)
         toolbar.pack(fill="x")
-        ttk.Button(toolbar, text="Start Run", command=self._start_run).pack(side="left", padx=4)
-        ttk.Button(toolbar, text="Load Config", command=self._load_config_file).pack(side="left", padx=4)
-        ttk.Button(toolbar, text="Save Profile", command=self._save_profile).pack(side="left", padx=4)
-        ttk.Button(toolbar, text="Load Profile", command=self._load_profile).pack(side="left", padx=4)
-        ttk.Button(toolbar, text="Refresh Results", command=self._refresh_results_from_disk).pack(side="left", padx=4)
-        ttk.Button(toolbar, text="Open Results Folder", command=self._open_results_dir).pack(side="left", padx=4)
+        start_button = ttk.Button(toolbar, text="Start Run", command=self._start_run)
+        start_button.pack(side="left", padx=4)
+        analyze_button = ttk.Button(
+            toolbar,
+            text="Analyze Stored Results",
+            command=lambda: self._start_run(skip_discovery_override=True, run_mode_override="analyze"),
+        )
+        analyze_button.pack(side="left", padx=4)
+        force_stop_button = ttk.Button(toolbar, text="Force Stop", command=self._force_stop)
+        force_stop_button.pack(side="left", padx=4)
+        load_config_button = ttk.Button(toolbar, text="Load Config", command=self._load_config_file)
+        load_config_button.pack(side="left", padx=4)
+        save_profile_button = ttk.Button(toolbar, text="Save Profile", command=self._save_profile)
+        save_profile_button.pack(side="left", padx=4)
+        load_profile_button = ttk.Button(toolbar, text="Load Profile", command=self._load_profile)
+        load_profile_button.pack(side="left", padx=4)
+        refresh_button = ttk.Button(toolbar, text="Refresh Results", command=self._refresh_results_from_disk)
+        refresh_button.pack(side="left", padx=4)
+        open_results_button = ttk.Button(toolbar, text="Open Results Folder", command=self._open_results_dir)
+        open_results_button.pack(side="left", padx=4)
         ttk.Checkbutton(
             toolbar,
             text="Hover Help",
             variable=self.hover_help_enabled,
             command=self._toggle_hover_help,
         ).pack(side="right", padx=4)
+        self._bind_hover_help(start_button, "Run the full pipeline using the current UI settings.")
+        self._bind_hover_help(
+            analyze_button,
+            "Skip new discovery for this run and go directly into AI analysis using already stored records.",
+        )
+        self._bind_hover_help(
+            force_stop_button,
+            "Request a controlled stop for the current run. Running requests may need a moment to finish.",
+        )
+        self._bind_hover_help(load_config_button, "Load a saved JSON config file into the UI.")
+        self._bind_hover_help(save_profile_button, "Save the current UI settings as a reusable profile.")
+        self._bind_hover_help(load_profile_button, "Load a saved UI profile.")
+        self._bind_hover_help(refresh_button, "Reload result files from disk without starting a new run.")
+        self._bind_hover_help(open_results_button, "Open the configured results directory in the file manager.")
 
         ttk.Label(toolbar, text="Profile:").pack(side="left", padx=(16, 4))
         self.profile_combo = ttk.Combobox(toolbar, width=30, state="readonly")
@@ -536,12 +634,14 @@ class DesktopWorkbench:
         notebook.pack(fill="both", expand=True)
 
         self.settings_tab = ttk.Frame(notebook)
+        self.handbook_tab = ttk.Frame(notebook)
         self.log_tab = ttk.Frame(notebook)
         self.all_tab = ttk.Frame(notebook)
         self.included_tab = ttk.Frame(notebook)
         self.excluded_tab = ttk.Frame(notebook)
         self.outputs_tab = ttk.Frame(notebook)
         notebook.add(self.settings_tab, text="Settings")
+        notebook.add(self.handbook_tab, text="Handbook")
         notebook.add(self.log_tab, text="Run Log")
         notebook.add(self.all_tab, text="All Papers")
         notebook.add(self.included_tab, text="Included")
@@ -549,6 +649,7 @@ class DesktopWorkbench:
         notebook.add(self.outputs_tab, text="Outputs")
 
         self._build_settings_tab()
+        self._build_handbook_tab()
         self._build_log_tab()
         self._build_table_tab(self.all_tab, "all_papers", include_filters=True)
         self._build_table_tab(self.included_tab, "included_papers")
@@ -571,6 +672,16 @@ class DesktopWorkbench:
         scrollbar.pack(side="right", fill="y")
 
         row = 0
+        ttk.Label(
+            scrollable,
+            text=(
+                "Every CLI-relevant runtime setting is exposed here. Hover fields for a quick explanation or use the "
+                "Handbook tab for a searchable reference."
+            ),
+            wraplength=1100,
+            justify="left",
+        ).grid(row=row, column=0, sticky="w", padx=6, pady=(0, 8))
+        row += 1
         for section_name, field_names in self.GROUPS:
             frame = ttk.LabelFrame(scrollable, text=section_name, padding=10)
             frame.grid(row=row, column=0, sticky="nsew", padx=6, pady=6)
@@ -602,14 +713,29 @@ class DesktopWorkbench:
                     if field_name in self.ENUM_FIELDS:
                         variable = tk.StringVar(value=str(SCALAR_FIELD_DEFAULTS.get(field_name, "")))
                         widget = ttk.Combobox(frame, textvariable=variable, values=self.ENUM_FIELDS[field_name], state="readonly")
+                        widget.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
                     else:
                         default_value = SCALAR_FIELD_DEFAULTS.get(field_name, "")
                         variable = tk.StringVar(value=str(default_value))
-                        entry_kwargs = {"textvariable": variable}
+                        entry_kwargs: dict[str, Any] = {"textvariable": variable}
                         if "key" in field_name.lower() and "mail" not in field_name.lower():
                             entry_kwargs["show"] = "*"
-                        widget = ttk.Entry(frame, **entry_kwargs)
-                    widget.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
+                        if field_name in self.PATH_FIELD_MODES:
+                            entry_frame = ttk.Frame(frame)
+                            entry_frame.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
+                            entry_frame.columnconfigure(0, weight=1)
+                            widget = ttk.Entry(entry_frame, **entry_kwargs)
+                            widget.grid(row=0, column=0, sticky="ew")
+                            browse_button = ttk.Button(
+                                entry_frame,
+                                text="Browse",
+                                command=lambda name=field_name, var=variable: self._browse_for_field(name, var),
+                            )
+                            browse_button.grid(row=0, column=1, padx=(6, 0))
+                            self._bind_hover_help(browse_button, help_text)
+                        else:
+                            widget = ttk.Entry(frame, **entry_kwargs)
+                            widget.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
                     self.scalar_vars[field_name] = variable
                     self._bind_hover_help(widget, help_text)
                 inner_row += 1
@@ -673,6 +799,140 @@ class DesktopWorkbench:
         self.base_status_message = message
         if not self._hover_message_active:
             self.status_var.set(message)
+
+    def _build_handbook_entries(self) -> dict[str, dict[str, str]]:
+        """Assemble searchable handbook content from guides, sections, and field help text."""
+
+        entries: dict[str, dict[str, str]] = {}
+        for key, (group, title, body) in self.HANDBOOK_GUIDES.items():
+            entries[key] = {"group": group, "title": title, "body": body}
+        for section_name, _field_names in self.GROUPS:
+            entries[f"section:{section_name}"] = {
+                "group": "Section",
+                "title": section_name,
+                "body": self.SECTION_HELP_TEXTS.get(section_name, section_name),
+            }
+        for section_name, field_names in self.GROUPS:
+            for field_name in field_names:
+                label = self.LABELS.get(field_name, field_name.replace("_", " ").title())
+                entries[f"field:{field_name}"] = {
+                    "group": section_name,
+                    "title": label,
+                    "body": self._help_text_for_field(field_name),
+                }
+        return entries
+
+    def _build_handbook_tab(self) -> None:
+        """Create a searchable in-app handbook for all UI and CLI-exposed settings."""
+
+        container = ttk.Frame(self.handbook_tab, padding=8)
+        container.pack(fill="both", expand=True)
+
+        filter_bar = ttk.Frame(container)
+        filter_bar.pack(fill="x", pady=(0, 8))
+        ttk.Label(filter_bar, text="Search handbook:").pack(side="left")
+        search_entry = ttk.Entry(filter_bar, textvariable=self.handbook_search_var)
+        search_entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
+        search_entry.bind("<KeyRelease>", lambda _event: self._refresh_handbook_tree())
+
+        body = ttk.Frame(container)
+        body.pack(fill="both", expand=True)
+        left = ttk.Frame(body)
+        left.pack(side="left", fill="y")
+        right = ttk.Frame(body)
+        right.pack(side="left", fill="both", expand=True, padx=(8, 0))
+
+        self.handbook_tree = ttk.Treeview(left, columns=("group", "setting"), show="headings", height=24)
+        self.handbook_tree.heading("group", text="Group")
+        self.handbook_tree.heading("setting", text="Setting / Guide")
+        self.handbook_tree.column("group", width=170, anchor="w")
+        self.handbook_tree.column("setting", width=260, anchor="w")
+        self.handbook_tree.pack(fill="y", expand=False)
+        self.handbook_tree.bind("<<TreeviewSelect>>", self._handle_handbook_selection)
+
+        self.handbook_text = scrolledtext.ScrolledText(right, wrap="word", state="disabled")
+        self.handbook_text.pack(fill="both", expand=True)
+
+        self._refresh_handbook_tree()
+
+    def _refresh_handbook_tree(self) -> None:
+        """Apply the handbook search filter and repopulate the handbook index."""
+
+        if self.handbook_tree is None:
+            return
+        search_text = self.handbook_search_var.get().strip().lower()
+        for item in self.handbook_tree.get_children():
+            self.handbook_tree.delete(item)
+
+        visible_keys: list[str] = []
+        for key, entry in self.handbook_entries.items():
+            haystack = " ".join([entry["group"], entry["title"], entry["body"]]).lower()
+            if search_text and search_text not in haystack:
+                continue
+            self.handbook_tree.insert("", tk.END, iid=key, values=[entry["group"], entry["title"]])
+            visible_keys.append(key)
+
+        if visible_keys:
+            first_key = visible_keys[0]
+            self.handbook_tree.selection_set(first_key)
+            self.handbook_tree.focus(first_key)
+            self._render_handbook_entry(first_key)
+        else:
+            self._render_handbook_text("No handbook entries match the current search.")
+
+    def _handle_handbook_selection(self, _event: Any) -> None:
+        """Render the currently selected handbook entry."""
+
+        if self.handbook_tree is None:
+            return
+        selection = self.handbook_tree.selection()
+        if not selection:
+            return
+        self._render_handbook_entry(selection[0])
+
+    def _render_handbook_entry(self, key: str) -> None:
+        """Render one handbook entry into the handbook detail pane."""
+
+        entry = self.handbook_entries.get(key)
+        if not entry:
+            self._render_handbook_text("No handbook content is available for this selection.")
+            return
+        self._render_handbook_text(f"{entry['title']}\n\nGroup: {entry['group']}\n\n{entry['body']}")
+
+    def _render_handbook_text(self, text: str) -> None:
+        """Write handbook text into the read-only handbook detail widget."""
+
+        if self.handbook_text is None:
+            return
+        self.handbook_text.configure(state="normal")
+        self.handbook_text.delete("1.0", tk.END)
+        self.handbook_text.insert("1.0", text)
+        self.handbook_text.configure(state="disabled")
+
+    def _browse_for_field(self, field_name: str, variable: tk.StringVar) -> None:
+        """Open a file or directory chooser for settings that point at local paths."""
+
+        mode = self.PATH_FIELD_MODES.get(field_name)
+        selected = ""
+        if mode == "directory":
+            selected = filedialog.askdirectory()
+        elif mode == "save_file":
+            selected = filedialog.asksaveasfilename(
+                defaultextension=".db",
+                filetypes=[("SQLite database", "*.db"), ("All files", "*.*")],
+            )
+        elif mode == "file":
+            selected = filedialog.askopenfilename(
+                filetypes=[
+                    ("Supported files", "*.json *.csv *.db *.txt *.ris *.bib"),
+                    ("JSON files", "*.json"),
+                    ("CSV files", "*.csv"),
+                    ("All files", "*.*"),
+                ]
+            )
+        if selected:
+            variable.set(selected)
+            self._set_status(f"Updated {self.LABELS.get(field_name, field_name)} to {selected}")
 
     def _build_log_tab(self) -> None:
         """Create the read-only live log panel."""
@@ -786,13 +1046,22 @@ class DesktopWorkbench:
         if hasattr(self, "profile_combo"):
             self.profile_combo["values"] = self.profile_manager.list_profiles()
 
-    def _start_run(self) -> None:
+    def _start_run(
+        self,
+        *,
+        skip_discovery_override: bool | None = None,
+        run_mode_override: str | None = None,
+    ) -> None:
         """Validate the current form and launch the pipeline on a background worker thread."""
 
         if self.run_thread and self.run_thread.is_alive():
             messagebox.showinfo("Run in progress", "Wait for the current run to finish before starting another one.")
             return
         values = self._collect_form_values()
+        if skip_discovery_override is not None:
+            values["skip_discovery"] = skip_discovery_override
+        if run_mode_override is not None:
+            values["run_mode"] = run_mode_override
         try:
             config = form_values_to_config(values)
         except Exception as exc:  # noqa: BLE001
@@ -810,20 +1079,41 @@ class DesktopWorkbench:
         self.log_widget.configure(state="normal")
         self.log_widget.delete("1.0", tk.END)
         self.log_widget.configure(state="disabled")
-        self._set_status("Running pipeline...")
+        run_description = "Running pipeline..."
+        if config.skip_discovery and config.run_mode == "analyze":
+            run_description = "Running analysis from stored records..."
+        elif config.skip_discovery:
+            run_description = "Loading stored records without new discovery..."
+        self._set_status(run_description)
 
         def worker() -> None:
             """Run the pipeline off the Tk main thread and return results through the queue."""
 
+            controller: PipelineController | None = None
             try:
                 controller = PipelineController(config, event_sink=self._emit_worker_event)
+                self.current_controller = controller
                 result = controller.run()
                 self.message_queue.put(("result", {"config": config, "result": result}))
             except Exception as exc:  # noqa: BLE001
                 self.message_queue.put(("error", str(exc)))
+            finally:
+                if self.current_controller is controller:
+                    self.current_controller = None
 
         self.run_thread = threading.Thread(target=worker, daemon=True)
         self.run_thread.start()
+
+    def _force_stop(self) -> None:
+        """Request a controlled stop of the currently running pipeline worker."""
+
+        controller = self.current_controller
+        if controller is None or self.run_thread is None or not self.run_thread.is_alive():
+            self._set_status("No active run to stop.")
+            return
+        controller.request_stop()
+        self._append_log("INFO | Stop requested by user. The pipeline will stop after the current operation.")
+        self._set_status("Stop requested. Waiting for the current operation to finish safely.")
 
     def _emit_worker_event(self, event: dict[str, Any]) -> None:
         """Forward structured pipeline events from the worker thread into the UI queue."""
@@ -982,6 +1272,8 @@ class DesktopWorkbench:
     def _on_close(self) -> None:
         """Detach the UI log handler and close the root window cleanly."""
 
+        if self.current_controller is not None:
+            self.current_controller.request_stop()
         self.hover_tooltip.hide()
         if self.log_handler in self.root_logger.handlers:
             self.root_logger.removeHandler(self.log_handler)

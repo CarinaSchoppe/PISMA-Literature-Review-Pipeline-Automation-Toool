@@ -93,6 +93,7 @@ class ResearchConfig(BaseModel):
     max_discovered_records: int | None = None
     min_discovered_records: int = 0
     max_papers_to_analyze: int = 50
+    skip_discovery: bool = False
     citation_snowballing_enabled: bool = True
     relevance_threshold: float = 70.0
     download_pdfs: bool = False
@@ -584,6 +585,7 @@ class ResearchConfig(BaseModel):
             year_range_start=year_start,
             year_range_end=year_end,
             max_papers_to_analyze=max_papers,
+            skip_discovery=value_for("skip_discovery", getattr(args, "skip_discovery", None), False),
             max_discovered_records=value_for(
                 "max_discovered_records",
                 getattr(args, "max_discovered_records", None),
@@ -739,6 +741,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Hard minimum number of unique records required before screening continues",
     )
     parser.add_argument("--max-papers", type=int, dest="max_papers", help="Maximum papers to analyze")
+    parser.add_argument(
+        "--skip-discovery",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Skip new discovery and continue from already stored records for this query",
+    )
     parser.add_argument(
         "--citation-snowballing",
         action=argparse.BooleanOptionalAction,

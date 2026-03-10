@@ -34,6 +34,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("Crossref", self.workbench._help_text_for_field("crossref_enabled"))
         self.assertIn("Springer", self.workbench._help_text_for_field("springer_enabled"))
         self.assertIn("Semantic Scholar", self.workbench._help_text_for_field("semantic_scholar_enabled"))
+        self.assertIn("temperature", self.workbench._help_text_for_field("llm_temperature").lower())
 
     def test_hover_help_updates_and_restores_status_bar(self) -> None:
         original_status = self.workbench.status_var.get()
@@ -51,6 +52,14 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.workbench._show_hover_help("This should not appear.")
 
         self.assertEqual(self.workbench.status_var.get(), original_status)
+
+    def test_handbook_contains_output_and_verbose_guides(self) -> None:
+        guide_titles = {entry["title"] for entry in self.workbench.handbook_entries.values()}
+
+        self.assertIn("Where CSV, JSON, SQLite, and PDFs go", guide_titles)
+        self.assertIn("How to make the run fully verbose", guide_titles)
+        self.assertIn("What Start Run, Analyze Stored Results, and Force Stop do", guide_titles)
+        self.assertIsNotNone(self.workbench.handbook_tree)
 
 
 if __name__ == "__main__":
