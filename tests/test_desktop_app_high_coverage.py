@@ -151,6 +151,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         self.workbench._activate_settings_canvas(canvas)
         self.assertEqual(self.workbench._on_settings_mousewheel(SimpleNamespace(delta=0, num=4)), "break")
         self.assertEqual(self.workbench._on_settings_mousewheel(SimpleNamespace(delta=0, num=5)), "break")
+        self.assertIsNone(self.workbench._on_settings_mousewheel(SimpleNamespace(delta=0, num=0)))
         self.assertEqual(canvas.yview_scroll.call_count, 2)
 
         original_notebook = self.workbench.settings_pages_notebook
@@ -202,6 +203,11 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         self.workbench.settings_canvas = None
         self.workbench._scroll_widget_into_view(widget)
 
+        self.workbench.settings_canvas = Mock()
+        self.workbench.settings_page_canvases = {}
+        self.workbench.settings_page_content_frames = {}
+        self.workbench._scroll_widget_into_view(widget)
+
         fake_canvas = Mock()
         fake_canvas.update_idletasks = Mock()
         fake_canvas.yview.return_value = (0.6, 0.8)
@@ -234,6 +240,73 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             ), patch("ui.desktop_app.sys.platform", "linux"):
                 self.workbench._open_path(path)
             run_mock.assert_called_once()
+
+    def test_new_inspector_picker_and_page_selection_branches(self) -> None:
+        self.workbench.quick_destination_var.set("")
+        with patch.object(self.workbench, "_focus_field") as focus_mock, patch.object(
+            self.workbench, "_open_pass_builder"
+        ) as pass_mock:
+            self.workbench._open_selected_destination()
+        focus_mock.assert_not_called()
+        pass_mock.assert_not_called()
+
+        self.workbench.quick_destination_var.set("Pass chain editor")
+        with patch.object(self.workbench, "_focus_field") as focus_mock, patch.object(
+            self.workbench, "_open_pass_builder"
+        ) as pass_mock:
+            self.workbench._open_selected_destination()
+        focus_mock.assert_called_once_with("analysis_passes")
+        pass_mock.assert_called_once()
+
+        self.workbench.quick_destination_var.set("Verbose logging")
+        with patch.object(self.workbench, "_focus_field") as focus_mock:
+            self.workbench._open_selected_destination()
+        focus_mock.assert_called_once_with("verbosity")
+
+        self.workbench.guide_choice_var.set("")
+        with patch.object(self.workbench, "_open_handbook_entry") as open_mock:
+            self.workbench._open_selected_guide_shortcut()
+        open_mock.assert_not_called()
+
+        self.workbench.guide_choice_var.set("Model guide")
+        with patch.object(self.workbench, "_open_handbook_entry") as open_mock:
+            self.workbench._open_selected_guide_shortcut()
+        open_mock.assert_called_once_with("guide:models")
+
+        original_notebook = self.workbench.settings_pages_notebook
+        self.workbench.settings_pages_notebook = None
+        self.workbench._select_settings_page("Review Setup")
+        self.workbench.settings_pages_notebook = original_notebook
+        self.workbench._select_settings_page("Missing Page")
+
+        self.workbench.show_advanced_settings.set(False)
+        with patch.object(self.workbench, "_apply_settings_page_visibility") as apply_mock:
+            self.workbench._select_settings_page("Advanced Runtime")
+        apply_mock.assert_called_once()
+        self.assertTrue(self.workbench.show_advanced_settings.get())
+
+    def test_help_expansion_and_handbook_guard_branches(self) -> None:
+        original_examples = dict(self.workbench.FIELD_HELP_EXAMPLES)
+        try:
+            self.workbench.FIELD_HELP_EXAMPLES["custom_enabled"] = "turn it on for this workflow"
+            self.workbench.FIELD_HELP_EXAMPLES["llm_provider"] = "pick the provider that should handle screening"
+            self.workbench.FIELD_HELP_EXAMPLES["relevance_threshold"] = "75 keeps only stronger matches"
+            self.workbench.FIELD_HELP_EXAMPLES["custom_misc"] = "store a plain custom value here"
+
+            self.assertIn("Example: turn it on", self.workbench._help_text_for_field("custom_enabled"))
+            self.assertIn("Example: pick the provider", self.workbench._help_text_for_field("llm_provider"))
+            self.assertIn("Example: 75 keeps", self.workbench._help_text_for_field("relevance_threshold"))
+            self.assertIn("Example: store a plain custom value here", self.workbench._expand_help_text("custom_misc", "Base"))
+        finally:
+            self.workbench.FIELD_HELP_EXAMPLES.clear()
+            self.workbench.FIELD_HELP_EXAMPLES.update(original_examples)
+
+        handbook_tree = self.workbench.handbook_tree
+        self.workbench.handbook_tree = None
+        self.workbench._refresh_handbook_tree()
+        self.workbench.handbook_tree = handbook_tree
+        handbook_tree.selection_set(next(iter(self.workbench.handbook_entries.keys())))
+        self.workbench._handle_handbook_selection(None)
 
     def test_handbook_path_and_analysis_pass_guard_branches(self) -> None:
         handbook_tree = self.workbench.handbook_tree
@@ -310,6 +383,18 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             self.assertFalse(self.workbench._validate_pass_builder_name("", validation_dialog))
         showerror.assert_called_once()
         validation_dialog.destroy()
+
+        self.workbench._open_pass_builder()
+        append_dialog = [widget for widget in self.workbench.root.winfo_children() if isinstance(widget, tk.Toplevel)][-1]
+        tree = next(widget for widget in _walk_widgets(append_dialog) if widget.winfo_class() == "Treeview")
+        tree.selection_set("0")
+        tree.event_generate("<<TreeviewSelect>>")
+        tree.selection_remove(tree.selection())
+        before_count = len(self.workbench._current_analysis_passes())
+        _find_button(append_dialog, "Update Pass").invoke()
+        _find_button(append_dialog, "Apply").invoke()
+        appended = self.workbench._current_analysis_passes()
+        self.assertEqual(len(appended), before_count + 1)
 
     def test_collection_start_poll_tables_outputs_and_close_branches(self) -> None:
         self.workbench.profile_combo.set("combo-profile")

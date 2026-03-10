@@ -965,7 +965,11 @@ class DesktopWorkbench:
         self.settings_canvas: tk.Canvas | None = None
         self.settings_search_choice_var = tk.StringVar(value="")
         self.settings_search_var = tk.StringVar(value="")
+        self.quick_destination_var = tk.StringVar(value="")
+        self.guide_choice_var = tk.StringVar(value="")
         self.settings_search_combo: ttk.Combobox | None = None
+        self.quick_destination_combo: ttk.Combobox | None = None
+        self.guide_choice_combo: ttk.Combobox | None = None
         self.model_summary_text: scrolledtext.ScrolledText | None = None
         self.output_summary_text: scrolledtext.ScrolledText | None = None
         self.active_settings_page_var = tk.StringVar(value="Review Setup")
@@ -2070,24 +2074,38 @@ class DesktopWorkbench:
             "Reveal lower-level pages for rate limits, worker overrides, import-only sources, and advanced model runtime tuning.",
         )
 
-        jump_frame = ttk.LabelFrame(find_tab, text="Fast jumps", padding=8, style="Card.TLabelframe")
-        jump_frame.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(12, 0))
-        jump_frame.columnconfigure(0, weight=1)
-        jump_frame.columnconfigure(1, weight=1)
-        jumps = [
-            ("Models", lambda: self._focus_field("llm_provider")),
-            ("Thresholds", lambda: self._focus_field("relevance_threshold")),
-            ("Outputs", lambda: self._focus_field("output_csv")),
-            ("Storage paths", lambda: self._focus_field("database_path")),
-            ("Connections", lambda: self._focus_field("openai_api_key")),
-            ("Runtime tuning", lambda: self._focus_field("max_workers")),
-            ("Logging", lambda: self._focus_field("verbosity")),
-            ("Edit pass chain", self._open_pass_builder),
-        ]
-        for index, (text, command) in enumerate(jumps):
-            button = ttk.Button(jump_frame, text=text, command=command, style="Secondary.TButton")
-            button.grid(row=index // 2, column=index % 2, sticky="ew", padx=4, pady=4)
-            self._bind_hover_help(button, f"Jump to the GUI area for {text.lower()}.")
+        destination_frame = ttk.LabelFrame(find_tab, text="Quick destination", padding=8, style="Card.TLabelframe")
+        destination_frame.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        destination_frame.columnconfigure(0, weight=1)
+        ttk.Label(
+            destination_frame,
+            text="Choose a common target and open it without filling the page with navigation buttons.",
+            wraplength=300,
+            justify="left",
+            style="Muted.TLabel",
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        self.quick_destination_combo = ttk.Combobox(
+            destination_frame,
+            textvariable=self.quick_destination_var,
+            state="readonly",
+            values=list(self._quick_destinations().keys()),
+        )
+        self.quick_destination_combo.grid(row=1, column=0, sticky="ew")
+        self.quick_destination_combo.bind("<<ComboboxSelected>>", lambda _event: self._open_selected_destination())
+        self._bind_hover_help(
+            self.quick_destination_combo,
+            "Pick a high-traffic destination such as models, outputs, connections, or the pass builder, then open it from a single compact control.",
+        )
+        if not self.quick_destination_var.get():
+            self.quick_destination_var.set(next(iter(self._quick_destinations().keys())))
+        destination_button = ttk.Button(
+            destination_frame,
+            text="Open selected destination",
+            command=self._open_selected_destination,
+            style="Secondary.TButton",
+        )
+        destination_button.grid(row=2, column=0, sticky="w", pady=(8, 0))
+        self._bind_hover_help(destination_button, "Open the destination selected in the quick-destination list.")
 
         quick_tab.columnconfigure(0, weight=1)
         controls_frame = ttk.Frame(quick_tab, style="Surface.TFrame")
@@ -2103,17 +2121,28 @@ class DesktopWorkbench:
             justify="left",
             style="Muted.TLabel",
         ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        guide_buttons = [
-            ("Open Model Guide", lambda: self._open_handbook_entry("guide:models")),
-            ("Open Output Guide", lambda: self._open_handbook_entry("guide:outputs")),
-            ("Open API Guide", lambda: self._open_handbook_entry("guide:api_keys")),
-            ("Open Runtime Guide", lambda: self._open_handbook_entry("guide:runtime_tuning")),
-            ("Open Actions Guide", lambda: self._open_handbook_entry("guide:actions")),
-        ]
-        for row, (text, command) in enumerate(guide_buttons, start=1):
-            button = ttk.Button(guides_tab, text=text, command=command, style="Secondary.TButton")
-            button.grid(row=row, column=0, sticky="ew", pady=4)
-            self._bind_hover_help(button, f"Open the handbook entry for {text.lower()}.")
+        self.guide_choice_combo = ttk.Combobox(
+            guides_tab,
+            textvariable=self.guide_choice_var,
+            state="readonly",
+            values=list(self._guide_shortcuts().keys()),
+        )
+        self.guide_choice_combo.grid(row=1, column=0, sticky="ew")
+        self.guide_choice_combo.bind("<<ComboboxSelected>>", lambda _event: self._open_selected_guide_shortcut())
+        self._bind_hover_help(
+            self.guide_choice_combo,
+            "Choose one of the focused handbook guides for models, outputs, API keys, runtime tuning, or toolbar actions.",
+        )
+        if not self.guide_choice_var.get():
+            self.guide_choice_var.set(next(iter(self._guide_shortcuts().keys())))
+        guide_button = ttk.Button(
+            guides_tab,
+            text="Open selected guide",
+            command=self._open_selected_guide_shortcut,
+            style="Secondary.TButton",
+        )
+        guide_button.grid(row=2, column=0, sticky="w", pady=(8, 0))
+        self._bind_hover_help(guide_button, "Open the handbook guide selected in the dropdown above.")
 
         summary_tab.columnconfigure(0, weight=1)
         summary_tab.rowconfigure(1, weight=1)
@@ -2196,29 +2225,35 @@ class DesktopWorkbench:
         llm_provider_widget.grid(row=0, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
         self._bind_hover_help(llm_provider_widget, self._help_text_for_field("llm_provider"))
 
-        edit_pass_button = ttk.Button(models_card, text="Edit Pass Chain", command=self._open_pass_builder)
-        edit_pass_button.grid(row=1, column=0, sticky="w", padx=4, pady=4)
-        self._bind_hover_help(edit_pass_button, self._help_text_for_field("analysis_passes"))
-        threshold_button = ttk.Button(models_card, text="Jump to Thresholds", command=lambda: self._focus_field("relevance_threshold"))
-        threshold_button.grid(row=1, column=1, sticky="w", padx=4, pady=4)
-        self._bind_hover_help(threshold_button, self._help_text_for_field("relevance_threshold"))
-
-        connections_button = ttk.Button(models_card, text="Open Connections and Keys", command=lambda: self._focus_field("openai_api_key"))
-        connections_button.grid(row=1, column=2, sticky="w", padx=4, pady=4)
+        helper_label = ttk.Label(
+            models_card,
+            text=(
+                "Use this card to choose the active provider and model defaults. Threshold sliders stay on the main AI "
+                "Screening page, and provider keys stay on Connections and Keys."
+            ),
+            wraplength=300,
+            justify="left",
+            style="Muted.TLabel",
+        )
+        helper_label.grid(row=1, column=0, columnspan=3, sticky="ew", padx=4, pady=(0, 6))
         self._bind_hover_help(
-            connections_button,
-            "Open the dedicated page for provider base URLs, API keys, Crossref mailto, and Unpaywall email.",
+            helper_label,
+            "This quick-edit area focuses on frequent model choices only. Detailed threshold and credential editing remain on their dedicated pages.",
         )
 
+        edit_pass_button = ttk.Button(models_card, text="Edit Pass Chain", command=self._open_pass_builder)
+        edit_pass_button.grid(row=2, column=0, sticky="w", padx=4, pady=4)
+        self._bind_hover_help(edit_pass_button, self._help_text_for_field("analysis_passes"))
+
         for row, field_name in enumerate(("openai_model", "gemini_model", "ollama_model", "huggingface_model"), start=3):
-            add_label(models_card, row - 1, 0, field_name)
+            add_label(models_card, row, 0, field_name)
             widget = ttk.Combobox(
                 models_card,
                 textvariable=self.scalar_vars[field_name],
                 values=self.COMBOBOX_FIELDS[field_name],
                 state="normal",
             )
-            widget.grid(row=row - 1, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
+            widget.grid(row=row, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
             self._bind_hover_help(widget, self._help_text_for_field(field_name))
 
         outputs_card = ttk.LabelFrame(frame, text="Outputs and storage", padding=8, style="Card.TLabelframe")
@@ -2275,6 +2310,31 @@ class DesktopWorkbench:
                 entries.append((field_name, f"{section_name} -> {label}"))
         return entries
 
+    def _quick_destinations(self) -> dict[str, tuple[str, str | None]]:
+        """Return compact quick-destination choices for the settings inspector."""
+
+        return {
+            "Model provider and pass chain": ("llm_provider", None),
+            "Threshold sliders": ("relevance_threshold", None),
+            "Output toggles": ("output_csv", None),
+            "Storage paths": ("database_path", None),
+            "API keys and endpoints": ("openai_api_key", None),
+            "Runtime tuning": ("max_workers", None),
+            "Verbose logging": ("verbosity", None),
+            "Pass chain editor": ("analysis_passes", "pass_builder"),
+        }
+
+    def _guide_shortcuts(self) -> dict[str, str]:
+        """Return the handbook guide shortcuts shown in the inspector."""
+
+        return {
+            "Model guide": "guide:models",
+            "Output guide": "guide:outputs",
+            "API guide": "guide:api_keys",
+            "Runtime guide": "guide:runtime_tuning",
+            "Actions guide": "guide:actions",
+        }
+
     def _refresh_settings_search_results(self) -> None:
         """Filter the settings search list based on the current query string."""
 
@@ -2303,6 +2363,30 @@ class DesktopWorkbench:
             if display == selected:
                 self._focus_field(field_name)
                 break
+
+    def _open_selected_destination(self) -> None:
+        """Open the setting or helper chosen in the quick-destination picker."""
+
+        selected = self.quick_destination_var.get().strip()
+        if not selected:
+            return
+        field_name, action = self._quick_destinations().get(selected, ("", None))
+        if action == "pass_builder":
+            self._focus_field(field_name)
+            self._open_pass_builder()
+            return
+        if field_name:
+            self._focus_field(field_name)
+
+    def _open_selected_guide_shortcut(self) -> None:
+        """Open the handbook guide chosen in the inspector guide picker."""
+
+        selected = self.guide_choice_var.get().strip()
+        if not selected:
+            return
+        entry_id = self._guide_shortcuts().get(selected)
+        if entry_id:
+            self._open_handbook_entry(entry_id)
 
     def _focus_field(self, field_name: str) -> None:
         """Scroll the settings canvas to a field and focus its primary widget."""

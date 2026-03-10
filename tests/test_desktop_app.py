@@ -131,12 +131,16 @@ class DesktopWorkbenchTests(unittest.TestCase):
     def test_settings_layout_uses_navigation_and_inspector_tabs(self) -> None:
         self.assertEqual(set(self.workbench.settings_nav_buttons.keys()), {name for name, _ in self.workbench.SETTINGS_PAGES})
         self.assertIsNotNone(self.workbench.settings_tools_notebook)
+        self.assertIsNotNone(self.workbench.quick_destination_combo)
+        self.assertIsNotNone(self.workbench.guide_choice_combo)
 
         inspector_labels = [
             self.workbench.settings_tools_notebook.tab(tab_id, "text") for tab_id in self.workbench.settings_tools_notebook.tabs()
         ]
         self.assertEqual(inspector_labels, ["Find", "Quick Edit", "Guides", "Summary"])
         self.assertEqual(self.workbench.active_settings_page_var.get(), "Review Setup")
+        self.assertIn("Model provider and pass chain", tuple(self.workbench.quick_destination_combo["values"]))
+        self.assertIn("Output guide", tuple(self.workbench.guide_choice_combo["values"]))
 
     def test_advanced_settings_page_is_hidden_until_requested(self) -> None:
         notebook = self.workbench.settings_pages_notebook
@@ -306,7 +310,26 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("Edit Pass Chain", joined)
         self.assertIn("Download paper PDFs", joined)
         self.assertIn("Write SQLite exports", joined)
-        self.assertIn("Open Connections and Keys", joined)
+        self.assertNotIn("Jump to Thresholds", joined)
+        self.assertNotIn("Open Connections and Keys", joined)
+        self.assertIn("provider keys stay on Connections and Keys", joined)
+
+    def test_inspector_does_not_render_navigation_button_wall(self) -> None:
+        visible_texts: list[str] = []
+        for child in _walk_widgets(self.workbench.settings_tab):
+            try:
+                text = child.cget("text")
+            except tk.TclError:
+                continue
+            if text:
+                visible_texts.append(text)
+
+        joined = " ".join(visible_texts)
+        self.assertNotIn("Jump to Models", joined)
+        self.assertNotIn("Jump to Thresholds", joined)
+        self.assertNotIn("Jump to Outputs", joined)
+        self.assertNotIn("Open Model Guide", joined)
+        self.assertNotIn("Open Output Guide", joined)
 
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper
