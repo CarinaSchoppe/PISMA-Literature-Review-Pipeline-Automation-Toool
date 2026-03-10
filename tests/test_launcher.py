@@ -23,7 +23,31 @@ class LauncherTests(unittest.TestCase):
 
         self.assertTrue(has_explicit_run_arguments(args, ["--topic", "LLMs"]))
 
+    def test_has_explicit_run_arguments_can_inspect_namespace_without_argv(self) -> None:
+        parser = build_arg_parser()
+        args = parser.parse_args(["--topic", "LLMs"])
+
+        self.assertTrue(has_explicit_run_arguments(args))
+
+    def test_has_explicit_run_arguments_returns_false_for_empty_namespace(self) -> None:
+        parser = build_arg_parser()
+        args = parser.parse_args([])
+
+        self.assertFalse(has_explicit_run_arguments(args))
+
     def test_prompt_for_launch_mode_accepts_menu_choices(self) -> None:
         mode = prompt_for_launch_mode(input_fn=lambda _prompt: "2", print_fn=lambda _message: None)
 
         self.assertEqual(mode, LaunchMode.CLASSIC_WIZARD)
+
+    def test_prompt_for_launch_mode_reprompts_on_invalid_input_and_supports_defaults(self) -> None:
+        printed: list[str] = []
+        answers = iter(["9", "", "3"])
+
+        guided = prompt_for_launch_mode(input_fn=lambda _prompt: next(answers), print_fn=printed.append)
+
+        self.assertEqual(guided, LaunchMode.GUIDED_DESKTOP)
+        self.assertIn("Please enter 1, 2, or 3.", printed)
+
+        quit_mode = prompt_for_launch_mode(input_fn=lambda _prompt: "3", print_fn=lambda _message: None)
+        self.assertEqual(quit_mode, LaunchMode.QUIT)
