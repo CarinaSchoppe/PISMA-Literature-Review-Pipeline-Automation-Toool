@@ -29,6 +29,8 @@ class BaseLLMClient:
     provider_name = "heuristic"
 
     def chat(self, *, system_prompt: str, user_prompt: str) -> LLMResponse:
+        """Return a disabled response so heuristic-only runs share one adapter contract."""
+
         return LLMResponse(content=None, enabled=False, provider_name=self.provider_name)
 
 

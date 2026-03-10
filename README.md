@@ -34,8 +34,9 @@ input -> discovery -> deduplication -> database storage -> citation expansion ->
 
 The repository is maintained with a tested baseline of:
 
-- `130` passing tests
-- `95%` app-code coverage excluding `tests/*`
+- `156` passing tests
+- `99.04%` app-code coverage excluding `tests/*`
+- `99.09%` full-repository coverage including `tests/*`
 - clean `ruff` lint
 - clean `compileall`
 
@@ -490,12 +491,28 @@ Generate a JaCoCo-style detailed coverage bundle:
 py -3 coverage_report.py
 ```
 
+Generate the stricter app-code gate used for release checks:
+
+```powershell
+py -3 coverage_report.py --top-files 25 --fail-under 99
+```
+
+Generate the full-repository report, including `tests/`:
+
+```powershell
+py -3 coverage_report.py --include-tests --results-dir results\coverage_report_all --top-files 25 --fail-under 99
+```
+
 That writes:
 
 - `results/coverage_report/coverage_report.txt`
 - `results/coverage_report/coverage_report.md`
 - `results/coverage_report/coverage_summary.json`
 - `results/coverage_report/html/index.html`
+- `results/coverage_report_all/coverage_report.txt`
+- `results/coverage_report_all/coverage_report.md`
+- `results/coverage_report_all/coverage_summary.json`
+- `results/coverage_report_all/html/index.html`
 
 Offline deterministic smoke test:
 

@@ -598,8 +598,9 @@ GUI stop feels delayed:
 
 Current verified baseline:
 
-- `130` tests passing
-- `95.18%` app-code coverage excluding `tests/*`
+- `156` tests passing
+- `99.04%` app-code coverage excluding `tests/*`
+- `99.09%` full-repository coverage including `tests/*`
 - `ruff` clean
 - `compileall` clean
 
@@ -633,7 +634,7 @@ Useful options:
 
 - `--results-dir results\coverage_report`
 - `--top-files 25`
-- `--fail-under 95`
+- `--fail-under 99`
 - `--include-tests`
 
 ## Code Map

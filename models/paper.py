@@ -65,6 +65,8 @@ class PaperMetadata(BaseModel):
     @field_validator("title")
     @classmethod
     def validate_title(cls, value: str) -> str:
+        """Reject empty titles and normalize internal whitespace."""
+
         cleaned = " ".join(str(value or "").split()).strip()
         if not cleaned:
             raise ValueError("Paper title cannot be empty")
@@ -73,6 +75,8 @@ class PaperMetadata(BaseModel):
     @field_validator("authors", mode="before")
     @classmethod
     def validate_authors(cls, value: Any) -> list[str]:
+        """Accept author lists or semicolon-separated author strings."""
+
         if not value:
             return []
         if isinstance(value, str):
@@ -82,26 +86,36 @@ class PaperMetadata(BaseModel):
     @field_validator("abstract", "venue", mode="before")
     @classmethod
     def validate_text_fields(cls, value: Any) -> str:
+        """Normalize abstract and venue fields to compact single-line text."""
+
         return " ".join(str(value or "").split()).strip()
 
     @field_validator("doi", mode="before")
     @classmethod
     def validate_doi(cls, value: Any) -> str | None:
+        """Canonicalize DOI values and collapse empty values to None."""
+
         normalized = canonical_doi(str(value or ""))
         return normalized or None
 
     @property
     def normalized_title(self) -> str:
+        """Return a title string normalized for deduplication and indexing."""
+
         return normalize_title(self.title)
 
     @property
     def identity_key(self) -> str:
+        """Return the preferred identity key used across deduplication and caching."""
+
         if self.doi:
             return f"doi:{self.doi}"
         return f"title:{self.normalized_title}"
 
     @property
     def citation_label(self) -> str:
+        """Return a concise label for citation expansion logs and displays."""
+
         return self.doi or self.title
 
     def merge_with(self, other: "PaperMetadata") -> "PaperMetadata":

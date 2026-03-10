@@ -27,7 +27,8 @@ Already implemented and verified:
 - PRISMA-style flow output
 - verbose and debug logging
 - controlled stop handling
-- `95.18%` app-code coverage excluding `tests/*`
+- `99.04%` app-code coverage excluding `tests/*`
+- `99.09%` full-repository coverage including `tests/*`
 
 ## Design Principles
 
@@ -193,7 +194,7 @@ Next performance work:
 The project should remain:
 
 - test-first for new public behavior
-- coverage-protected above `95%`
+- coverage-protected above `99%`
 - lint-clean
 - modular and documented
 

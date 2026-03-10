@@ -82,11 +82,15 @@ class AnalysisPassConfig(BaseModel):
     @field_validator("threshold", "maybe_threshold_margin")
     @classmethod
     def validate_score_like_fields(cls, value: float) -> float:
+        """Clamp pass score-like values to the supported 0-100 range."""
+
         return min(max(float(value), 0.0), 100.0)
 
     @field_validator("min_input_score")
     @classmethod
     def validate_optional_min_input_score(cls, value: float | None) -> float | None:
+        """Clamp optional per-pass entry-score gates to the supported 0-100 range."""
+
         if value is None:
             return None
         return min(max(float(value), 0.0), 100.0)
@@ -161,6 +165,8 @@ class ResearchConfig(BaseModel):
     @field_validator("search_keywords", mode="before")
     @classmethod
     def validate_keywords(cls, value: Any) -> list[str]:
+        """Normalize keyword input from comma-separated strings or iterables."""
+
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return [str(item).strip() for item in value if str(item).strip()]
@@ -168,6 +174,8 @@ class ResearchConfig(BaseModel):
     @field_validator("inclusion_criteria", "exclusion_criteria", "banned_topics", "excluded_title_terms", mode="before")
     @classmethod
     def validate_criteria(cls, value: Any) -> list[str]:
+        """Normalize criteria-like fields into compact lists of non-empty strings."""
+
         if not value:
             return []
         if isinstance(value, str):
@@ -177,6 +185,8 @@ class ResearchConfig(BaseModel):
     @field_validator("analysis_passes", mode="before")
     @classmethod
     def validate_analysis_passes(cls, value: Any) -> list[AnalysisPassConfig]:
+        """Accept analysis passes from config objects, lists, or compact string forms."""
+
         if not value:
             return []
         if isinstance(value, list):
@@ -199,6 +209,8 @@ class ResearchConfig(BaseModel):
     @field_validator("year_range_end")
     @classmethod
     def validate_year_range(cls, value: int, info: Any) -> int:
+        """Reject year ranges whose end value falls before the configured start year."""
+
         year_start = info.data.get("year_range_start", value)
         if value < year_start:
             raise ValueError("year_range_end must be greater than or equal to year_range_start")
@@ -207,11 +219,15 @@ class ResearchConfig(BaseModel):
     @field_validator("relevance_threshold")
     @classmethod
     def validate_threshold(cls, value: float) -> float:
+        """Clamp the global screening threshold to the supported 0-100 range."""
+
         return min(max(float(value), 0.0), 100.0)
 
     @field_validator("maybe_threshold_margin")
     @classmethod
     def validate_margin(cls, value: float) -> float:
+        """Clamp the triage maybe-margin to the supported 0-100 range."""
+
         return min(max(float(value), 0.0), 100.0)
 
     @field_validator(
@@ -224,6 +240,8 @@ class ResearchConfig(BaseModel):
     )
     @classmethod
     def validate_positive_ints(cls, value: int) -> int:
+        """Require positive integer values for paging, sizing, and worker controls."""
+
         if int(value) < 1:
             raise ValueError("Configuration value must be at least 1")
         return int(value)
@@ -231,11 +249,15 @@ class ResearchConfig(BaseModel):
     @field_validator("title_similarity_threshold")
     @classmethod
     def validate_similarity_threshold(cls, value: float) -> float:
+        """Clamp similarity thresholds to the supported 0-1 range."""
+
         return min(max(float(value), 0.0), 1.0)
 
     @field_validator("max_discovered_records")
     @classmethod
     def validate_optional_positive_int(cls, value: int | None) -> int | None:
+        """Require positive integer values for optional discovery hard caps."""
+
         if value is None:
             return None
         if int(value) < 1:
@@ -245,20 +267,28 @@ class ResearchConfig(BaseModel):
     @field_validator("min_discovered_records")
     @classmethod
     def validate_non_negative_int(cls, value: int) -> int:
+        """Require non-negative integer values for minimum discovery gates."""
+
         if int(value) < 0:
             raise ValueError("Configuration value must be at least 0")
         return int(value)
 
     @property
     def search_query(self) -> str:
+        """Return the primary combined search query used across discovery sources."""
+
         return build_query(self.research_topic, self.search_keywords, self.boolean_operators)
 
     @property
     def per_source_limit(self) -> int:
+        """Return the maximum number of papers any single source should contribute."""
+
         return self.pages_to_retrieve * self.results_per_page
 
     @property
     def discovery_queries(self) -> list[str]:
+        """Expand the review brief into one or more unique queries per discovery strategy."""
+
         queries = [self.search_query]
         topic = self.research_topic.strip()
         keywords = [keyword.strip() for keyword in self.search_keywords if keyword.strip()]
@@ -286,6 +316,8 @@ class ResearchConfig(BaseModel):
 
     @property
     def resolved_analysis_passes(self) -> list[AnalysisPassConfig]:
+        """Resolve the active pass chain, including the implicit default screening pass."""
+
         if self.run_mode == "collect":
             return []
         if self.analysis_passes:
@@ -303,6 +335,8 @@ class ResearchConfig(BaseModel):
 
     @property
     def screening_brief(self) -> str:
+        """Build the review brief passed into screening and reporting components."""
+
         lines = [
             f"Research topic: {self.research_topic}",
             f"Search keywords: {', '.join(self.search_keywords)}",
@@ -328,6 +362,8 @@ class ResearchConfig(BaseModel):
 
     @property
     def screening_context_key(self) -> str:
+        """Return a stable cache key for the current screening context and pass chain."""
+
         components = [
             SCREENING_ALGORITHM_VERSION,
             self.research_topic,
