@@ -16,6 +16,7 @@ from typing import Any
 
 import pandas as pd
 
+from config import parse_analysis_pass
 from pipeline.pipeline_controller import PipelineController
 from ui.view_model import (
     BOOLEAN_FIELD_DEFAULTS,
@@ -213,6 +214,19 @@ class DesktopWorkbench:
     ]
 
     LABELS = {
+        "boolean_operators": "Boolean operators",
+        "discovery_strategy": "Discovery strategy",
+        "citation_snowballing_enabled": "Enable citation snowballing",
+        "openalex_enabled": "Use OpenAlex",
+        "semantic_scholar_enabled": "Use Semantic Scholar",
+        "crossref_enabled": "Use Crossref",
+        "springer_enabled": "Use Springer Nature API",
+        "arxiv_enabled": "Use arXiv",
+        "include_pubmed": "Use PubMed",
+        "fixture_data_path": "Offline fixture file",
+        "manual_source_path": "Manual import file",
+        "google_scholar_import_path": "Google Scholar import file",
+        "researchgate_import_path": "ResearchGate import file",
         "pages_to_retrieve": "Pages per source",
         "results_per_page": "Results per page",
         "max_discovered_records": "Max discovered records",
@@ -222,7 +236,10 @@ class DesktopWorkbench:
         "max_papers_to_analyze": "Max papers to analyze",
         "skip_discovery": "Skip discovery",
         "relevance_threshold": "Relevance threshold",
+        "llm_provider": "LLM provider",
+        "decision_mode": "Decision mode",
         "maybe_threshold_margin": "Maybe margin",
+        "analyze_full_text": "Analyze PDF full text",
         "full_text_max_chars": "Full-text chars",
         "request_timeout_seconds": "Request timeout (s)",
         "title_similarity_threshold": "Title similarity threshold",
@@ -243,6 +260,29 @@ class DesktopWorkbench:
         "springer_api_key": "Springer API key",
         "crossref_mailto": "Crossref mailto",
         "unpaywall_email": "Unpaywall email",
+        "download_pdfs": "Download paper PDFs",
+        "pdf_download_mode": "PDF download mode",
+        "output_csv": "Write CSV exports",
+        "output_json": "Write JSON exports",
+        "output_markdown": "Write Markdown summary",
+        "output_sqlite_exports": "Write SQLite exports",
+        "data_dir": "Data directory",
+        "papers_dir": "PDF storage directory",
+        "relevant_pdfs_dir": "Relevant PDF directory",
+        "results_dir": "Results directory",
+        "database_path": "Main SQLite database path",
+        "profile_name": "Profile name",
+        "run_mode": "Run mode",
+        "verbosity": "Verbosity level",
+        "max_workers": "Parallel workers",
+        "resume_mode": "Resume previous screening",
+        "disable_progress_bars": "Disable progress bars",
+        "log_http_requests": "Log HTTP requests",
+        "log_http_payloads": "Log HTTP payloads",
+        "log_llm_prompts": "Log LLM prompts",
+        "log_llm_responses": "Log LLM responses",
+        "log_screening_decisions": "Log screening decisions",
+        "huggingface_trust_remote_code": "Trust HF remote code",
     }
 
     PATH_FIELD_MODES = {
@@ -256,6 +296,13 @@ class DesktopWorkbench:
         "relevant_pdfs_dir": "directory",
         "results_dir": "directory",
         "huggingface_cache_dir": "directory",
+    }
+
+    SLIDER_FIELDS = {
+        "relevance_threshold": {"from_": 0.0, "to": 100.0, "resolution": 1.0, "digits": 0},
+        "maybe_threshold_margin": {"from_": 0.0, "to": 100.0, "resolution": 1.0, "digits": 0},
+        "llm_temperature": {"from_": 0.0, "to": 1.5, "resolution": 0.05, "digits": 2},
+        "title_similarity_threshold": {"from_": 0.0, "to": 1.0, "resolution": 0.01, "digits": 2},
     }
 
     HANDBOOK_GUIDES = {
@@ -429,7 +476,8 @@ class DesktopWorkbench:
         ),
         "analysis_passes": (
             "Optional multi-pass screening plan, one pass per line. This lets you chain a fast first pass with a "
-            "deeper second pass, each with its own provider and threshold."
+            "deeper second pass, each with its own provider and threshold. You can type lines directly or use the "
+            "pass builder button in the GUI."
         ),
         "relevance_threshold": (
             "Final score threshold for keeping a paper. For example, 85 means only strong matches should be retained."
@@ -488,7 +536,10 @@ class DesktopWorkbench:
         ),
         "data_dir": "Base directory used for persistent runtime data such as SQLite files and cached artifacts.",
         "papers_dir": "Directory where downloaded PDFs and paper-related files are stored by default.",
-        "relevant_pdfs_dir": "Dedicated directory for PDFs that passed the final screening threshold.",
+        "relevant_pdfs_dir": (
+            "Dedicated directory for PDFs that passed the final screening threshold. If you want all PDFs in the same "
+            "folder, set this to the same path as the main PDF storage directory."
+        ),
         "results_dir": "Directory where reports, CSV files, JSON outputs, and summary artifacts are written.",
         "database_path": "Path to the main SQLite database used for metadata, screening state, and resume support.",
         "profile_name": "Name used when saving the current UI settings as a reusable profile.",
@@ -554,6 +605,7 @@ class DesktopWorkbench:
         self.outputs_tree: ttk.Treeview | None = None
         self.handbook_tree: ttk.Treeview | None = None
         self.handbook_text: scrolledtext.ScrolledText | None = None
+        self.slider_value_labels: dict[str, ttk.Label] = {}
         self.base_status_message = "Ready."
         self.status_var = tk.StringVar(value=self.base_status_message)
         self.hover_help_enabled = tk.BooleanVar(value=True)
@@ -687,7 +739,15 @@ class DesktopWorkbench:
             frame.grid(row=row, column=0, sticky="nsew", padx=6, pady=6)
             frame.columnconfigure(1, weight=1)
             self._bind_hover_help(frame, self.SECTION_HELP_TEXTS.get(section_name, section_name))
-            inner_row = 0
+            summary_label = ttk.Label(
+                frame,
+                text=self.SECTION_HELP_TEXTS.get(section_name, ""),
+                wraplength=980,
+                justify="left",
+            )
+            summary_label.grid(row=0, column=0, columnspan=2, sticky="w", padx=4, pady=(0, 8))
+            self._bind_hover_help(summary_label, self.SECTION_HELP_TEXTS.get(section_name, section_name))
+            inner_row = 1
             for field_name in field_names:
                 label = self.LABELS.get(field_name, field_name.replace("_", " ").title())
                 help_text = self._help_text_for_field(field_name)
@@ -696,10 +756,28 @@ class DesktopWorkbench:
                     label_widget = ttk.Label(frame, text=label)
                     label_widget.grid(row=inner_row, column=0, sticky="nw", padx=4, pady=4)
                     self._bind_hover_help(label_widget, help_text)
-                    widget = tk.Text(frame, height=height, wrap="word")
-                    widget.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
+                    multiline_frame = ttk.Frame(frame)
+                    multiline_frame.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
+                    multiline_frame.columnconfigure(0, weight=1)
+                    widget = tk.Text(multiline_frame, height=height, wrap="word")
+                    widget.grid(row=0, column=0, sticky="ew")
                     self.text_widgets[field_name] = widget
                     self._bind_hover_help(widget, help_text)
+                    if field_name == "analysis_passes":
+                        button_bar = ttk.Frame(multiline_frame)
+                        button_bar.grid(row=1, column=0, sticky="w", pady=(6, 0))
+                        edit_button = ttk.Button(button_bar, text="Edit Passes", command=self._open_pass_builder)
+                        edit_button.pack(side="left")
+                        example_label = ttk.Label(
+                            button_bar,
+                            text="Example: fast:huggingface_local:70:strict:10",
+                        )
+                        example_label.pack(side="left", padx=(8, 0))
+                        self._bind_hover_help(
+                            edit_button,
+                            "Open a visual editor for chained screening passes and model/provider selection.",
+                        )
+                        self._bind_hover_help(example_label, help_text)
                 elif field_name in BOOLEAN_FIELD_DEFAULTS:
                     variable = tk.BooleanVar(value=BOOLEAN_FIELD_DEFAULTS[field_name])
                     widget = ttk.Checkbutton(frame, text=label, variable=variable)
@@ -714,6 +792,25 @@ class DesktopWorkbench:
                         variable = tk.StringVar(value=str(SCALAR_FIELD_DEFAULTS.get(field_name, "")))
                         widget = ttk.Combobox(frame, textvariable=variable, values=self.ENUM_FIELDS[field_name], state="readonly")
                         widget.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
+                    elif field_name in self.SLIDER_FIELDS:
+                        slider_config = self.SLIDER_FIELDS[field_name]
+                        default_value = float(SCALAR_FIELD_DEFAULTS.get(field_name, slider_config["from_"]))
+                        variable = tk.DoubleVar(value=default_value)
+                        slider_frame = ttk.Frame(frame)
+                        slider_frame.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
+                        slider_frame.columnconfigure(0, weight=1)
+                        widget = ttk.Scale(
+                            slider_frame,
+                            from_=slider_config["from_"],
+                            to=slider_config["to"],
+                            variable=variable,
+                            command=lambda _value, name=field_name: self._sync_slider_label(name),
+                        )
+                        widget.grid(row=0, column=0, sticky="ew")
+                        value_label = ttk.Label(slider_frame, width=8, anchor="e")
+                        value_label.grid(row=0, column=1, padx=(8, 0))
+                        self.slider_value_labels[field_name] = value_label
+                        self._sync_slider_label(field_name)
                     else:
                         default_value = SCALAR_FIELD_DEFAULTS.get(field_name, "")
                         variable = tk.StringVar(value=str(default_value))
@@ -758,6 +855,31 @@ class DesktopWorkbench:
         if field_name in BOOLEAN_FIELD_DEFAULTS or field_name.endswith("_enabled"):
             return f"Turn {label.lower()} on or off for this run."
         return f"Configure {label.lower()} for this run. This value is saved into profiles and JSON configs."
+
+    def _format_slider_value(self, field_name: str, value: float) -> str:
+        """Format slider-backed numeric values consistently for display labels."""
+
+        slider_config = self.SLIDER_FIELDS[field_name]
+        rounded = round(value / slider_config["resolution"]) * slider_config["resolution"]
+        digits = slider_config["digits"]
+        if digits == 0:
+            return str(int(round(rounded)))
+        return f"{rounded:.{digits}f}"
+
+    def _sync_slider_label(self, field_name: str) -> None:
+        """Keep the slider value label in sync with the underlying Tk variable."""
+
+        variable = self.scalar_vars.get(field_name)
+        label = self.slider_value_labels.get(field_name)
+        if variable is None or label is None:
+            return
+        try:
+            value = float(variable.get())
+        except (TypeError, ValueError):
+            return
+        formatted = self._format_slider_value(field_name, value)
+        variable.set(float(formatted) if "." in formatted else int(formatted))
+        label.configure(text=formatted)
 
     def _bind_hover_help(self, widget: tk.Widget, help_text: str) -> None:
         """Attach hover and keyboard-focus help handlers to a settings widget."""
@@ -934,6 +1056,226 @@ class DesktopWorkbench:
             variable.set(selected)
             self._set_status(f"Updated {self.LABELS.get(field_name, field_name)} to {selected}")
 
+    def _current_analysis_passes(self) -> list[dict[str, Any]]:
+        """Parse the analysis-pass text area into structured pass definitions."""
+
+        widget = self.text_widgets.get("analysis_passes")
+        if widget is None:
+            return []
+        lines = [line.strip() for line in widget.get("1.0", tk.END).splitlines() if line.strip()]
+        passes: list[dict[str, Any]] = []
+        for line in lines:
+            parsed = parse_analysis_pass(line)
+            passes.append(
+                {
+                    "name": parsed.name,
+                    "provider": parsed.llm_provider,
+                    "threshold": parsed.threshold,
+                    "decision_mode": parsed.decision_mode,
+                    "margin": parsed.maybe_threshold_margin,
+                }
+            )
+        return passes
+
+    def _write_analysis_passes(self, passes: list[dict[str, Any]]) -> None:
+        """Rewrite the analysis-pass text area from structured pass definitions."""
+
+        widget = self.text_widgets.get("analysis_passes")
+        if widget is None:
+            return
+        lines = [
+            f"{entry['name']}:{entry['provider']}:{float(entry['threshold']):.0f}:{entry['decision_mode']}:{float(entry['margin']):.0f}"
+            for entry in passes
+        ]
+        widget.delete("1.0", tk.END)
+        widget.insert("1.0", "\n".join(lines))
+
+    def _open_pass_builder(self) -> None:
+        """Open a small visual editor for chained multi-pass model configuration."""
+
+        entries = self._current_analysis_passes()
+        if not entries:
+            entries = [
+                {
+                    "name": "fast",
+                    "provider": "huggingface_local",
+                    "threshold": 70.0,
+                    "decision_mode": "strict",
+                    "margin": 10.0,
+                }
+            ]
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Analysis Pass Builder")
+        dialog.geometry("900x520")
+        dialog.transient(self.root)
+
+        left = ttk.Frame(dialog, padding=10)
+        left.pack(side="left", fill="y")
+        right = ttk.Frame(dialog, padding=10)
+        right.pack(side="left", fill="both", expand=True)
+
+        tree = ttk.Treeview(left, columns=("name", "provider", "threshold", "mode", "margin"), show="headings", height=16)
+        for column, title, width in (
+            ("name", "Pass", 120),
+            ("provider", "Provider", 180),
+            ("threshold", "Threshold", 90),
+            ("mode", "Mode", 100),
+            ("margin", "Maybe", 90),
+        ):
+            tree.heading(column, text=title)
+            tree.column(column, width=width, anchor="w")
+        tree.pack(fill="y", expand=False)
+
+        form_vars = {
+            "name": tk.StringVar(value="fast"),
+            "provider": tk.StringVar(value="huggingface_local"),
+            "decision_mode": tk.StringVar(value="strict"),
+            "threshold": tk.DoubleVar(value=70.0),
+            "margin": tk.DoubleVar(value=10.0),
+        }
+        threshold_label = ttk.Label(right, width=8, anchor="e")
+        margin_label = ttk.Label(right, width=8, anchor="e")
+
+        def refresh_tree() -> None:
+            for item in tree.get_children():
+                tree.delete(item)
+            for index, entry in enumerate(entries):
+                tree.insert(
+                    "",
+                    tk.END,
+                    iid=str(index),
+                    values=[
+                        entry["name"],
+                        entry["provider"],
+                        int(round(float(entry["threshold"]))),
+                        entry["decision_mode"],
+                        int(round(float(entry["margin"]))),
+                    ],
+                )
+            if entries:
+                selected = tree.selection() or (tree.get_children()[0],)
+                tree.selection_set(selected[0])
+                tree.focus(selected[0])
+                load_selected()
+
+        def sync_labels() -> None:
+            threshold_label.configure(text=str(int(round(form_vars["threshold"].get()))))
+            margin_label.configure(text=str(int(round(form_vars["margin"].get()))))
+
+        def load_selected(_event: Any | None = None) -> None:
+            selection = tree.selection()
+            if not selection:
+                return
+            entry = entries[int(selection[0])]
+            form_vars["name"].set(entry["name"])
+            form_vars["provider"].set(entry["provider"])
+            form_vars["decision_mode"].set(entry["decision_mode"])
+            form_vars["threshold"].set(float(entry["threshold"]))
+            form_vars["margin"].set(float(entry["margin"]))
+            sync_labels()
+
+        def save_current() -> None:
+            name = form_vars["name"].get().strip()
+            if not name:
+                messagebox.showerror("Pass name required", "Enter a pass name before saving.", parent=dialog)
+                return
+            entry = {
+                "name": name,
+                "provider": form_vars["provider"].get().strip(),
+                "threshold": float(form_vars["threshold"].get()),
+                "decision_mode": form_vars["decision_mode"].get().strip(),
+                "margin": float(form_vars["margin"].get()),
+            }
+            selection = tree.selection()
+            if selection:
+                entries[int(selection[0])] = entry
+            else:
+                entries.append(entry)
+            refresh_tree()
+
+        def add_pass() -> None:
+            entries.append(
+                {
+                    "name": f"pass_{len(entries) + 1}",
+                    "provider": form_vars["provider"].get().strip(),
+                    "threshold": float(form_vars["threshold"].get()),
+                    "decision_mode": form_vars["decision_mode"].get().strip(),
+                    "margin": float(form_vars["margin"].get()),
+                }
+            )
+            refresh_tree()
+            tree.selection_set(str(len(entries) - 1))
+            load_selected()
+
+        def remove_pass() -> None:
+            selection = tree.selection()
+            if not selection:
+                return
+            entries.pop(int(selection[0]))
+            refresh_tree()
+
+        def move(offset: int) -> None:
+            selection = tree.selection()
+            if not selection:
+                return
+            current_index = int(selection[0])
+            target_index = current_index + offset
+            if target_index < 0 or target_index >= len(entries):
+                return
+            entries[current_index], entries[target_index] = entries[target_index], entries[current_index]
+            refresh_tree()
+            tree.selection_set(str(target_index))
+            load_selected()
+
+        tree.bind("<<TreeviewSelect>>", load_selected)
+
+        ttk.Label(right, text="Pass name").grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Entry(right, textvariable=form_vars["name"]).grid(row=0, column=1, sticky="ew", pady=4)
+        ttk.Label(right, text="Provider").grid(row=1, column=0, sticky="w", pady=4)
+        ttk.Combobox(
+            right,
+            textvariable=form_vars["provider"],
+            values=["heuristic", "openai_compatible", "ollama", "huggingface_local"],
+            state="readonly",
+        ).grid(row=1, column=1, sticky="ew", pady=4)
+        ttk.Label(right, text="Decision mode").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Combobox(
+            right,
+            textvariable=form_vars["decision_mode"],
+            values=["strict", "triage"],
+            state="readonly",
+        ).grid(row=2, column=1, sticky="ew", pady=4)
+        ttk.Label(right, text="Threshold (%)").grid(row=3, column=0, sticky="w", pady=4)
+        threshold_scale = ttk.Scale(right, from_=0, to=100, variable=form_vars["threshold"], command=lambda _value: sync_labels())
+        threshold_scale.grid(row=3, column=1, sticky="ew", pady=4)
+        threshold_label.grid(row=3, column=2, sticky="e", padx=(8, 0))
+        ttk.Label(right, text="Maybe margin (%)").grid(row=4, column=0, sticky="w", pady=4)
+        margin_scale = ttk.Scale(right, from_=0, to=100, variable=form_vars["margin"], command=lambda _value: sync_labels())
+        margin_scale.grid(row=4, column=1, sticky="ew", pady=4)
+        margin_label.grid(row=4, column=2, sticky="e", padx=(8, 0))
+        right.columnconfigure(1, weight=1)
+        sync_labels()
+
+        button_bar = ttk.Frame(right)
+        button_bar.grid(row=5, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        ttk.Button(button_bar, text="Add Pass", command=add_pass).pack(side="left")
+        ttk.Button(button_bar, text="Update Pass", command=save_current).pack(side="left", padx=(6, 0))
+        ttk.Button(button_bar, text="Remove Pass", command=remove_pass).pack(side="left", padx=(6, 0))
+        ttk.Button(button_bar, text="Move Up", command=lambda: move(-1)).pack(side="left", padx=(6, 0))
+        ttk.Button(button_bar, text="Move Down", command=lambda: move(1)).pack(side="left", padx=(6, 0))
+
+        footer = ttk.Frame(right)
+        footer.grid(row=6, column=0, columnspan=3, sticky="e", pady=(16, 0))
+        ttk.Button(footer, text="Cancel", command=dialog.destroy).pack(side="right")
+        ttk.Button(
+            footer,
+            text="Apply",
+            command=lambda: (self._write_analysis_passes(entries), self._set_status("Updated analysis pass chain."), dialog.destroy()),
+        ).pack(side="right", padx=(0, 8))
+
+        refresh_tree()
+
     def _build_log_tab(self) -> None:
         """Create the read-only live log panel."""
 
@@ -991,6 +1333,8 @@ class DesktopWorkbench:
             widget.insert("1.0", str(values.get(field_name, "")))
         for field_name, variable in self.scalar_vars.items():
             variable.set(values.get(field_name, variable.get()))
+        for field_name in self.slider_value_labels:
+            self._sync_slider_label(field_name)
 
     def _collect_form_values(self) -> dict[str, Any]:
         """Read the current form state back out of Tk widgets into plain Python values."""

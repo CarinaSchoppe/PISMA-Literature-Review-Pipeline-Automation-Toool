@@ -6,6 +6,7 @@ import tkinter as tk
 import unittest
 from types import SimpleNamespace
 
+from config import ApiSettings, ResearchConfig
 from ui.desktop_app import DesktopWorkbench
 
 
@@ -35,6 +36,73 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("Springer", self.workbench._help_text_for_field("springer_enabled"))
         self.assertIn("Semantic Scholar", self.workbench._help_text_for_field("semantic_scholar_enabled"))
         self.assertIn("temperature", self.workbench._help_text_for_field("llm_temperature").lower())
+
+    def test_output_labels_are_explicit_in_settings_ui(self) -> None:
+        self.assertEqual(self.workbench.LABELS["boolean_operators"], "Boolean operators")
+        self.assertEqual(self.workbench.LABELS["discovery_strategy"], "Discovery strategy")
+        self.assertEqual(self.workbench.LABELS["llm_provider"], "LLM provider")
+        self.assertEqual(self.workbench.LABELS["download_pdfs"], "Download paper PDFs")
+        self.assertEqual(self.workbench.LABELS["output_sqlite_exports"], "Write SQLite exports")
+        self.assertEqual(self.workbench.LABELS["database_path"], "Main SQLite database path")
+        self.assertEqual(self.workbench.LABELS["results_dir"], "Results directory")
+
+    def test_gui_covers_all_runtime_fields_and_toolbar_actions(self) -> None:
+        config_fields = set(ResearchConfig.model_fields.keys()) - {"api_settings", "query_key"}
+        api_fields = set(ApiSettings.model_fields.keys())
+        grouped_fields = set()
+        for _, fields in self.workbench.GROUPS:
+            grouped_fields.update(fields)
+        widget_fields = set(self.workbench.text_widgets.keys()) | set(self.workbench.scalar_vars.keys())
+
+        self.assertTrue((config_fields | api_fields).issubset(grouped_fields))
+        self.assertTrue(grouped_fields.issubset(widget_fields))
+        self.assertIn("analysis_passes", self.workbench.text_widgets)
+
+        toolbar_texts: list[str] = []
+        for widget in self.workbench.root.winfo_children():
+            if widget.winfo_class() != "TFrame":
+                continue
+            for child in widget.winfo_children():
+                try:
+                    text = child.cget("text")
+                except tk.TclError:
+                    continue
+                if text:
+                    toolbar_texts.append(text)
+
+        self.assertIn("Analyze Stored Results", toolbar_texts)
+        self.assertIn("Force Stop", toolbar_texts)
+
+    def test_slider_fields_exist_for_threshold_controls(self) -> None:
+        for field_name in ("relevance_threshold", "maybe_threshold_margin", "llm_temperature", "title_similarity_threshold"):
+            self.assertIn(field_name, self.workbench.slider_value_labels)
+            self.assertIn(field_name, self.workbench.scalar_vars)
+
+    def test_analysis_pass_builder_helpers_round_trip(self) -> None:
+        passes = [
+            {
+                "name": "fast",
+                "provider": "huggingface_local",
+                "threshold": 72,
+                "decision_mode": "strict",
+                "margin": 8,
+            },
+            {
+                "name": "deep",
+                "provider": "openai_compatible",
+                "threshold": 85,
+                "decision_mode": "triage",
+                "margin": 12,
+            },
+        ]
+
+        self.workbench._write_analysis_passes(passes)
+        round_trip = self.workbench._current_analysis_passes()
+
+        self.assertEqual(len(round_trip), 2)
+        self.assertEqual(round_trip[0]["provider"], "huggingface_local")
+        self.assertEqual(round_trip[1]["provider"], "openai_compatible")
+        self.assertEqual(round_trip[1]["threshold"], 85.0)
 
     def test_hover_help_updates_and_restores_status_bar(self) -> None:
         original_status = self.workbench.status_var.get()
