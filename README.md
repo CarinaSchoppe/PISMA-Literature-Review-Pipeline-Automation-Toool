@@ -9,6 +9,8 @@ The project is designed around two equally supported entry modes:
 
 No Jupyter notebook is required. The intended workflow is local desktop UI or CLI.
 
+For the full operator reference, see [HANDBOOK.md](HANDBOOK.md). For the planned target state and feature roadmap, see [ROADMAP.md](ROADMAP.md).
+
 ## What The Project Does
 
 The pipeline can:
@@ -481,6 +483,19 @@ py -3 -m coverage run -m unittest discover -s tests -v
 py -3 -m coverage report -m --omit "tests/*"
 py -3 -m coverage html -d results\coverage_html_app --omit "tests/*"
 ```
+
+Generate a JaCoCo-style detailed coverage bundle:
+
+```powershell
+py -3 coverage_report.py
+```
+
+That writes:
+
+- `results/coverage_report/coverage_report.txt`
+- `results/coverage_report/coverage_report.md`
+- `results/coverage_report/coverage_summary.json`
+- `results/coverage_report/html/index.html`
 
 Offline deterministic smoke test:
 
