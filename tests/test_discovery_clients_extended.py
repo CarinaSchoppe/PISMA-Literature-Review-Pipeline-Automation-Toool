@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 import unittest
 from unittest.mock import Mock, patch
 
@@ -192,6 +193,39 @@ class DiscoveryClientsExtendedTests(unittest.TestCase):
         self.assertEqual(semantic_results[0].doi, "10.1000/semantic")
         self.assertTrue(semantic_results[0].open_access)
 
+    def test_semantic_scholar_api_key_headers_and_per_source_limit_breaks(self) -> None:
+        config = self.config.model_copy(
+            update={
+                "discovery_strategy": "precise",
+                "pages_to_retrieve": 2,
+                "results_per_page": 1,
+                "api_settings": self.config.api_settings.model_copy(update={"semantic_scholar_api_key": "sem-key"}),
+            }
+        )
+        payload = {
+            "data": [
+                {
+                    "paperId": "S2",
+                    "title": "Semantic Limited Paper",
+                    "abstract": "Abstract",
+                    "year": 2025,
+                    "venue": "Semantic Venue",
+                    "authors": [{"name": "Grace Hopper"}],
+                    "citationCount": 4,
+                    "referenceCount": 2,
+                    "externalIds": {"DOI": "10.1000/semantic-limit"},
+                    "openAccessPdf": {"url": "https://example.org/semantic-limit.pdf"},
+                }
+            ]
+        }
+
+        with patch("discovery.semantic_scholar_client.request_json", side_effect=[payload, payload]):
+            client = SemanticScholarClient(config)
+            results = client.search()
+
+        self.assertEqual(client.session.headers["x-api-key"], "sem-key")
+        self.assertEqual(len(results), config.per_source_limit)
+
     def test_pubmed_search_and_xml_parsing(self) -> None:
         client = PubMedClient(self.config)
         search_payload = {"esearchresult": {"idlist": ["111", "222"]}}
@@ -233,6 +267,37 @@ class DiscoveryClientsExtendedTests(unittest.TestCase):
         self.assertEqual(results[0].authors, ["Ada Lovelace"])
         self.assertTrue(results[0].open_access)
 
+    def test_pubmed_search_continues_after_empty_query_and_stops_at_limit(self) -> None:
+        config = self.config.model_copy(update={"discovery_strategy": "balanced", "pages_to_retrieve": 1, "results_per_page": 2})
+        client = PubMedClient(config)
+        with patch(
+            "discovery.pubmed_client.request_json",
+            side_effect=[None, {"esearchresult": {"idlist": ["111", "222"]}}],
+        ), patch.object(client, "_fetch_batch", return_value=[PaperMetadata(title="A", source="pubmed"), PaperMetadata(title="B", source="pubmed")]):
+            results = client.search()
+
+        self.assertEqual(len(results), config.per_source_limit)
+
+    def test_pubmed_parse_article_returns_none_for_missing_article_and_blank_title(self) -> None:
+        client = PubMedClient(self.config)
+        missing_article = client._parse_article(ET.fromstring("<PubmedArticle><MedlineCitation /></PubmedArticle>"))
+        blank_title = client._parse_article(
+            ET.fromstring(
+                """
+                <PubmedArticle>
+                  <MedlineCitation>
+                    <Article>
+                      <ArticleTitle>   </ArticleTitle>
+                    </Article>
+                  </MedlineCitation>
+                </PubmedArticle>
+                """
+            )
+        )
+
+        self.assertIsNone(missing_article)
+        self.assertIsNone(blank_title)
+
     def test_pubmed_search_returns_empty_when_source_disabled(self) -> None:
         config = self.config.model_copy(update={"include_pubmed": False})
         self.assertEqual(PubMedClient(config).search(), [])
@@ -266,6 +331,34 @@ class DiscoveryClientsExtendedTests(unittest.TestCase):
         self.assertEqual(results[0].venue, "arXiv")
         self.assertEqual(results[0].external_ids["category"], "cs.CL")
 
+    def test_arxiv_search_breaks_on_empty_feed_and_per_source_limit(self) -> None:
+        empty_config = self.config.model_copy(update={"discovery_strategy": "precise", "pages_to_retrieve": 1, "results_per_page": 1})
+        empty_client = ArxivClient(empty_config)
+        with patch(
+            "discovery.arxiv_client.request_text",
+            return_value='<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom"></feed>',
+        ):
+            self.assertEqual(empty_client.search(), [])
 
-if __name__ == "__main__":
+        limit_config = self.config.model_copy(update={"discovery_strategy": "precise", "pages_to_retrieve": 2, "results_per_page": 1})
+        limit_client = ArxivClient(limit_config)
+        feed = """
+        <feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+          <entry>
+            <id>http://arxiv.org/abs/9999.0001</id>
+            <title>arXiv Limit Paper</title>
+            <summary>Preprint summary.</summary>
+            <published>2024-02-01T00:00:00Z</published>
+            <author><name>Jane Doe</name></author>
+          </entry>
+        </feed>
+        """
+        with patch("discovery.arxiv_client.request_text", side_effect=[feed, feed]):
+            results = limit_client.search()
+
+        self.assertEqual(len(results), limit_config.per_source_limit)
+        self.assertEqual(limit_client._build_search_query("   "), 'all:"   "')
+
+
+if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()

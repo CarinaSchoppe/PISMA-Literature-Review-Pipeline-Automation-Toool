@@ -134,5 +134,5 @@ class HTTPUtilsTests(unittest.TestCase):
         self.assertIsNone(http.request_text(failure_session, "GET", "https://example.org/text"))
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()

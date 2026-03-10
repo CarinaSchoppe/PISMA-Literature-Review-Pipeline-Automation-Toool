@@ -62,5 +62,5 @@ class TextProcessingTests(unittest.TestCase):
             self.assertTrue(target.parent.exists())
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()

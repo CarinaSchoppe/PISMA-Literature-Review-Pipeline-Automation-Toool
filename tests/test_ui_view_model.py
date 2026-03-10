@@ -137,5 +137,5 @@ class UIViewModelTests(unittest.TestCase):
         self.assertTrue(api_fields.issubset(covered_fields))
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()

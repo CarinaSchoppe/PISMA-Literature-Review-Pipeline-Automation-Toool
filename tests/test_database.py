@@ -77,5 +77,5 @@ class DatabaseManagerTests(unittest.TestCase):
         self.database.update_screening_result(999, ScreeningResult(decision="exclude"), screening_details={})
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()
