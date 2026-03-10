@@ -24,7 +24,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
         if hasattr(self, "workbench"):
             try:
                 self.workbench._on_close()
-            except tk.TclError:
+            except tk.TclError:  # pragma: no cover - teardown fallback for already-destroyed Tk roots
                 pass
 
     def test_hover_help_is_enabled_by_default(self) -> None:
@@ -228,5 +228,5 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("Write SQLite exports", joined)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()

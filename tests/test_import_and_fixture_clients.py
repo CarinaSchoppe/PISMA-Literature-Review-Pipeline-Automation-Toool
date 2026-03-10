@@ -123,5 +123,5 @@ class ImportAndFixtureClientTests(unittest.TestCase):
                 FixtureDiscoveryClient(config)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()

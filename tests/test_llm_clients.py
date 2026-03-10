@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import types
 import unittest
 from unittest.mock import patch
 
@@ -112,6 +113,24 @@ class LLMClientTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "requires 'transformers'"):
                 load_transformers_runtime()
 
+    def test_load_transformers_runtime_can_import_fake_runtime(self) -> None:
+        original_import = builtins.__import__
+        fake_torch = types.SimpleNamespace(float16="float16")
+        fake_transformers = types.SimpleNamespace(pipeline="pipeline")
+
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):  # noqa: ANN001
+            if name == "torch":
+                return fake_torch
+            if name == "transformers":
+                return fake_transformers
+            return original_import(name, globals, locals, fromlist, level)
+
+        with patch("builtins.__import__", side_effect=fake_import):
+            torch_module, pipeline_func = load_transformers_runtime()
+
+        self.assertIs(torch_module, fake_torch)
+        self.assertEqual(pipeline_func, "pipeline")
+
     def test_build_huggingface_client_uses_local_runtime(self) -> None:
         fake_generator = _FakeGenerator()
 
@@ -192,8 +211,35 @@ class LLMClientTests(unittest.TestCase):
             "assistant output",
         )
         self.assertEqual(client._extract_generated_content([{"generated_text": ["assistant output"]}]), "assistant output")
+        self.assertIsNone(client._extract_generated_content([{"generated_text": {"unexpected": "shape"}}]))
         self.assertIsNone(client._extract_generated_content([]))
         response = client.chat(system_prompt="sys", user_prompt="user")
+        self.assertIsNone(response.content)
+
+    def test_huggingface_client_handles_explicit_device_and_disabled_chat(self) -> None:
+        fake_generator = _FakeGenerator()
+
+        def fake_pipeline(**kwargs: object) -> _FakeGenerator:
+            self.assertEqual(kwargs["device"], "cpu")
+            return fake_generator
+
+        with patch("analysis.llm_clients.load_transformers_runtime", return_value=(_FakeTorch, fake_pipeline)):
+            client = HuggingFaceLocalLLMClient(
+                model_id="Qwen/Qwen3-14B",
+                task="text-generation",
+                temperature=0.2,
+                max_new_tokens=64,
+                device="cpu",
+                dtype="auto",
+                cache_dir=None,
+                trust_remote_code=False,
+            )
+
+        self.assertTrue(client.enabled)
+        client.enabled = False
+        client._generator = None
+        response = client.chat(system_prompt="sys", user_prompt="user")
+        self.assertFalse(response.enabled)
         self.assertIsNone(response.content)
 
     def test_build_llm_client_selects_expected_provider(self) -> None:

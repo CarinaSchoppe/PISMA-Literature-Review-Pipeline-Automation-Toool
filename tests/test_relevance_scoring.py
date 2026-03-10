@@ -60,5 +60,5 @@ class RelevanceScoringTests(unittest.TestCase):
         self.assertIn(result.decision, {"include", "maybe"})
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()

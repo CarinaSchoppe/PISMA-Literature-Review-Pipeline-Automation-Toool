@@ -123,5 +123,5 @@ class FullTextExtractionAndPDFTests(unittest.TestCase):
                 self.assertIsNone(extractor.extract_excerpt(pdf_path))
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()
