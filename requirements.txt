@@ -6,6 +6,7 @@ pydantic>=2.10.6
 scikit-learn>=1.6.1
 networkx>=3.4.2
 pypdf>=5.4.0
+coverage>=7.8.0
 
 # Optional for local or hosted transformer workflows
 # See requirements-local-llm.txt for a ready-to-install local LLM stack.
