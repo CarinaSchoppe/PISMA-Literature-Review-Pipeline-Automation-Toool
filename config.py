@@ -546,10 +546,16 @@ class ResearchConfig(BaseModel):
         api_overrides = {
             key: value
             for key, value in {
+                "semantic_scholar_api_key": getattr(args, "semantic_scholar_api_key", None),
+                "crossref_mailto": getattr(args, "crossref_mailto", None),
+                "unpaywall_email": getattr(args, "unpaywall_email", None),
+                "springer_api_key": getattr(args, "springer_api_key", None),
+                "openai_api_key": getattr(args, "openai_api_key", None),
                 "openai_base_url": getattr(args, "openai_base_url", None),
                 "openai_model": getattr(args, "openai_model", None),
                 "ollama_base_url": getattr(args, "ollama_base_url", None),
                 "ollama_model": getattr(args, "ollama_model", None),
+                "ollama_api_key": getattr(args, "ollama_api_key", None),
                 "huggingface_model": getattr(args, "huggingface_model", None),
                 "huggingface_task": getattr(args, "huggingface_task", None),
                 "huggingface_device": getattr(args, "huggingface_device", None),
@@ -557,6 +563,7 @@ class ResearchConfig(BaseModel):
                 "huggingface_max_new_tokens": getattr(args, "huggingface_max_new_tokens", None),
                 "huggingface_cache_dir": getattr(args, "huggingface_cache_dir", None),
                 "huggingface_trust_remote_code": getattr(args, "huggingface_trust_remote_code", None),
+                "llm_temperature": getattr(args, "llm_temperature", None),
             }.items()
             if value is not None
         }
@@ -812,10 +819,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="append",
         help="Sequential analysis pass in the form name:provider:threshold[:decision_mode[:margin]]",
     )
+    parser.add_argument("--semantic-scholar-api-key", help="Semantic Scholar API key")
+    parser.add_argument("--crossref-mailto", help="Contact email sent with Crossref requests")
+    parser.add_argument("--unpaywall-email", help="Contact email required for Unpaywall PDF lookups")
+    parser.add_argument("--springer-api-key", help="Springer Nature API key")
+    parser.add_argument("--openai-api-key", help="API key for OpenAI-compatible endpoints")
     parser.add_argument("--openai-base-url", help="OpenAI-compatible base URL")
     parser.add_argument("--openai-model", help="OpenAI model name, default gpt-5.4")
     parser.add_argument("--ollama-base-url", help="Ollama OpenAI-compatible base URL")
     parser.add_argument("--ollama-model", help="Ollama model tag, for example qwen3:8b or gpt-oss:20b")
+    parser.add_argument("--ollama-api-key", help="Optional API key for Ollama-compatible gateways")
     parser.add_argument(
         "--huggingface-model",
         help="Hugging Face model id for local inference, for example Qwen/Qwen3-14B or openai/gpt-oss-20b",
@@ -847,6 +860,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Allow custom model code when loading Hugging Face models",
+    )
+    parser.add_argument(
+        "--llm-temperature",
+        type=float,
+        dest="llm_temperature",
+        help="Sampling temperature for supported LLM providers",
     )
     parser.add_argument(
         "--decision-mode",

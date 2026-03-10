@@ -8,6 +8,7 @@ import queue
 import subprocess
 import sys
 import threading
+import textwrap
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -38,6 +39,43 @@ class UILogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         self.message_queue.put(("log", self.format(record)))
+
+
+class HoverTooltip:
+    """Show contextual hover help next to the cursor without stealing focus."""
+
+    def __init__(self, root: tk.Tk) -> None:
+        self.root = root
+        self.window: tk.Toplevel | None = None
+        self.label: ttk.Label | None = None
+
+    def show(self, text: str, *, x: int, y: int) -> None:
+        """Render or update the hover tooltip with wrapped explanatory text."""
+
+        message = textwrap.fill(text, width=72)
+        if self.window is None:
+            self.window = tk.Toplevel(self.root)
+            self.window.withdraw()
+            self.window.overrideredirect(True)
+            try:
+                self.window.attributes("-topmost", True)
+            except tk.TclError:
+                # Some Tk builds do not expose every window manager attribute.
+                pass
+            frame = ttk.Frame(self.window, padding=8, relief="solid", borderwidth=1)
+            frame.pack(fill="both", expand=True)
+            self.label = ttk.Label(frame, justify="left", wraplength=480)
+            self.label.pack(fill="both", expand=True)
+        if self.label is not None:
+            self.label.configure(text=message)
+        self.window.geometry(f"+{x + 16}+{y + 16}")
+        self.window.deiconify()
+
+    def hide(self) -> None:
+        """Hide the tooltip until the next hover event."""
+
+        if self.window is not None:
+            self.window.withdraw()
 
 
 class DesktopWorkbench:
@@ -203,6 +241,227 @@ class DesktopWorkbench:
         "unpaywall_email": "Unpaywall email",
     }
 
+    SECTION_HELP_TEXTS = {
+        "Review Brief": (
+            "Define the review context the screener should use. This brief shapes query expansion, "
+            "screening decisions, and the final explanation for why a paper was kept or excluded."
+        ),
+        "Discovery": (
+            "Control where papers are discovered and how broad the search becomes. These settings "
+            "affect recall, API volume, rate limits, and when discovery stops."
+        ),
+        "Screening and Models": (
+            "Choose how papers are evaluated after discovery. This section controls the LLM or "
+            "heuristic screener, thresholds, full-text use, and provider-specific model settings."
+        ),
+        "PDFs and Outputs": (
+            "Choose which artifacts are written to disk and where they go. Relevant PDFs can be "
+            "downloaded automatically into a dedicated folder after screening."
+        ),
+        "Execution and Logging": (
+            "Tune runtime behavior, concurrency, resumability, and how much internal detail is shown "
+            "in the log window. Verbose and debug expose more API and screening activity."
+        ),
+    }
+
+    FIELD_HELP_TEXTS = {
+        "research_topic": "Summarize the topic, scope, and intended use of the review in plain language.",
+        "research_question": (
+            "State the main research question the pipeline should optimize for when judging paper relevance."
+        ),
+        "review_objective": (
+            "Describe the concrete goal of the review, such as benchmarking, mapping the state of the art, "
+            "or identifying methods for a thesis chapter."
+        ),
+        "search_keywords": (
+            "Comma-separated discovery terms. The pipeline combines these with the topic and boolean operators "
+            "to build source queries."
+        ),
+        "inclusion_criteria": (
+            "Semicolon-separated rules that make a paper eligible, for example specific methods, populations, "
+            "domains, or publication types."
+        ),
+        "exclusion_criteria": (
+            "Semicolon-separated rules for excluding papers, such as editorials, non-peer-reviewed work, "
+            "or unrelated domains."
+        ),
+        "banned_topics": (
+            "Hard-stop topics that should never be retained even if keyword overlap is high. Matches are "
+            "logged as explicit exclusion reasons."
+        ),
+        "excluded_title_terms": (
+            "Semicolon-separated title terms that should be filtered out early, such as correction, retraction, "
+            "editorial, or commentary."
+        ),
+        "boolean_operators": (
+            "Default boolean operator used when composing keyword queries. AND narrows recall, OR broadens it, "
+            "and NOT should be used carefully because it can hide relevant studies."
+        ),
+        "discovery_strategy": (
+            "Precise keeps the query tight, balanced is the default middle ground, and broad expands query "
+            "variants to maximize recall across sources."
+        ),
+        "pages_to_retrieve": (
+            "How many result pages to request per enabled source before discovery stops or global caps are reached."
+        ),
+        "results_per_page": "Batch size requested from each source API on every discovery page.",
+        "max_discovered_records": (
+            "Hard cap on the unique deduplicated records collected during discovery. Once reached, discovery ends."
+        ),
+        "min_discovered_records": (
+            "Minimum number of unique records required after merge and deduplication. If the run finds fewer, "
+            "it stops before screening so you can broaden the search."
+        ),
+        "year_range_start": "Lower publication year bound applied during discovery when the source supports it.",
+        "year_range_end": "Upper publication year bound applied during discovery when the source supports it.",
+        "max_papers_to_analyze": (
+            "Limit on how many discovered papers move on to screening. Useful when discovery is broad but you want "
+            "to cap LLM cost or runtime."
+        ),
+        "citation_snowballing_enabled": (
+            "Enable backward and forward citation expansion after initial discovery. This can improve recall but "
+            "adds more API calls and follow-up papers."
+        ),
+        "openalex_enabled": (
+            "Search OpenAlex for broad scholarly metadata, abstracts, concepts, and citation links. It is one of the "
+            "best default discovery sources for systematic review recall."
+        ),
+        "semantic_scholar_enabled": (
+            "Search Semantic Scholar for metadata, abstracts, references, and citation context. It is useful for "
+            "ranking and snowballing, but public access can be rate-limited."
+        ),
+        "crossref_enabled": (
+            "Search Crossref's DOI registry. It is excellent for normalized metadata and DOI recovery, but abstracts "
+            "and citation details are often less complete than OpenAlex or Semantic Scholar."
+        ),
+        "springer_enabled": (
+            "Query Springer Nature's API for publisher-hosted metadata and links. This is especially useful when you "
+            "want Springer content directly, but it typically benefits from an API key."
+        ),
+        "arxiv_enabled": (
+            "Include arXiv preprints. This improves recall for AI and machine-learning topics, especially for very "
+            "recent work that may not yet be indexed elsewhere."
+        ),
+        "include_pubmed": (
+            "Include PubMed for biomedical or clinical topics. It is usually not necessary for general AI reviews "
+            "unless the question touches medicine, health, or life sciences."
+        ),
+        "fixture_data_path": (
+            "Optional offline fixture file for deterministic testing. Use this when you want to validate the pipeline "
+            "without live API calls."
+        ),
+        "manual_source_path": (
+            "Optional path to manually supplied CSV or JSON discovery records. This is useful for custom exports or "
+            "sources that do not provide a supported live API."
+        ),
+        "google_scholar_import_path": (
+            "Path to a manual Google Scholar export or prepared CSV/JSON import. The UI does not perform live Scholar "
+            "scraping; this setting lets you merge exported records safely."
+        ),
+        "researchgate_import_path": (
+            "Path to a manual ResearchGate export or prepared CSV/JSON import. This is intended for imported records, "
+            "not live ResearchGate scraping."
+        ),
+        "llm_provider": (
+            "Choose how papers are screened. Auto prefers configured LLMs when available, heuristic is local scoring "
+            "without a model, and the other options pin the run to a specific provider."
+        ),
+        "analysis_passes": (
+            "Optional multi-pass screening plan, one pass per line. This lets you chain a fast first pass with a "
+            "deeper second pass, each with its own provider and threshold."
+        ),
+        "relevance_threshold": (
+            "Final score threshold for keeping a paper. For example, 85 means only strong matches should be retained."
+        ),
+        "decision_mode": (
+            "Strict keeps only papers that clearly meet the threshold, while triage keeps maybes in play for later review."
+        ),
+        "maybe_threshold_margin": (
+            "Margin below the main threshold that still counts as maybe. A larger margin creates a wider review shortlist."
+        ),
+        "analyze_full_text": (
+            "If enabled, the screener uses extracted PDF text in addition to title and abstract when full text is available."
+        ),
+        "full_text_max_chars": (
+            "Maximum number of extracted full-text characters sent into screening. This protects runtime and prompt size."
+        ),
+        "openai_base_url": (
+            "Base URL for OpenAI or an OpenAI-compatible endpoint. Leave the default for OpenAI, or point it to a "
+            "compatible hosted gateway."
+        ),
+        "openai_model": "Hosted model name used when the OpenAI-compatible provider is selected.",
+        "openai_api_key": "Credential for the OpenAI-compatible provider. It is masked in the UI and never logged verbatim.",
+        "ollama_base_url": "Local or remote Ollama server URL, usually http://localhost:11434.",
+        "ollama_model": "Installed Ollama model tag used for local screening, for example qwen3:8b.",
+        "ollama_api_key": "Optional Ollama gateway key if your endpoint requires authentication.",
+        "huggingface_model": (
+            "Local Hugging Face model used for screening. The default Qwen/Qwen3-14B is the balanced local choice for "
+            "this project, but you can replace it with any compatible instruct model."
+        ),
+        "huggingface_task": "Transformers pipeline task used for the local Hugging Face model.",
+        "huggingface_device": "Run the local model on auto selection, CPU, or CUDA if a GPU is available.",
+        "huggingface_dtype": "Numerical precision for local Hugging Face inference. Lower precision can reduce memory use.",
+        "huggingface_max_new_tokens": "Maximum tokens the local model may generate for one screening response.",
+        "huggingface_cache_dir": "Optional local cache directory for downloaded Hugging Face model files.",
+        "huggingface_trust_remote_code": (
+            "Allow custom model code from Hugging Face repositories. Enable only when you trust the selected model."
+        ),
+        "semantic_scholar_api_key": "Optional Semantic Scholar API key for higher limits or authenticated access.",
+        "springer_api_key": "API key for Springer Nature requests when you want live Springer discovery.",
+        "download_pdfs": (
+            "Download PDFs when open-access links are available. If disabled, the run keeps only metadata and screening output."
+        ),
+        "pdf_download_mode": (
+            "All downloads PDFs for every discovered record with an open-access link. Relevant only delays downloads until "
+            "a paper passes the screening thresholds."
+        ),
+        "output_csv": "Write tabular review outputs such as papers.csv, included_papers.csv, and excluded_papers.csv.",
+        "output_json": "Write machine-readable JSON outputs such as ranked results and PRISMA-style flow summaries.",
+        "output_markdown": "Write the generated literature review summary and other Markdown reports.",
+        "output_sqlite_exports": (
+            "Write included and excluded export databases in addition to the main runtime SQLite database."
+        ),
+        "data_dir": "Base directory used for persistent runtime data such as SQLite files and cached artifacts.",
+        "papers_dir": "Directory where downloaded PDFs and paper-related files are stored by default.",
+        "relevant_pdfs_dir": "Dedicated directory for PDFs that passed the final screening threshold.",
+        "results_dir": "Directory where reports, CSV files, JSON outputs, and summary artifacts are written.",
+        "database_path": "Path to the main SQLite database used for metadata, screening state, and resume support.",
+        "profile_name": "Name used when saving the current UI settings as a reusable profile.",
+        "run_mode": (
+            "Collect stops after discovery and persistence, while analyze continues through screening, ranking, and reporting."
+        ),
+        "verbosity": (
+            "Quiet shows only important problems, normal shows stage progress, verbose adds source and finding details, "
+            "and debug also includes truncated request and prompt diagnostics."
+        ),
+        "max_workers": "Maximum worker threads used for parallel API discovery and other concurrent tasks.",
+        "request_timeout_seconds": "Network timeout applied to external API requests.",
+        "resume_mode": (
+            "Reuse prior database state so interrupted runs can continue instead of repeating already completed work."
+        ),
+        "disable_progress_bars": "Turn off progress bars when you prefer a cleaner console or log view.",
+        "title_similarity_threshold": (
+            "Similarity cutoff used for title-based deduplication when DOI matches are missing."
+        ),
+        "log_http_requests": (
+            "Print request-level API activity in verbose/debug mode so you can see which sources and endpoints were called."
+        ),
+        "log_http_payloads": (
+            "Include truncated request parameters and response snippets in debug mode. Secrets stay redacted."
+        ),
+        "log_llm_prompts": "Show truncated screening prompts in debug mode for audit and troubleshooting.",
+        "log_llm_responses": "Show truncated model responses in debug mode so you can inspect screening behavior.",
+        "log_screening_decisions": (
+            "Log per-paper decisions, scores, and reasons during screening. Useful when tuning thresholds and criteria."
+        ),
+        "crossref_mailto": (
+            "Contact email passed to Crossref requests. Supplying one is good API etiquette and can improve traceability."
+        ),
+        "unpaywall_email": (
+            "Contact email required by Unpaywall when checking for open-access PDFs."
+        ),
+    }
+
     def __init__(self, args: Any) -> None:
         self.args = args
         self.root = tk.Tk()
@@ -227,7 +486,11 @@ class DesktopWorkbench:
         self.treeviews: dict[str, ttk.Treeview] = {}
         self.table_frames: dict[str, ttk.Frame] = {}
         self.outputs_tree: ttk.Treeview | None = None
-        self.status_var = tk.StringVar(value="Ready.")
+        self.base_status_message = "Ready."
+        self.status_var = tk.StringVar(value=self.base_status_message)
+        self.hover_help_enabled = tk.BooleanVar(value=True)
+        self.hover_tooltip = HoverTooltip(self.root)
+        self._hover_message_active = False
         self.all_filter_var = tk.StringVar(value="all")
         self.all_search_var = tk.StringVar(value="")
 
@@ -254,6 +517,12 @@ class DesktopWorkbench:
         ttk.Button(toolbar, text="Load Profile", command=self._load_profile).pack(side="left", padx=4)
         ttk.Button(toolbar, text="Refresh Results", command=self._refresh_results_from_disk).pack(side="left", padx=4)
         ttk.Button(toolbar, text="Open Results Folder", command=self._open_results_dir).pack(side="left", padx=4)
+        ttk.Checkbutton(
+            toolbar,
+            text="Hover Help",
+            variable=self.hover_help_enabled,
+            command=self._toggle_hover_help,
+        ).pack(side="right", padx=4)
 
         ttk.Label(toolbar, text="Profile:").pack(side="left", padx=(16, 4))
         self.profile_combo = ttk.Combobox(toolbar, width=30, state="readonly")
@@ -306,22 +575,30 @@ class DesktopWorkbench:
             frame = ttk.LabelFrame(scrollable, text=section_name, padding=10)
             frame.grid(row=row, column=0, sticky="nsew", padx=6, pady=6)
             frame.columnconfigure(1, weight=1)
+            self._bind_hover_help(frame, self.SECTION_HELP_TEXTS.get(section_name, section_name))
             inner_row = 0
             for field_name in field_names:
                 label = self.LABELS.get(field_name, field_name.replace("_", " ").title())
+                help_text = self._help_text_for_field(field_name)
                 if field_name in self.MULTILINE_FIELDS:
                     _, height = self.MULTILINE_FIELDS[field_name]
-                    ttk.Label(frame, text=label).grid(row=inner_row, column=0, sticky="nw", padx=4, pady=4)
+                    label_widget = ttk.Label(frame, text=label)
+                    label_widget.grid(row=inner_row, column=0, sticky="nw", padx=4, pady=4)
+                    self._bind_hover_help(label_widget, help_text)
                     widget = tk.Text(frame, height=height, wrap="word")
                     widget.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
                     self.text_widgets[field_name] = widget
+                    self._bind_hover_help(widget, help_text)
                 elif field_name in BOOLEAN_FIELD_DEFAULTS:
                     variable = tk.BooleanVar(value=BOOLEAN_FIELD_DEFAULTS[field_name])
                     widget = ttk.Checkbutton(frame, text=label, variable=variable)
                     widget.grid(row=inner_row, column=0, columnspan=2, sticky="w", padx=4, pady=4)
                     self.scalar_vars[field_name] = variable
+                    self._bind_hover_help(widget, help_text)
                 else:
-                    ttk.Label(frame, text=label).grid(row=inner_row, column=0, sticky="w", padx=4, pady=4)
+                    label_widget = ttk.Label(frame, text=label)
+                    label_widget.grid(row=inner_row, column=0, sticky="w", padx=4, pady=4)
+                    self._bind_hover_help(label_widget, help_text)
                     if field_name in self.ENUM_FIELDS:
                         variable = tk.StringVar(value=str(SCALAR_FIELD_DEFAULTS.get(field_name, "")))
                         widget = ttk.Combobox(frame, textvariable=variable, values=self.ENUM_FIELDS[field_name], state="readonly")
@@ -334,8 +611,68 @@ class DesktopWorkbench:
                         widget = ttk.Entry(frame, **entry_kwargs)
                     widget.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
                     self.scalar_vars[field_name] = variable
+                    self._bind_hover_help(widget, help_text)
                 inner_row += 1
             row += 1
+
+    def _help_text_for_field(self, field_name: str) -> str:
+        """Return the explanatory hover text for one settings field."""
+
+        if field_name in self.FIELD_HELP_TEXTS:
+            return self.FIELD_HELP_TEXTS[field_name]
+        label = self.LABELS.get(field_name, field_name.replace("_", " ").replace("-", " ").title())
+        if field_name.endswith(("_dir", "_path")):
+            return f"Filesystem location used for {label.lower()}."
+        if field_name.endswith("_api_key"):
+            return f"Credential used for {label.lower()}. Leave it blank if the provider is not enabled."
+        if field_name.startswith("output_"):
+            return f"Toggle whether {label.lower()} artifacts are written after the run."
+        if field_name.startswith("log_"):
+            return f"Toggle whether {label.lower()} details are shown in verbose or debug logging."
+        if field_name in BOOLEAN_FIELD_DEFAULTS or field_name.endswith("_enabled"):
+            return f"Turn {label.lower()} on or off for this run."
+        return f"Configure {label.lower()} for this run. This value is saved into profiles and JSON configs."
+
+    def _bind_hover_help(self, widget: tk.Widget, help_text: str) -> None:
+        """Attach hover and keyboard-focus help handlers to a settings widget."""
+
+        widget.bind("<Enter>", lambda event, text=help_text: self._show_hover_help(text, event), add="+")
+        widget.bind("<Leave>", lambda _event: self._clear_hover_help(), add="+")
+        widget.bind("<FocusIn>", lambda event, text=help_text: self._show_hover_help(text, event), add="+")
+        widget.bind("<FocusOut>", lambda _event: self._clear_hover_help(), add="+")
+
+    def _toggle_hover_help(self) -> None:
+        """Enable or disable contextual hover help without changing other UI state."""
+
+        if not self.hover_help_enabled.get():
+            self._clear_hover_help()
+            return
+        self._set_status("Hover help enabled. Move over a setting to see what it does.")
+
+    def _show_hover_help(self, help_text: str, event: Any | None = None) -> None:
+        """Show the current field explanation in both the status bar and a floating tooltip."""
+
+        if not self.hover_help_enabled.get() or not help_text:
+            return
+        self._hover_message_active = True
+        self.status_var.set(help_text)
+        x_root = getattr(event, "x_root", self.root.winfo_pointerx())
+        y_root = getattr(event, "y_root", self.root.winfo_pointery())
+        self.hover_tooltip.show(help_text, x=x_root, y=y_root)
+
+    def _clear_hover_help(self) -> None:
+        """Restore the status bar after leaving a settings control."""
+
+        self._hover_message_active = False
+        self.hover_tooltip.hide()
+        self.status_var.set(self.base_status_message)
+
+    def _set_status(self, message: str) -> None:
+        """Store the current persistent status message and show it when hover help is idle."""
+
+        self.base_status_message = message
+        if not self._hover_message_active:
+            self.status_var.set(message)
 
     def _build_log_tab(self) -> None:
         """Create the read-only live log panel."""
@@ -417,7 +754,7 @@ class DesktopWorkbench:
         payload = load_config_file(path)
         values = config_payload_to_form_values(payload)
         self._apply_form_values(values)
-        self.status_var.set(f"Loaded config from {path}")
+        self._set_status(f"Loaded config from {path}")
 
     def _save_profile(self) -> None:
         """Persist the current form state as a reusable guided-UI profile."""
@@ -430,7 +767,7 @@ class DesktopWorkbench:
         path = self.profile_manager.save_profile(name, values)
         self._refresh_profile_choices()
         self.profile_combo.set(name)
-        self.status_var.set(f"Saved profile to {path}")
+        self._set_status(f"Saved profile to {path}")
 
     def _load_profile(self) -> None:
         """Load the selected profile into the form."""
@@ -441,7 +778,7 @@ class DesktopWorkbench:
         values = self.profile_manager.load_profile(name)
         self._apply_form_values(values)
         self.profile_combo.set(name)
-        self.status_var.set(f"Loaded profile '{name}'")
+        self._set_status(f"Loaded profile '{name}'")
 
     def _refresh_profile_choices(self) -> None:
         """Refresh the profile dropdown after files are created or removed."""
@@ -473,7 +810,7 @@ class DesktopWorkbench:
         self.log_widget.configure(state="normal")
         self.log_widget.delete("1.0", tk.END)
         self.log_widget.configure(state="disabled")
-        self.status_var.set("Running pipeline...")
+        self._set_status("Running pipeline...")
 
         def worker() -> None:
             """Run the pipeline off the Tk main thread and return results through the queue."""
@@ -506,7 +843,7 @@ class DesktopWorkbench:
                 elif message_type == "result":
                     self._handle_result(payload)
                 elif message_type == "error":
-                    self.status_var.set(f"Run failed: {payload}")
+                    self._set_status(f"Run failed: {payload}")
                     self._append_log(f"ERROR | {payload}")
         except queue.Empty:
             pass
@@ -525,7 +862,7 @@ class DesktopWorkbench:
         """Surface pipeline status events in the status bar."""
 
         event_type = event.get("event_type", "event")
-        self.status_var.set(f"{event_type}: {event}")
+        self._set_status(f"{event_type}: {event}")
 
     def _handle_result(self, payload: dict[str, Any]) -> None:
         """Refresh all result tabs after a successful pipeline run."""
@@ -534,7 +871,7 @@ class DesktopWorkbench:
         result = payload["result"]
         self.current_result = result
         status = result.get("run_status", "completed")
-        self.status_var.set(f"Run finished with status: {status}")
+        self._set_status(f"Run finished with status: {status}")
         self._load_dataframe_into_tree("all_papers", Path(str(result.get("papers_csv", config.results_dir / "papers.csv"))))
         self._load_dataframe_into_tree("included_papers", Path(str(result.get("included_papers_csv", config.results_dir / "included_papers.csv"))))
         self._load_dataframe_into_tree("excluded_papers", Path(str(result.get("excluded_papers_csv", config.results_dir / "excluded_papers.csv"))))
@@ -551,7 +888,7 @@ class DesktopWorkbench:
         if not self.current_result:
             self.current_result = {"results_dir": str(config.results_dir)}
         self._load_outputs(self.current_result)
-        self.status_var.set(f"Reloaded results from {config.results_dir}")
+        self._set_status(f"Reloaded results from {config.results_dir}")
 
     def _load_dataframe_into_tree(self, key: str, path: Path) -> None:
         """Load a CSV file into one of the result tables."""
@@ -645,7 +982,9 @@ class DesktopWorkbench:
     def _on_close(self) -> None:
         """Detach the UI log handler and close the root window cleanly."""
 
-        self.root_logger.removeHandler(self.log_handler)
+        self.hover_tooltip.hide()
+        if self.log_handler in self.root_logger.handlers:
+            self.root_logger.removeHandler(self.log_handler)
         self.root.destroy()
 
 
