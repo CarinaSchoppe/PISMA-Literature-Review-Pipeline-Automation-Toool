@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from config import ResearchConfig, build_arg_parser, parse_analysis_pass
+from config import AnalysisPassConfig, ResearchConfig, build_arg_parser, parse_analysis_pass
 
 
 class ConfigTests(unittest.TestCase):
@@ -138,6 +138,12 @@ class ConfigTests(unittest.TestCase):
                 "openai-key",
                 "--openai-model",
                 "gpt-5.4",
+                "--gemini-api-key",
+                "gemini-key",
+                "--gemini-base-url",
+                "https://generativelanguage.googleapis.com/v1beta",
+                "--gemini-model",
+                "gemini-2.5-flash",
                 "--ollama-model",
                 "gpt-oss:20b",
                 "--ollama-api-key",
@@ -184,6 +190,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.api_settings.springer_api_key, "springer-key")
         self.assertEqual(config.api_settings.openai_api_key, "openai-key")
         self.assertEqual(config.api_settings.openai_model, "gpt-5.4")
+        self.assertEqual(config.api_settings.gemini_api_key, "gemini-key")
+        self.assertEqual(config.api_settings.gemini_base_url, "https://generativelanguage.googleapis.com/v1beta")
+        self.assertEqual(config.api_settings.gemini_model, "gemini-2.5-flash")
         self.assertEqual(config.api_settings.ollama_model, "gpt-oss:20b")
         self.assertEqual(config.api_settings.ollama_api_key, "ollama-key")
         self.assertEqual(config.api_settings.llm_temperature, 0.2)
@@ -209,3 +218,105 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(len(config.analysis_passes), 1)
         self.assertEqual(config.analysis_passes[0].model_name, "gpt-oss:20b")
         self.assertEqual(config.analysis_passes[0].min_input_score, 70.0)
+
+    def test_config_properties_cover_query_variants_screening_brief_and_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = ResearchConfig(
+                research_topic="Biomedical LLM review",
+                research_question="How are LLMs used in clinical screening?",
+                review_objective="Map methods and benchmarks.",
+                inclusion_criteria=["clinical", "llm"],
+                exclusion_criteria=["non-medical"],
+                banned_topics=["agriculture"],
+                search_keywords=["llm", "clinical", "screening"],
+                discovery_strategy="broad",
+                llm_provider="heuristic",
+                data_dir=root / "data",
+                papers_dir=root / "papers",
+                results_dir=root / "results",
+                database_path=root / "data" / "review.db",
+            ).finalize()
+
+            self.assertTrue(config.include_pubmed)
+            self.assertGreaterEqual(len(config.discovery_queries), 3)
+            self.assertIn("Research topic:", config.screening_brief)
+            self.assertTrue(config.screening_context_key)
+            snapshot = config.save_snapshot()
+
+            self.assertTrue(snapshot.exists())
+            self.assertIn("run_config.json", str(snapshot))
+
+    def test_resolved_analysis_passes_fallback_and_explicit_chain(self) -> None:
+        default_config = ResearchConfig(
+            research_topic="Topic",
+            search_keywords=["llm"],
+            llm_provider="heuristic",
+            relevance_threshold=77,
+            decision_mode="triage",
+            maybe_threshold_margin=9,
+        ).finalize()
+        explicit_config = ResearchConfig(
+            research_topic="Topic",
+            search_keywords=["llm"],
+            run_mode="analyze",
+            analysis_passes=[
+                AnalysisPassConfig(
+                    name="fast",
+                    llm_provider="huggingface_local",
+                    threshold=65,
+                    decision_mode="strict",
+                    maybe_threshold_margin=5,
+                    model_name="Qwen/Qwen3-14B",
+                    min_input_score=0,
+                )
+            ],
+        ).finalize()
+
+        default_passes = default_config.resolved_analysis_passes
+        explicit_passes = explicit_config.resolved_analysis_passes
+
+        self.assertEqual(len(default_passes), 1)
+        self.assertEqual(default_passes[0].threshold, 77)
+        self.assertEqual(default_passes[0].decision_mode, "triage")
+        self.assertEqual(explicit_passes[0].model_name, "Qwen/Qwen3-14B")
+
+    def test_from_cli_interactive_wizard_path(self) -> None:
+        parser = build_arg_parser()
+        args = parser.parse_args([])
+        answers = iter(
+            [
+                "Interactive topic",
+                "Interactive question",
+                "Interactive objective",
+                "llm, review",
+                "include 1;include 2",
+                "exclude 1",
+                "banned 1",
+                "correction;editorial",
+                "AND",
+                "2",
+                "2019",
+                "2026",
+                "12",
+                "yes",
+                "70",
+                "yes",
+                "no",
+                "yes",
+                "auto",
+                "strict",
+                "analyze",
+                "verbose",
+            ]
+        )
+
+        with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
+            config = ResearchConfig.from_cli(args)
+
+        self.assertEqual(config.research_topic, "Interactive topic")
+        self.assertEqual(config.search_keywords, ["llm", "review"])
+        self.assertTrue(config.citation_snowballing_enabled)
+        self.assertTrue(config.download_pdfs)
+        self.assertFalse(config.analyze_full_text)
+        self.assertEqual(config.verbosity, "normal")

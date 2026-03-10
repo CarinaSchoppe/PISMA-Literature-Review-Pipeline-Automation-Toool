@@ -47,6 +47,11 @@ class ApiSettings(BaseModel):
     openai_api_key: str | None = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
     openai_base_url: str = Field(default_factory=lambda: os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"))
     openai_model: str = Field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-5.4"))
+    gemini_api_key: str | None = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+    gemini_base_url: str = Field(
+        default_factory=lambda: os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta")
+    )
+    gemini_model: str = Field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
     ollama_base_url: str = Field(default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"))
     ollama_model: str = Field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen3:8b"))
     ollama_api_key: str = Field(default_factory=lambda: os.getenv("OLLAMA_API_KEY", "ollama"))
@@ -66,7 +71,7 @@ class AnalysisPassConfig(BaseModel):
     """One screening pass in the configurable multi-pass analysis chain."""
 
     name: str
-    llm_provider: Literal["heuristic", "openai_compatible", "ollama", "huggingface_local"] = "heuristic"
+    llm_provider: Literal["heuristic", "openai_compatible", "gemini", "ollama", "huggingface_local"] = "heuristic"
     threshold: float = 70.0
     decision_mode: Literal["strict", "triage"] = "strict"
     maybe_threshold_margin: float = 10.0
@@ -114,7 +119,7 @@ class ResearchConfig(BaseModel):
     pdf_download_mode: Literal["all", "relevant_only"] = "all"
     analyze_full_text: bool = False
     full_text_max_chars: int = 12000
-    llm_provider: Literal["auto", "heuristic", "openai_compatible", "ollama", "huggingface_local"] = "auto"
+    llm_provider: Literal["auto", "heuristic", "openai_compatible", "gemini", "ollama", "huggingface_local"] = "auto"
     decision_mode: Literal["strict", "triage"] = "strict"
     maybe_threshold_margin: float = 10.0
     run_mode: Literal["collect", "analyze"] = "analyze"
@@ -381,7 +386,7 @@ class ResearchConfig(BaseModel):
         target = self.results_dir / "run_config.json"
         payload = self.model_dump(mode="json")
         api_settings = payload.get("api_settings", {})
-        for key in ("semantic_scholar_api_key", "springer_api_key", "openai_api_key", "ollama_api_key"):
+        for key in ("semantic_scholar_api_key", "springer_api_key", "openai_api_key", "gemini_api_key", "ollama_api_key"):
             if api_settings.get(key):
                 api_settings[key] = "***REDACTED***"
         target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -570,6 +575,9 @@ class ResearchConfig(BaseModel):
                 "openai_api_key": getattr(args, "openai_api_key", None),
                 "openai_base_url": getattr(args, "openai_base_url", None),
                 "openai_model": getattr(args, "openai_model", None),
+                "gemini_api_key": getattr(args, "gemini_api_key", None),
+                "gemini_base_url": getattr(args, "gemini_base_url", None),
+                "gemini_model": getattr(args, "gemini_model", None),
                 "ollama_base_url": getattr(args, "ollama_base_url", None),
                 "ollama_model": getattr(args, "ollama_model", None),
                 "ollama_api_key": getattr(args, "ollama_api_key", None),
@@ -836,7 +844,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--llm-provider",
-        choices=["auto", "heuristic", "openai_compatible", "ollama", "huggingface_local"],
+        choices=["auto", "heuristic", "openai_compatible", "gemini", "ollama", "huggingface_local"],
         help="LLM provider mode for screening",
     )
     parser.add_argument(
@@ -852,6 +860,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--openai-api-key", help="API key for OpenAI-compatible endpoints")
     parser.add_argument("--openai-base-url", help="OpenAI-compatible base URL")
     parser.add_argument("--openai-model", help="OpenAI model name, default gpt-5.4")
+    parser.add_argument("--gemini-api-key", help="Google Gemini API key")
+    parser.add_argument("--gemini-base-url", help="Gemini Generative Language API base URL")
+    parser.add_argument("--gemini-model", help="Gemini model name, default gemini-2.5-flash")
     parser.add_argument("--ollama-base-url", help="Ollama OpenAI-compatible base URL")
     parser.add_argument("--ollama-model", help="Ollama model tag, for example qwen3:8b or gpt-oss:20b")
     parser.add_argument("--ollama-api-key", help="Optional API key for Ollama-compatible gateways")

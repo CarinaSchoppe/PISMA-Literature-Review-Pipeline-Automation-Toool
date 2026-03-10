@@ -31,7 +31,7 @@ def _sanitize_for_log(value: Any) -> Any:
         sanitized: dict[str, Any] = {}
         for key, item in value.items():
             normalized_key = str(key).lower()
-            if any(token in normalized_key for token in ("authorization", "api_key", "apikey", "token")):
+            if normalized_key == "key" or any(token in normalized_key for token in ("authorization", "api_key", "apikey", "token")):
                 sanitized[key] = "***REDACTED***"
             else:
                 sanitized[key] = _sanitize_for_log(item)

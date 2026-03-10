@@ -36,6 +36,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("Springer", self.workbench._help_text_for_field("springer_enabled"))
         self.assertIn("Semantic Scholar", self.workbench._help_text_for_field("semantic_scholar_enabled"))
         self.assertIn("temperature", self.workbench._help_text_for_field("llm_temperature").lower())
+        self.assertIn("Gemini", self.workbench._help_text_for_field("gemini_model"))
 
     def test_output_labels_are_explicit_in_settings_ui(self) -> None:
         self.assertEqual(self.workbench.LABELS["boolean_operators"], "Boolean operators")
@@ -45,6 +46,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.workbench.LABELS["output_sqlite_exports"], "Write SQLite exports")
         self.assertEqual(self.workbench.LABELS["database_path"], "Main SQLite database path")
         self.assertEqual(self.workbench.LABELS["results_dir"], "Results directory")
+        self.assertEqual(self.workbench.LABELS["gemini_model"], "Gemini model")
 
     def test_gui_covers_all_runtime_fields_and_toolbar_actions(self) -> None:
         config_fields = set(ResearchConfig.model_fields.keys()) - {"api_settings", "query_key"}
@@ -77,6 +79,32 @@ class DesktopWorkbenchTests(unittest.TestCase):
         for field_name in ("relevance_threshold", "maybe_threshold_margin", "llm_temperature", "title_similarity_threshold"):
             self.assertIn(field_name, self.workbench.slider_value_labels)
             self.assertIn(field_name, self.workbench.scalar_vars)
+
+    def test_settings_are_split_into_multiple_pages(self) -> None:
+        notebook = self.workbench.settings_pages_notebook
+        self.assertIsNotNone(notebook)
+
+        labels = [notebook.tab(tab_id, "text") for tab_id in notebook.tabs()]
+
+        self.assertEqual(
+            labels,
+            ["Review Setup", "Discovery", "AI Screening", "Storage and Output", "Runtime and Logs"],
+        )
+
+    def test_structured_widget_types_are_used_for_common_settings(self) -> None:
+        self.assertEqual(self.workbench.field_widget_types["llm_provider"], "combobox")
+        self.assertEqual(self.workbench.field_widget_types["openai_model"], "combobox")
+        self.assertEqual(self.workbench.field_widget_types["gemini_model"], "combobox")
+        self.assertEqual(self.workbench.field_widget_types["ollama_model"], "combobox")
+        self.assertEqual(self.workbench.field_widget_types["huggingface_model"], "combobox")
+        self.assertEqual(self.workbench.field_widget_types["pdf_download_mode"], "radiogroup")
+        self.assertEqual(self.workbench.field_widget_types["run_mode"], "radiogroup")
+        self.assertEqual(self.workbench.field_widget_types["verbosity"], "radiogroup")
+        self.assertEqual(self.workbench.field_widget_types["pages_to_retrieve"], "spinbox")
+        self.assertEqual(self.workbench.field_widget_types["database_path"], "path")
+        self.assertEqual(self.workbench.field_widget_types["download_pdfs"], "checkbutton")
+        self.assertEqual(self.workbench.field_widget_types["analysis_passes"], "pass_builder")
+        self.assertEqual(str(self.workbench.text_widgets["analysis_passes"].cget("state")), "disabled")
 
     def test_analysis_pass_builder_helpers_round_trip(self) -> None:
         passes = [
@@ -118,6 +146,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
         output_text = self.workbench.output_summary_text.get("1.0", tk.END)
 
         self.assertIn("Primary provider", model_text)
+        self.assertIn("Gemini model", model_text)
         self.assertIn("HF model", model_text)
         self.assertIn("Main SQLite DB", output_text)
         self.assertIn("CSV exports", output_text)
@@ -164,13 +193,39 @@ class DesktopWorkbenchTests(unittest.TestCase):
 
         self.assertEqual(self.workbench.status_var.get(), original_status)
 
+    def test_hover_help_tolerates_focus_events_with_non_numeric_root_coordinates(self) -> None:
+        event = SimpleNamespace(x_root="??", y_root="??")
+
+        self.workbench._show_hover_help("Explain this option.", event)
+
+        self.assertEqual(self.workbench.status_var.get(), "Explain this option.")
+
     def test_handbook_contains_output_and_verbose_guides(self) -> None:
         guide_titles = {entry["title"] for entry in self.workbench.handbook_entries.values()}
 
         self.assertIn("Where CSV, JSON, SQLite, and PDFs go", guide_titles)
+        self.assertIn("Where API keys and endpoint settings go", guide_titles)
         self.assertIn("How to make the run fully verbose", guide_titles)
         self.assertIn("What Start Run, Analyze Stored Results, and Force Stop do", guide_titles)
         self.assertIsNotNone(self.workbench.handbook_tree)
+
+    def test_quick_access_contains_direct_model_and_storage_controls(self) -> None:
+        frame = self.workbench.quick_access_controls_frame
+        self.assertIsNotNone(frame)
+
+        visible_texts: list[str] = []
+        for child in frame.winfo_children():
+            try:
+                text = child.cget("text")
+            except tk.TclError:
+                continue
+            if text:
+                visible_texts.append(text)
+
+        joined = " ".join(visible_texts)
+        self.assertIn("Edit Pass Chain", joined)
+        self.assertIn("Download paper PDFs", joined)
+        self.assertIn("Write SQLite exports", joined)
 
 
 if __name__ == "__main__":

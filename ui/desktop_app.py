@@ -69,7 +69,9 @@ class HoverTooltip:
             self.label.pack(fill="both", expand=True)
         if self.label is not None:
             self.label.configure(text=message)
-        self.window.geometry(f"+{x + 16}+{y + 16}")
+        x_pos = self._coerce_coordinate(x, self.root.winfo_pointerx())
+        y_pos = self._coerce_coordinate(y, self.root.winfo_pointery())
+        self.window.geometry(f"+{x_pos + 16}+{y_pos + 16}")
         self.window.deiconify()
 
     def hide(self) -> None:
@@ -78,9 +80,25 @@ class HoverTooltip:
         if self.window is not None:
             self.window.withdraw()
 
+    def _coerce_coordinate(self, value: Any, fallback: int) -> int:
+        """Convert Tk event coordinates into integers, tolerating FocusIn placeholders like '??'."""
+
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return int(fallback)
+
 
 class DesktopWorkbench:
     """Tkinter workbench for guided configuration and result inspection."""
+
+    SETTINGS_PAGES = [
+        ("Review Setup", ["Review Brief"]),
+        ("Discovery", ["Discovery"]),
+        ("AI Screening", ["Screening and Models"]),
+        ("Storage and Output", ["PDFs and Outputs"]),
+        ("Runtime and Logs", ["Execution and Logging"]),
+    ]
 
     MULTILINE_FIELDS = {
         "research_topic": ("Research brief", 3),
@@ -94,17 +112,45 @@ class DesktopWorkbench:
         "analysis_passes": ("Analysis passes / chained models", 4),
     }
 
-    ENUM_FIELDS = {
+    RADIO_FIELDS = {
         "boolean_operators": ["AND", "OR", "NOT"],
         "discovery_strategy": ["precise", "balanced", "broad"],
         "pdf_download_mode": ["all", "relevant_only"],
-        "llm_provider": ["auto", "heuristic", "openai_compatible", "ollama", "huggingface_local"],
         "decision_mode": ["strict", "triage"],
         "run_mode": ["collect", "analyze"],
         "verbosity": ["quiet", "normal", "verbose", "debug"],
+    }
+
+    COMBOBOX_FIELDS = {
+        "llm_provider": ["auto", "heuristic", "openai_compatible", "gemini", "ollama", "huggingface_local"],
+        "openai_model": ["gpt-5.4"],
+        "gemini_model": ["gemini-2.5-flash", "gemini-2.5-pro"],
+        "ollama_model": ["qwen3:8b", "gpt-oss:20b"],
+        "huggingface_model": ["Qwen/Qwen3-14B", "openai/gpt-oss-20b"],
         "huggingface_task": ["text-generation"],
         "huggingface_device": ["auto", "cpu", "cuda"],
         "huggingface_dtype": ["auto", "float16", "bfloat16", "float32"],
+    }
+
+    SPINBOX_FIELDS = {
+        "pages_to_retrieve": {"from_": 1, "to": 50, "increment": 1},
+        "results_per_page": {"from_": 1, "to": 200, "increment": 1},
+        "year_range_start": {"from_": 1900, "to": 2100, "increment": 1},
+        "year_range_end": {"from_": 1900, "to": 2100, "increment": 1},
+        "min_discovered_records": {"from_": 0, "to": 10000, "increment": 1},
+        "max_papers_to_analyze": {"from_": 1, "to": 10000, "increment": 1},
+        "full_text_max_chars": {"from_": 500, "to": 200000, "increment": 500},
+        "max_workers": {"from_": 1, "to": 64, "increment": 1},
+        "request_timeout_seconds": {"from_": 1, "to": 600, "increment": 1},
+        "huggingface_max_new_tokens": {"from_": 16, "to": 4096, "increment": 16},
+    }
+
+    SECRET_FIELDS = {
+        "openai_api_key",
+        "gemini_api_key",
+        "ollama_api_key",
+        "springer_api_key",
+        "semantic_scholar_api_key",
     }
 
     GROUPS = [
@@ -160,6 +206,9 @@ class DesktopWorkbench:
                 "openai_base_url",
                 "openai_model",
                 "openai_api_key",
+                "gemini_base_url",
+                "gemini_model",
+                "gemini_api_key",
                 "ollama_base_url",
                 "ollama_model",
                 "ollama_api_key",
@@ -246,6 +295,9 @@ class DesktopWorkbench:
         "openai_base_url": "OpenAI base URL",
         "openai_model": "OpenAI model",
         "openai_api_key": "OpenAI API key",
+        "gemini_base_url": "Gemini base URL",
+        "gemini_model": "Gemini model",
+        "gemini_api_key": "Gemini API key",
         "ollama_base_url": "Ollama base URL",
         "ollama_model": "Ollama model",
         "ollama_api_key": "Ollama API key",
@@ -312,22 +364,24 @@ class DesktopWorkbench:
             "Use the 'PDFs and Outputs' section in Settings. There you can turn CSV, JSON, Markdown, and SQLite "
             "exports on or off, choose whether PDFs should be downloaded, and set the data, papers, results, "
             "database, and relevant-PDF directories. If you only want PDFs for accepted papers, enable "
-            "'Download PDFs' and set 'PDF download mode' to 'relevant_only'.",
+            "'Download PDFs' and set 'PDF download mode' to 'relevant_only'. The most-used copies of these controls "
+            "also appear at the top of the Settings tab under 'Most-Used Controls'.",
         ),
         "guide:models": (
             "Guide",
             "How to choose the AI model",
             "Use the 'Screening and Models' section. 'LLM provider' decides whether the run uses heuristic scoring, "
-            "OpenAI-compatible APIs, Ollama, or a local Hugging Face model. Then configure the matching model fields "
-            "such as OpenAI model, Ollama model, or HF model. Thresholds and decision mode in the same section "
-            "control how strict the keep/exclude decisions are. If you need multiple models in sequence, use "
-            "'Edit Passes' to build a pass chain with per-pass thresholds, model overrides, and entry-score gates.",
+            "OpenAI-compatible APIs, Gemini, Ollama, or a local Hugging Face model. Then configure the matching model "
+            "fields such as OpenAI model, Gemini model, Ollama model, or HF model. Thresholds and decision mode in "
+            "the same section control how strict the keep/exclude decisions are. If you need multiple models in sequence, use "
+            "'Edit Passes' to build a pass chain with per-pass thresholds, model overrides, and entry-score gates. "
+            "The most-used model controls also appear at the top of Settings under 'Most-Used Controls'.",
         ),
         "guide:api_keys": (
             "Guide",
             "Where API keys and endpoint settings go",
             "Provider keys and endpoint URLs live in 'Screening and Models' and 'Execution and Logging'. "
-            "OpenAI-compatible keys, OpenAI base URL, Ollama base URL and API key, Semantic Scholar API key, "
+            "OpenAI-compatible keys, Gemini base URL and API key, Ollama base URL and API key, Semantic Scholar API key, "
             "Springer API key, Crossref mailto, and Unpaywall email are all editable in the GUI and saved into profiles.",
         ),
         "guide:verbose": (
@@ -487,6 +541,18 @@ class DesktopWorkbench:
             "with its own threshold, decision mode, optional model override, and optional minimum previous-pass score. "
             "Use the pass builder button in the GUI for the easiest setup."
         ),
+        "openai_model": (
+            "Model name used when the provider is OpenAI-compatible. Set this to the hosted model you want, for example "
+            "gpt-5.4, and pair it with the matching API key and base URL."
+        ),
+        "ollama_model": (
+            "Model tag used for Ollama runs, for example qwen3:8b or gpt-oss:20b. This is the local model that Ollama "
+            "will execute when a pass uses the Ollama provider."
+        ),
+        "huggingface_model": (
+            "Local Hugging Face model used for screening. The default Qwen/Qwen3-14B is the balanced local choice for "
+            "this project, but you can replace it with any compatible instruct model."
+        ),
         "relevance_threshold": (
             "Final score threshold for keeping a paper. For example, 85 means only strong matches should be retained."
         ),
@@ -506,18 +572,21 @@ class DesktopWorkbench:
             "Base URL for OpenAI or an OpenAI-compatible endpoint. Leave the default for OpenAI, or point it to a "
             "compatible hosted gateway."
         ),
-        "openai_model": "Hosted model name used when the OpenAI-compatible provider is selected.",
+        "gemini_base_url": (
+            "Base URL for the Gemini Generative Language API. The default points to Google's hosted Gemini endpoint."
+        ),
+        "gemini_model": (
+            "Gemini model name used when the Gemini provider is selected, for example gemini-2.5-flash or gemini-2.5-pro."
+        ),
+        "gemini_api_key": (
+            "Credential for the Gemini provider. It is masked in the UI and sent only to the configured Gemini endpoint."
+        ),
         "openai_api_key": "Credential for the OpenAI-compatible provider. It is masked in the UI and never logged verbatim.",
         "ollama_base_url": "Local or remote Ollama server URL, usually http://localhost:11434.",
-        "ollama_model": "Installed Ollama model tag used for local screening, for example qwen3:8b.",
         "ollama_api_key": "Optional Ollama gateway key if your endpoint requires authentication.",
         "llm_temperature": (
             "Sampling temperature for supported LLM backends. Lower values are more deterministic, while higher values "
             "allow more variation in the screening explanation."
-        ),
-        "huggingface_model": (
-            "Local Hugging Face model used for screening. The default Qwen/Qwen3-14B is the balanced local choice for "
-            "this project, but you can replace it with any compatible instruct model."
         ),
         "huggingface_task": "Transformers pipeline task used for the local Hugging Face model.",
         "huggingface_device": "Run the local model on auto selection, CPU, or CUDA if a GPU is available.",
@@ -536,6 +605,20 @@ class DesktopWorkbench:
             "All downloads PDFs for every discovered record with an open-access link. Relevant only delays downloads until "
             "a paper passes the screening thresholds."
         ),
+        "database_path": (
+            "Path to the main SQLite database that stores the discovered papers, screening cache, and decision history."
+        ),
+        "results_dir": (
+            "Folder where papers.csv, included_papers.csv, excluded_papers.csv, JSON outputs, Markdown summaries, and "
+            "decision export databases are written."
+        ),
+        "papers_dir": (
+            "Base folder for downloaded paper PDFs and related extracted assets. If PDF download mode is 'all', files land here."
+        ),
+        "relevant_pdfs_dir": (
+            "Folder for PDFs that passed the relevance threshold when 'PDF download mode' is set to 'relevant_only'. "
+            "Use the same path as the main PDF folder if you want all PDFs kept together."
+        ),
         "output_csv": "Write tabular review outputs such as papers.csv, included_papers.csv, and excluded_papers.csv.",
         "output_json": "Write machine-readable JSON outputs such as ranked results and PRISMA-style flow summaries.",
         "output_markdown": "Write the generated literature review summary and other Markdown reports.",
@@ -543,13 +626,6 @@ class DesktopWorkbench:
             "Write included and excluded export databases in addition to the main runtime SQLite database."
         ),
         "data_dir": "Base directory used for persistent runtime data such as SQLite files and cached artifacts.",
-        "papers_dir": "Directory where downloaded PDFs and paper-related files are stored by default.",
-        "relevant_pdfs_dir": (
-            "Dedicated directory for PDFs that passed the final screening threshold. If you want all PDFs in the same "
-            "folder, set this to the same path as the main PDF storage directory."
-        ),
-        "results_dir": "Directory where reports, CSV files, JSON outputs, and summary artifacts are written.",
-        "database_path": "Path to the main SQLite database used for metadata, screening state, and resume support.",
         "profile_name": "Name used when saving the current UI settings as a reusable profile.",
         "run_mode": (
             "Collect stops after discovery and persistence, while analyze continues through screening, ranking, and reporting."
@@ -609,14 +685,17 @@ class DesktopWorkbench:
         self.scalar_vars: dict[str, tk.Variable] = {}
         self.text_widgets: dict[str, tk.Text] = {}
         self.field_focus_widgets: dict[str, tk.Widget] = {}
+        self.field_input_widgets: dict[str, tk.Widget] = {}
+        self.field_widget_types: dict[str, str] = {}
         self.section_frames: dict[str, ttk.LabelFrame] = {}
+        self.field_to_settings_page: dict[str, str] = {}
         self.treeviews: dict[str, ttk.Treeview] = {}
         self.table_frames: dict[str, ttk.Frame] = {}
         self.outputs_tree: ttk.Treeview | None = None
         self.handbook_tree: ttk.Treeview | None = None
         self.handbook_text: scrolledtext.ScrolledText | None = None
-        self.settings_canvas: tk.Canvas | None = None
-        self.settings_scrollable: ttk.Frame | None = None
+        self.settings_pages_notebook: ttk.Notebook | None = None
+        self.settings_page_frames: dict[str, ttk.Frame] = {}
         self.settings_search_choice_var = tk.StringVar(value="")
         self.settings_search_var = tk.StringVar(value="")
         self.settings_search_combo: ttk.Combobox | None = None
@@ -731,145 +810,286 @@ class DesktopWorkbench:
 
     def _build_settings_tab(self) -> None:
         """Render the grouped configuration form used to build a `ResearchConfig`."""
+        container = ttk.Frame(self.settings_tab, padding=12)
+        container.pack(fill="both", expand=True)
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(2, weight=1)
 
-        canvas = tk.Canvas(self.settings_tab)
-        self.settings_canvas = canvas
-        scrollbar = ttk.Scrollbar(self.settings_tab, orient="vertical", command=canvas.yview)
-        scrollable = ttk.Frame(canvas, padding=12)
-        self.settings_scrollable = scrollable
-        scrollable.bind(
-            "<Configure>",
-            lambda _event: canvas.configure(scrollregion=canvas.bbox("all")),
-        )
-        canvas.create_window((0, 0), window=scrollable, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        row = 0
         ttk.Label(
-            scrollable,
+            container,
             text=(
-                "Every CLI-relevant runtime setting is exposed here. Hover fields for a quick explanation or use the "
-                "Handbook tab for a searchable reference."
+                "Every CLI-relevant runtime setting is exposed here. The settings are split into dedicated pages so "
+                "you can work with actual GUI controls such as dropdowns, radio buttons, switches, sliders, and "
+                "browse dialogs instead of hunting through one long text-heavy form."
             ),
-            wraplength=1100,
+            wraplength=1180,
             justify="left",
-        ).grid(row=row, column=0, sticky="w", padx=6, pady=(0, 8))
-        row += 1
-        quick_access = ttk.LabelFrame(scrollable, text="Quick Access", padding=10)
-        quick_access.grid(row=row, column=0, sticky="nsew", padx=6, pady=6)
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        quick_access = ttk.LabelFrame(container, text="Quick Access", padding=10)
+        quick_access.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         quick_access.columnconfigure(0, weight=1)
         quick_access.columnconfigure(1, weight=1)
         self._build_settings_quick_access(quick_access)
-        row += 1
-        for section_name, field_names in self.GROUPS:
-            frame = ttk.LabelFrame(scrollable, text=section_name, padding=10)
-            frame.grid(row=row, column=0, sticky="nsew", padx=6, pady=6)
-            frame.columnconfigure(1, weight=1)
-            self.section_frames[section_name] = frame
-            self._bind_hover_help(frame, self.SECTION_HELP_TEXTS.get(section_name, section_name))
-            summary_label = ttk.Label(
-                frame,
-                text=self.SECTION_HELP_TEXTS.get(section_name, ""),
-                wraplength=980,
+
+        page_notebook = ttk.Notebook(container)
+        page_notebook.grid(row=2, column=0, sticky="nsew")
+        self.settings_pages_notebook = page_notebook
+
+        grouped_fields = {section_name: field_names for section_name, field_names in self.GROUPS}
+        for page_name, section_names in self.SETTINGS_PAGES:
+            page = ttk.Frame(page_notebook, padding=10)
+            page.columnconfigure(0, weight=1)
+            page_notebook.add(page, text=page_name)
+            self.settings_page_frames[page_name] = page
+
+            intro = ttk.Label(
+                page,
+                text=(
+                    "Use the controls on this page to adjust the corresponding runtime behavior. Hover any field for a "
+                    "plain-language explanation or open the Handbook tab for the full reference."
+                ),
+                wraplength=1120,
                 justify="left",
             )
-            summary_label.grid(row=0, column=0, columnspan=2, sticky="w", padx=4, pady=(0, 8))
-            self._bind_hover_help(summary_label, self.SECTION_HELP_TEXTS.get(section_name, section_name))
-            inner_row = 1
-            for field_name in field_names:
-                label = self.LABELS.get(field_name, field_name.replace("_", " ").title())
-                help_text = self._help_text_for_field(field_name)
-                if field_name in self.MULTILINE_FIELDS:
-                    _, height = self.MULTILINE_FIELDS[field_name]
-                    label_widget = ttk.Label(frame, text=label)
-                    label_widget.grid(row=inner_row, column=0, sticky="nw", padx=4, pady=4)
-                    self._bind_hover_help(label_widget, help_text)
-                    multiline_frame = ttk.Frame(frame)
-                    multiline_frame.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
-                    multiline_frame.columnconfigure(0, weight=1)
-                    widget = tk.Text(multiline_frame, height=height, wrap="word")
-                    widget.grid(row=0, column=0, sticky="ew")
-                    self.text_widgets[field_name] = widget
-                    self.field_focus_widgets[field_name] = widget
-                    self._bind_hover_help(widget, help_text)
-                    if field_name == "analysis_passes":
-                        button_bar = ttk.Frame(multiline_frame)
-                        button_bar.grid(row=1, column=0, sticky="w", pady=(6, 0))
-                        edit_button = ttk.Button(button_bar, text="Edit Passes", command=self._open_pass_builder)
-                        edit_button.pack(side="left")
-                        example_label = ttk.Label(
-                            button_bar,
-                            text="Example: fast:huggingface_local:70:strict:10",
-                        )
-                        example_label.pack(side="left", padx=(8, 0))
-                        self._bind_hover_help(
-                            edit_button,
-                            "Open a visual editor for chained screening passes and model/provider selection.",
-                        )
-                        self._bind_hover_help(example_label, help_text)
-                elif field_name in BOOLEAN_FIELD_DEFAULTS:
-                    variable = tk.BooleanVar(value=BOOLEAN_FIELD_DEFAULTS[field_name])
-                    widget = ttk.Checkbutton(frame, text=label, variable=variable)
-                    widget.grid(row=inner_row, column=0, columnspan=2, sticky="w", padx=4, pady=4)
-                    self.scalar_vars[field_name] = variable
-                    self.field_focus_widgets[field_name] = widget
-                    self._bind_hover_help(widget, help_text)
-                else:
-                    label_widget = ttk.Label(frame, text=label)
-                    label_widget.grid(row=inner_row, column=0, sticky="w", padx=4, pady=4)
-                    self._bind_hover_help(label_widget, help_text)
-                    if field_name in self.ENUM_FIELDS:
-                        variable = tk.StringVar(value=str(SCALAR_FIELD_DEFAULTS.get(field_name, "")))
-                        widget = ttk.Combobox(frame, textvariable=variable, values=self.ENUM_FIELDS[field_name], state="readonly")
-                        widget.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
-                    elif field_name in self.SLIDER_FIELDS:
-                        slider_config = self.SLIDER_FIELDS[field_name]
-                        default_value = float(SCALAR_FIELD_DEFAULTS.get(field_name, slider_config["from_"]))
-                        variable = tk.DoubleVar(value=default_value)
-                        slider_frame = ttk.Frame(frame)
-                        slider_frame.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
-                        slider_frame.columnconfigure(0, weight=1)
-                        widget = ttk.Scale(
-                            slider_frame,
-                            from_=slider_config["from_"],
-                            to=slider_config["to"],
-                            variable=variable,
-                            command=lambda _value, name=field_name: self._sync_slider_label(name),
-                        )
-                        widget.grid(row=0, column=0, sticky="ew")
-                        value_label = ttk.Label(slider_frame, width=8, anchor="e")
-                        value_label.grid(row=0, column=1, padx=(8, 0))
-                        self.slider_value_labels[field_name] = value_label
-                        self._sync_slider_label(field_name)
-                    else:
-                        default_value = SCALAR_FIELD_DEFAULTS.get(field_name, "")
-                        variable = tk.StringVar(value=str(default_value))
-                        entry_kwargs: dict[str, Any] = {"textvariable": variable}
-                        if "key" in field_name.lower() and "mail" not in field_name.lower():
-                            entry_kwargs["show"] = "*"
-                        if field_name in self.PATH_FIELD_MODES:
-                            entry_frame = ttk.Frame(frame)
-                            entry_frame.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
-                            entry_frame.columnconfigure(0, weight=1)
-                            widget = ttk.Entry(entry_frame, **entry_kwargs)
-                            widget.grid(row=0, column=0, sticky="ew")
-                            browse_button = ttk.Button(
-                                entry_frame,
-                                text="Browse",
-                                command=lambda name=field_name, var=variable: self._browse_for_field(name, var),
-                            )
-                            browse_button.grid(row=0, column=1, padx=(6, 0))
-                            self._bind_hover_help(browse_button, help_text)
-                        else:
-                            widget = ttk.Entry(frame, **entry_kwargs)
-                            widget.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
-                    self.scalar_vars[field_name] = variable
-                    self.field_focus_widgets[field_name] = widget
-                    self._bind_hover_help(widget, help_text)
-                inner_row += 1
-            row += 1
+            intro.grid(row=0, column=0, sticky="w", pady=(0, 8))
+            self._bind_hover_help(intro, f"Settings page: {page_name}.")
+
+            for row, section_name in enumerate(section_names, start=1):
+                self._render_settings_group(page, page_name, section_name, grouped_fields[section_name], row)
+
+        self._populate_quick_access_controls()
+
+    def _render_settings_group(
+        self,
+        parent: ttk.Frame,
+        page_name: str,
+        section_name: str,
+        field_names: list[str],
+        row: int,
+    ) -> None:
+        """Render one logical settings group inside the selected settings page."""
+
+        frame = ttk.LabelFrame(parent, text=section_name, padding=10)
+        frame.grid(row=row, column=0, sticky="ew", pady=6)
+        frame.columnconfigure(1, weight=1)
+        self.section_frames[section_name] = frame
+        self._bind_hover_help(frame, self.SECTION_HELP_TEXTS.get(section_name, section_name))
+
+        summary_label = ttk.Label(
+            frame,
+            text=self.SECTION_HELP_TEXTS.get(section_name, ""),
+            wraplength=1040,
+            justify="left",
+        )
+        summary_label.grid(row=0, column=0, columnspan=2, sticky="w", padx=4, pady=(0, 8))
+        self._bind_hover_help(summary_label, self.SECTION_HELP_TEXTS.get(section_name, section_name))
+
+        for index, field_name in enumerate(field_names, start=1):
+            self.field_to_settings_page[field_name] = page_name
+            self._render_field(frame, field_name, index)
+
+    def _render_field(self, frame: ttk.LabelFrame, field_name: str, row: int) -> None:
+        """Render one settings field using the most appropriate widget type."""
+
+        label = self.LABELS.get(field_name, field_name.replace("_", " ").title())
+        help_text = self._help_text_for_field(field_name)
+
+        if field_name in self.MULTILINE_FIELDS:
+            self._render_multiline_field(frame, field_name, label, help_text, row)
+            return
+
+        if field_name in BOOLEAN_FIELD_DEFAULTS:
+            variable = tk.BooleanVar(value=BOOLEAN_FIELD_DEFAULTS[field_name])
+            widget = ttk.Checkbutton(frame, text=label, variable=variable)
+            widget.grid(row=row, column=0, columnspan=2, sticky="w", padx=4, pady=4)
+            self.scalar_vars[field_name] = variable
+            self.field_input_widgets[field_name] = widget
+            self.field_focus_widgets[field_name] = widget
+            self.field_widget_types[field_name] = "checkbutton"
+            self._bind_hover_help(widget, help_text)
+            return
+
+        label_widget = ttk.Label(frame, text=label)
+        label_widget.grid(row=row, column=0, sticky="nw", padx=4, pady=4)
+        self._bind_hover_help(label_widget, help_text)
+
+        if field_name in self.RADIO_FIELDS:
+            self._render_radio_field(frame, field_name, help_text, row)
+        elif field_name in self.SLIDER_FIELDS:
+            self._render_slider_field(frame, field_name, help_text, row)
+        elif field_name in self.COMBOBOX_FIELDS:
+            self._render_combobox_field(frame, field_name, help_text, row)
+        elif field_name in self.SPINBOX_FIELDS:
+            self._render_spinbox_field(frame, field_name, help_text, row)
+        elif field_name in self.PATH_FIELD_MODES:
+            self._render_path_field(frame, field_name, help_text, row)
+        else:
+            self._render_entry_field(frame, field_name, help_text, row)
+
+    def _render_multiline_field(
+        self,
+        frame: ttk.LabelFrame,
+        field_name: str,
+        label: str,
+        help_text: str,
+        row: int,
+    ) -> None:
+        """Render a free-form multi-line text field or the analysis-pass summary panel."""
+
+        _, height = self.MULTILINE_FIELDS[field_name]
+        label_widget = ttk.Label(frame, text=label)
+        label_widget.grid(row=row, column=0, sticky="nw", padx=4, pady=4)
+        self._bind_hover_help(label_widget, help_text)
+
+        container = ttk.Frame(frame)
+        container.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        container.columnconfigure(0, weight=1)
+
+        if field_name == "analysis_passes":
+            widget = scrolledtext.ScrolledText(container, height=height, wrap="word", state="disabled")
+            widget.grid(row=0, column=0, sticky="ew")
+            helper = ttk.Label(
+                container,
+                text=(
+                    "Use the visual pass-chain editor below to choose one or more models, thresholds, and entry-score "
+                    "gates. This summary updates automatically."
+                ),
+                wraplength=760,
+                justify="left",
+            )
+            helper.grid(row=1, column=0, sticky="w", pady=(6, 0))
+            button_bar = ttk.Frame(container)
+            button_bar.grid(row=2, column=0, sticky="w", pady=(6, 0))
+            edit_button = ttk.Button(button_bar, text="Edit Passes", command=self._open_pass_builder)
+            edit_button.pack(side="left")
+            clear_button = ttk.Button(button_bar, text="Clear Passes", command=lambda: self._write_analysis_passes([]))
+            clear_button.pack(side="left", padx=(6, 0))
+            self._bind_hover_help(edit_button, "Open the visual editor for chained screening passes and model/provider selection.")
+            self._bind_hover_help(clear_button, "Remove the current chained-pass definition and fall back to the main provider settings.")
+            self._bind_hover_help(helper, help_text)
+            widget.bind("<KeyRelease>", lambda _event: "break")
+            self.field_widget_types[field_name] = "pass_builder"
+        else:
+            widget = tk.Text(container, height=height, wrap="word")
+            widget.grid(row=0, column=0, sticky="ew")
+            self.field_widget_types[field_name] = "multiline"
+
+        self.text_widgets[field_name] = widget
+        self.field_input_widgets[field_name] = widget
+        self.field_focus_widgets[field_name] = widget
+        self._bind_hover_help(widget, help_text)
+
+    def _render_radio_field(self, frame: ttk.LabelFrame, field_name: str, help_text: str, row: int) -> None:
+        """Render an enumerated field as a compact radio-button group."""
+
+        variable = tk.StringVar(value=str(SCALAR_FIELD_DEFAULTS.get(field_name, "")))
+        container = ttk.Frame(frame)
+        container.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        for index, option in enumerate(self.RADIO_FIELDS[field_name]):
+            button = ttk.Radiobutton(container, text=option, value=option, variable=variable)
+            button.grid(row=index // 3, column=index % 3, sticky="w", padx=(0, 10), pady=2)
+            self._bind_hover_help(button, help_text)
+        self.scalar_vars[field_name] = variable
+        self.field_input_widgets[field_name] = container
+        self.field_focus_widgets[field_name] = container
+        self.field_widget_types[field_name] = "radiogroup"
+        self._bind_hover_help(container, help_text)
+
+    def _render_slider_field(self, frame: ttk.LabelFrame, field_name: str, help_text: str, row: int) -> None:
+        """Render a numeric threshold field as a slider with a live value label."""
+
+        slider_config = self.SLIDER_FIELDS[field_name]
+        default_value = float(SCALAR_FIELD_DEFAULTS.get(field_name, slider_config["from_"]))
+        variable = tk.DoubleVar(value=default_value)
+        container = ttk.Frame(frame)
+        container.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        container.columnconfigure(0, weight=1)
+        widget = ttk.Scale(
+            container,
+            from_=slider_config["from_"],
+            to=slider_config["to"],
+            variable=variable,
+            command=lambda _value, name=field_name: self._sync_slider_label(name),
+        )
+        widget.grid(row=0, column=0, sticky="ew")
+        value_label = ttk.Label(container, width=8, anchor="e")
+        value_label.grid(row=0, column=1, padx=(8, 0))
+        self.slider_value_labels[field_name] = value_label
+        self.scalar_vars[field_name] = variable
+        self.field_input_widgets[field_name] = widget
+        self.field_focus_widgets[field_name] = widget
+        self.field_widget_types[field_name] = "slider"
+        self._bind_hover_help(widget, help_text)
+        self._sync_slider_label(field_name)
+
+    def _render_combobox_field(self, frame: ttk.LabelFrame, field_name: str, help_text: str, row: int) -> None:
+        """Render a field as an editable dropdown with suggested presets."""
+
+        variable = tk.StringVar(value=str(SCALAR_FIELD_DEFAULTS.get(field_name, "")))
+        widget = ttk.Combobox(frame, textvariable=variable, values=self.COMBOBOX_FIELDS[field_name], state="normal")
+        widget.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        self.scalar_vars[field_name] = variable
+        self.field_input_widgets[field_name] = widget
+        self.field_focus_widgets[field_name] = widget
+        self.field_widget_types[field_name] = "combobox"
+        self._bind_hover_help(widget, help_text)
+
+    def _render_spinbox_field(self, frame: ttk.LabelFrame, field_name: str, help_text: str, row: int) -> None:
+        """Render bounded integer settings as spinboxes."""
+
+        spinbox_config = self.SPINBOX_FIELDS[field_name]
+        variable = tk.IntVar(value=int(SCALAR_FIELD_DEFAULTS.get(field_name, spinbox_config["from_"])))
+        widget = ttk.Spinbox(
+            frame,
+            from_=spinbox_config["from_"],
+            to=spinbox_config["to"],
+            increment=spinbox_config["increment"],
+            textvariable=variable,
+        )
+        widget.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        self.scalar_vars[field_name] = variable
+        self.field_input_widgets[field_name] = widget
+        self.field_focus_widgets[field_name] = widget
+        self.field_widget_types[field_name] = "spinbox"
+        self._bind_hover_help(widget, help_text)
+
+    def _render_path_field(self, frame: ttk.LabelFrame, field_name: str, help_text: str, row: int) -> None:
+        """Render filesystem paths with an entry plus a browse button."""
+
+        variable = tk.StringVar(value=str(SCALAR_FIELD_DEFAULTS.get(field_name, "")))
+        container = ttk.Frame(frame)
+        container.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        container.columnconfigure(0, weight=1)
+        widget = ttk.Entry(container, textvariable=variable)
+        widget.grid(row=0, column=0, sticky="ew")
+        browse_button = ttk.Button(
+            container,
+            text="Browse",
+            command=lambda name=field_name, var=variable: self._browse_for_field(name, var),
+        )
+        browse_button.grid(row=0, column=1, padx=(6, 0))
+        self.scalar_vars[field_name] = variable
+        self.field_input_widgets[field_name] = widget
+        self.field_focus_widgets[field_name] = widget
+        self.field_widget_types[field_name] = "path"
+        self._bind_hover_help(widget, help_text)
+        self._bind_hover_help(browse_button, help_text)
+
+    def _render_entry_field(self, frame: ttk.LabelFrame, field_name: str, help_text: str, row: int) -> None:
+        """Render a plain text entry, masking secrets when appropriate."""
+
+        variable = tk.StringVar(value=str(SCALAR_FIELD_DEFAULTS.get(field_name, "")))
+        entry_kwargs: dict[str, Any] = {"textvariable": variable}
+        if field_name in self.SECRET_FIELDS:
+            entry_kwargs["show"] = "*"
+        widget = ttk.Entry(frame, **entry_kwargs)
+        widget.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        self.scalar_vars[field_name] = variable
+        self.field_input_widgets[field_name] = widget
+        self.field_focus_widgets[field_name] = widget
+        self.field_widget_types[field_name] = "entry"
+        self._bind_hover_help(widget, help_text)
 
     def _help_text_for_field(self, field_name: str) -> str:
         """Return the explanatory hover text for one settings field."""
@@ -895,8 +1115,8 @@ class DesktopWorkbench:
         intro = ttk.Label(
             parent,
             text=(
-                "Use search or the jump buttons to find model selection, chained passes, thresholds, CSV/SQLite outputs, "
-                "PDF folders, and verbose logging immediately."
+                "Use the direct controls below for the most important settings, or use search and jump buttons to find "
+                "model selection, chained passes, thresholds, CSV/SQLite outputs, PDF folders, and verbose logging immediately."
             ),
             wraplength=1040,
             justify="left",
@@ -932,11 +1152,30 @@ class DesktopWorkbench:
             button.pack(side="left", padx=(0, 6))
             self._bind_hover_help(button, f"Jump to the GUI area for {text.lower()}.")
 
+        guide_bar = ttk.Frame(parent)
+        guide_bar.grid(row=3, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        guide_buttons = [
+            ("Open Model Guide", lambda: self._open_handbook_entry("guide:models")),
+            ("Open Output Guide", lambda: self._open_handbook_entry("guide:outputs")),
+            ("Open API Guide", lambda: self._open_handbook_entry("guide:api_keys")),
+            ("Open Actions Guide", lambda: self._open_handbook_entry("guide:actions")),
+        ]
+        for text, command in guide_buttons:
+            button = ttk.Button(guide_bar, text=text, command=command)
+            button.pack(side="left", padx=(0, 6))
+            self._bind_hover_help(button, f"Open the handbook entry for {text.lower()}.")
+
+        controls_frame = ttk.LabelFrame(parent, text="Most-Used Controls", padding=8)
+        controls_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        controls_frame.columnconfigure(1, weight=1)
+        controls_frame.columnconfigure(3, weight=1)
+        self.quick_access_controls_frame = controls_frame
+
         model_frame = ttk.LabelFrame(parent, text="Current Model Setup", padding=8)
-        model_frame.grid(row=3, column=0, sticky="nsew", padx=(0, 6))
+        model_frame.grid(row=5, column=0, sticky="nsew", padx=(0, 6))
         output_frame = ttk.LabelFrame(parent, text="Current Output Paths", padding=8)
-        output_frame.grid(row=3, column=1, sticky="nsew", padx=(6, 0))
-        parent.rowconfigure(3, weight=1)
+        output_frame.grid(row=5, column=1, sticky="nsew", padx=(6, 0))
+        parent.rowconfigure(5, weight=1)
         model_frame.rowconfigure(0, weight=1)
         output_frame.rowconfigure(0, weight=1)
         model_frame.columnconfigure(0, weight=1)
@@ -946,6 +1185,116 @@ class DesktopWorkbench:
         self.model_summary_text.grid(row=0, column=0, sticky="nsew")
         self.output_summary_text = scrolledtext.ScrolledText(output_frame, height=10, wrap="word", state="disabled")
         self.output_summary_text.grid(row=0, column=0, sticky="nsew")
+
+    def _populate_quick_access_controls(self) -> None:
+        """Mirror the most-used settings at the top of the Settings tab for immediate editing."""
+
+        frame = getattr(self, "quick_access_controls_frame", None)
+        if frame is None:
+            return
+        for child in frame.winfo_children():
+            child.destroy()
+
+        ttk.Label(
+            frame,
+            text=(
+                "These controls mirror the full settings below. Use them to pick the model, adjust thresholds, decide "
+                "whether PDFs should be downloaded, and set the main storage paths without hunting through the form."
+            ),
+            wraplength=1040,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 8))
+
+        def add_label(row: int, column: int, field_name: str) -> None:
+            label = ttk.Label(frame, text=self.LABELS.get(field_name, field_name.replace("_", " ").title()))
+            label.grid(row=row, column=column, sticky="w", padx=4, pady=4)
+            self._bind_hover_help(label, self._help_text_for_field(field_name))
+
+        def add_path_control(row: int, field_name: str) -> None:
+            add_label(row, 0, field_name)
+            variable = self.scalar_vars[field_name]
+            container = ttk.Frame(frame)
+            container.grid(row=row, column=1, columnspan=3, sticky="ew", padx=4, pady=4)
+            container.columnconfigure(0, weight=1)
+            entry = ttk.Entry(container, textvariable=variable)
+            entry.grid(row=0, column=0, sticky="ew")
+            browse_button = ttk.Button(
+                container,
+                text="Browse",
+                command=lambda name=field_name, var=variable: self._browse_for_field(name, var),
+            )
+            browse_button.grid(row=0, column=1, padx=(6, 0))
+            self._bind_hover_help(entry, self._help_text_for_field(field_name))
+            self._bind_hover_help(browse_button, self._help_text_for_field(field_name))
+
+        add_label(1, 0, "llm_provider")
+        llm_provider_widget = ttk.Combobox(
+            frame,
+            textvariable=self.scalar_vars["llm_provider"],
+            values=self.COMBOBOX_FIELDS["llm_provider"],
+            state="normal",
+        )
+        llm_provider_widget.grid(row=1, column=1, sticky="ew", padx=4, pady=4)
+        self._bind_hover_help(llm_provider_widget, self._help_text_for_field("llm_provider"))
+
+        edit_pass_button = ttk.Button(frame, text="Edit Pass Chain", command=self._open_pass_builder)
+        edit_pass_button.grid(row=1, column=2, sticky="w", padx=4, pady=4)
+        self._bind_hover_help(edit_pass_button, self._help_text_for_field("analysis_passes"))
+        threshold_button = ttk.Button(frame, text="Jump to Thresholds", command=lambda: self._focus_field("relevance_threshold"))
+        threshold_button.grid(row=1, column=3, sticky="w", padx=4, pady=4)
+        self._bind_hover_help(threshold_button, self._help_text_for_field("relevance_threshold"))
+
+        for row, field_name in enumerate(("openai_model", "gemini_model", "ollama_model", "huggingface_model"), start=2):
+            add_label(row, 0, field_name)
+            widget = ttk.Combobox(
+                frame,
+                textvariable=self.scalar_vars[field_name],
+                values=self.COMBOBOX_FIELDS[field_name],
+                state="normal",
+            )
+            widget.grid(row=row, column=1, columnspan=3, sticky="ew", padx=4, pady=4)
+            self._bind_hover_help(widget, self._help_text_for_field(field_name))
+
+        download_row = 2 + len(("openai_model", "gemini_model", "ollama_model", "huggingface_model"))
+
+        download_widget = ttk.Checkbutton(
+            frame,
+            text=self.LABELS["download_pdfs"],
+            variable=self.scalar_vars["download_pdfs"],
+        )
+        download_widget.grid(row=download_row, column=0, sticky="w", padx=4, pady=4)
+        self._bind_hover_help(download_widget, self._help_text_for_field("download_pdfs"))
+        add_label(download_row, 1, "pdf_download_mode")
+        pdf_mode_frame = ttk.Frame(frame)
+        pdf_mode_frame.grid(row=download_row, column=2, columnspan=2, sticky="w", padx=4, pady=4)
+        for index, option in enumerate(self.RADIO_FIELDS["pdf_download_mode"]):
+            button = ttk.Radiobutton(
+                pdf_mode_frame,
+                text=option,
+                value=option,
+                variable=self.scalar_vars["pdf_download_mode"],
+            )
+            button.grid(row=0, column=index, sticky="w", padx=(0, 8))
+            self._bind_hover_help(button, self._help_text_for_field("pdf_download_mode"))
+
+        csv_widget = ttk.Checkbutton(frame, text=self.LABELS["output_csv"], variable=self.scalar_vars["output_csv"])
+        csv_widget.grid(row=download_row + 1, column=0, sticky="w", padx=4, pady=4)
+        sqlite_widget = ttk.Checkbutton(
+            frame,
+            text=self.LABELS["output_sqlite_exports"],
+            variable=self.scalar_vars["output_sqlite_exports"],
+        )
+        sqlite_widget.grid(row=download_row + 1, column=1, sticky="w", padx=4, pady=4)
+        self._bind_hover_help(csv_widget, self._help_text_for_field("output_csv"))
+        self._bind_hover_help(sqlite_widget, self._help_text_for_field("output_sqlite_exports"))
+
+        add_path_control(download_row + 2, "database_path")
+        add_path_control(download_row + 3, "results_dir")
+        add_path_control(download_row + 4, "papers_dir")
+        add_path_control(download_row + 5, "relevant_pdfs_dir")
+
+        for column in range(4):
+            frame.columnconfigure(column, weight=1 if column in {1, 3} else 0)
 
     def _settings_index(self) -> list[tuple[str, str]]:
         """Return searchable setting targets in a human-readable label format."""
@@ -993,7 +1342,9 @@ class DesktopWorkbench:
         if widget is None:
             return
         self.notebook.select(self.settings_tab)
-        self._scroll_widget_into_view(widget)
+        page_name = self.field_to_settings_page.get(field_name)
+        if page_name and self.settings_pages_notebook is not None and page_name in self.settings_page_frames:
+            self.settings_pages_notebook.select(self.settings_page_frames[page_name])
         try:
             widget.focus_set()
         except tk.TclError:
@@ -1002,15 +1353,17 @@ class DesktopWorkbench:
         self._set_status(f"Focused setting: {self.LABELS.get(field_name, field_name)}")
 
     def _scroll_widget_into_view(self, widget: tk.Widget) -> None:
-        """Move the settings scroll region so the target widget is visible."""
+        """Preserve the old focus helper contract for tests and future layout changes.
 
-        if self.settings_canvas is None or self.settings_scrollable is None:
+        The settings UI now uses notebook pages rather than a scrollable canvas, so focusing the
+        correct page is enough for visibility in the current layout. This helper intentionally
+        stays lightweight instead of reintroducing the removed canvas-specific scroll code.
+        """
+
+        try:
+            widget.update_idletasks()
+        except tk.TclError:
             return
-        self.root.update_idletasks()
-        scrollable_height = max(self.settings_scrollable.winfo_height(), 1)
-        relative_y = max(widget.winfo_rooty() - self.settings_scrollable.winfo_rooty(), 0)
-        target = max(min(relative_y / scrollable_height, 1.0), 0.0)
-        self.settings_canvas.yview_moveto(max(target - 0.08, 0.0))
 
     def _format_slider_value(self, field_name: str, value: float) -> str:
         """Format slider-backed numeric values consistently for display labels."""
@@ -1068,6 +1421,7 @@ class DesktopWorkbench:
             f"Primary provider: {values.get('llm_provider', 'auto')}",
             f"Chained pass setup: {'yes' if chain_entries else 'no'}",
             f"OpenAI model: {values.get('openai_model', '') or '(not set)'}",
+            f"Gemini model: {values.get('gemini_model', '') or '(not set)'}",
             f"Ollama model: {values.get('ollama_model', '') or '(not set)'}",
             f"HF model: {values.get('huggingface_model', '') or '(not set)'}",
             f"Relevance threshold: {values.get('relevance_threshold')}",
@@ -1256,6 +1610,20 @@ class DesktopWorkbench:
             return
         self._render_handbook_text(f"{entry['title']}\n\nGroup: {entry['group']}\n\n{entry['body']}")
 
+    def _open_handbook_entry(self, key: str) -> None:
+        """Switch to the handbook tab and focus a specific guide entry when available."""
+
+        if self.notebook is not None:
+            self.notebook.select(self.handbook_tab)
+        if self.handbook_tree is None:
+            return
+        if key in self.handbook_entries:
+            self.handbook_search_var.set("")
+            self._refresh_handbook_tree()
+            self.handbook_tree.selection_set(key)
+            self.handbook_tree.focus(key)
+            self._render_handbook_entry(key)
+
     def _render_handbook_text(self, text: str) -> None:
         """Write handbook text into the read-only handbook detail widget."""
 
@@ -1338,8 +1706,8 @@ class DesktopWorkbench:
             )
             for entry in passes
         ]
-        widget.delete("1.0", tk.END)
-        widget.insert("1.0", "\n".join(lines))
+        self._set_text_widget_value(widget, "\n".join(lines))
+        self._refresh_settings_overview()
 
     def _open_pass_builder(self) -> None:
         """Open a small visual editor for chained multi-pass model configuration."""
@@ -1528,7 +1896,7 @@ class DesktopWorkbench:
         ttk.Combobox(
             right,
             textvariable=form_vars["provider"],
-            values=["heuristic", "openai_compatible", "ollama", "huggingface_local"],
+            values=["heuristic", "openai_compatible", "gemini", "ollama", "huggingface_local"],
             state="readonly",
         ).grid(row=1, column=1, sticky="ew", pady=4)
         ttk.Label(right, text="Decision mode").grid(row=2, column=0, sticky="w", pady=4)
@@ -1641,12 +2009,12 @@ class DesktopWorkbench:
         """Populate the visible form controls from a flat dictionary of values."""
 
         for field_name, widget in self.text_widgets.items():
-            widget.delete("1.0", tk.END)
-            widget.insert("1.0", str(values.get(field_name, "")))
+            self._set_text_widget_value(widget, str(values.get(field_name, "")))
         for field_name, variable in self.scalar_vars.items():
             variable.set(values.get(field_name, variable.get()))
         for field_name in self.slider_value_labels:
             self._sync_slider_label(field_name)
+        self._refresh_settings_overview()
 
     def _collect_form_values(self) -> dict[str, Any]:
         """Read the current form state back out of Tk widgets into plain Python values."""
@@ -1660,6 +2028,17 @@ class DesktopWorkbench:
         if profile_name and not values.get("profile_name"):
             values["profile_name"] = profile_name
         return values
+
+    def _set_text_widget_value(self, widget: tk.Text, text: str) -> None:
+        """Write text into a Tk text widget, temporarily unlocking read-only widgets when needed."""
+
+        previous_state = str(widget.cget("state"))
+        if previous_state == "disabled":
+            widget.configure(state="normal")
+        widget.delete("1.0", tk.END)
+        widget.insert("1.0", text)
+        if previous_state == "disabled":
+            widget.configure(state="disabled")
 
     def _load_config_file(self) -> None:
         """Open a JSON config file and hydrate the form with its validated values."""
@@ -1791,6 +2170,7 @@ class DesktopWorkbench:
                 elif message_type == "error":
                     self._set_status(f"Run failed: {payload}")
                     self._append_log(f"ERROR | {payload}")
+                    messagebox.showerror("Run failed", str(payload))
         except queue.Empty:
             pass
         # Tkinter stays responsive because the worker communicates only through this queued pump.
@@ -1818,6 +2198,11 @@ class DesktopWorkbench:
         self.current_result = result
         status = result.get("run_status", "completed")
         self._set_status(f"Run finished with status: {status}")
+        run_error = str(result.get("run_error", "") or "").strip()
+        if status == "stopped" and run_error:
+            messagebox.showwarning("Run stopped", run_error)
+        elif status != "completed" and run_error:
+            messagebox.showerror(f"Run status: {status}", run_error)
         self._load_dataframe_into_tree("all_papers", Path(str(result.get("papers_csv", config.results_dir / "papers.csv"))))
         self._load_dataframe_into_tree("included_papers", Path(str(result.get("included_papers_csv", config.results_dir / "included_papers.csv"))))
         self._load_dataframe_into_tree("excluded_papers", Path(str(result.get("excluded_papers_csv", config.results_dir / "excluded_papers.csv"))))

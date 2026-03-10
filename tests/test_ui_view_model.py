@@ -32,6 +32,8 @@ class UIViewModelTests(unittest.TestCase):
                 "analysis_passes": "fast|huggingface_local|72|strict|8|Qwen/Qwen3-14B|0\ndeep|openai_compatible|85|triage|12|gpt-5.4|70",
                 "llm_temperature": "0.25",
                 "huggingface_model": "Qwen/Qwen3-14B",
+                "gemini_model": "gemini-2.5-flash",
+                "gemini_api_key": "gem-key",
                 "log_http_requests": True,
                 "log_screening_decisions": True,
             }
@@ -51,6 +53,8 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(config.analysis_passes[1].min_input_score, 70.0)
         self.assertEqual(config.api_settings.llm_temperature, 0.25)
         self.assertEqual(config.api_settings.huggingface_model, "Qwen/Qwen3-14B")
+        self.assertEqual(config.api_settings.gemini_model, "gemini-2.5-flash")
+        self.assertEqual(config.api_settings.gemini_api_key, "gem-key")
         self.assertTrue(config.log_http_requests)
         self.assertTrue(config.log_screening_decisions)
 
@@ -111,7 +115,7 @@ class UIViewModelTests(unittest.TestCase):
             "discovery_strategy": "broad",
             "max_discovered_records": 80,
             "min_discovered_records": 4,
-            "api_settings": {"huggingface_model": "Qwen/Qwen3-14B"},
+            "api_settings": {"huggingface_model": "Qwen/Qwen3-14B", "gemini_model": "gemini-2.5-flash"},
         }
 
         values = config_payload_to_form_values(payload)
@@ -121,6 +125,7 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(values["discovery_strategy"], "broad")
         self.assertEqual(values["max_discovered_records"], 80)
         self.assertEqual(values["min_discovered_records"], 4)
+        self.assertEqual(values["gemini_model"], "gemini-2.5-flash")
 
     def test_default_form_values_cover_all_runtime_config_fields(self) -> None:
         values = default_form_values()

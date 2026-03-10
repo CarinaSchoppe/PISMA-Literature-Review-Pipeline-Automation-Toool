@@ -90,6 +90,71 @@ class OpenAICompatibleLLMClient(BaseLLMClient):
         )
 
 
+class GeminiLLMClient(BaseLLMClient):
+    """Client for Google's Gemini GenerateContent API."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        model: str,
+        api_key: str,
+        temperature: float,
+        timeout_seconds: int,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.api_key = api_key
+        self.temperature = temperature
+        self.timeout_seconds = timeout_seconds
+        self.enabled = True
+        self.provider_name = "gemini"
+        self.session = build_session(
+            "PRISMA-Literature-Review/1.0",
+            extra_headers={"Content-Type": "application/json"},
+        )
+        self.limiter = RateLimiter(calls_per_second=1.0)
+
+    def chat(self, *, system_prompt: str, user_prompt: str) -> LLMResponse:
+        """Submit a Gemini generateContent request and normalize the first text response."""
+
+        payload = request_json(
+            self.session,
+            "POST",
+            f"{self.base_url}/models/{self.model}:generateContent",
+            limiter=self.limiter,
+            timeout=max(60, self.timeout_seconds),
+            params={"key": self.api_key},
+            json={
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+                "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+                "generationConfig": {"temperature": self.temperature},
+            },
+        )
+        if not payload:
+            return LLMResponse(content=None, enabled=True, provider_name=self.provider_name)
+        return LLMResponse(
+            content=self._extract_text(payload),
+            enabled=True,
+            provider_name=self.provider_name,
+        )
+
+    def _extract_text(self, payload: dict[str, Any]) -> str | None:
+        """Flatten Gemini candidate parts into a single assistant text response."""
+
+        candidates = payload.get("candidates") or []
+        if not candidates:
+            return None
+        content = candidates[0].get("content") or {}
+        parts = content.get("parts") or []
+        chunks = [
+            str(part.get("text", "")).strip()
+            for part in parts
+            if isinstance(part, dict) and str(part.get("text", "")).strip()
+        ]
+        return "\n".join(chunks) or None
+
+
 def load_transformers_runtime() -> tuple[Any, Any]:
     """Import the optional local Hugging Face runtime on demand."""
 
@@ -229,6 +294,15 @@ def build_llm_client(config: ResearchConfig) -> BaseLLMClient:
             temperature=settings.llm_temperature,
             timeout_seconds=config.request_timeout_seconds,
             provider_name="openai_compatible",
+        )
+
+    if provider in {"auto", "gemini"} and settings.gemini_api_key:
+        return GeminiLLMClient(
+            base_url=settings.gemini_base_url,
+            model=settings.gemini_model,
+            api_key=settings.gemini_api_key,
+            temperature=settings.llm_temperature,
+            timeout_seconds=config.request_timeout_seconds,
         )
 
     if provider == "ollama":

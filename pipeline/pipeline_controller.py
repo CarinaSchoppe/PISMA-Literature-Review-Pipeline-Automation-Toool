@@ -644,6 +644,7 @@ class PipelineController:
         if analysis_pass.model_name:
             provider_model_field = {
                 "openai_compatible": "openai_model",
+                "gemini": "gemini_model",
                 "ollama": "ollama_model",
                 "huggingface_local": "huggingface_model",
             }.get(analysis_pass.llm_provider)
