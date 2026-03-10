@@ -355,3 +355,71 @@ class PipelineIntegrationTests(unittest.TestCase):
             self.assertEqual(result["run_status"], "failed_min_discovered_records")
             papers = pd.read_csv(root / "results" / "papers.csv")
             self.assertTrue(papers["inclusion_decision"].isna().all())
+
+    def test_skip_discovery_can_analyze_existing_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            base_kwargs = {
+                "research_topic": "AI-assisted literature reviews",
+                "search_keywords": ["large language models", "screening", "systematic review"],
+                "pages_to_retrieve": 1,
+                "results_per_page": 10,
+                "year_range_start": 2020,
+                "year_range_end": 2026,
+                "max_papers_to_analyze": 5,
+                "openalex_enabled": False,
+                "semantic_scholar_enabled": False,
+                "crossref_enabled": False,
+                "include_pubmed": False,
+                "disable_progress_bars": True,
+                "fixture_data_path": Path("tests/fixtures/offline_papers.json"),
+                "data_dir": root / "data",
+                "papers_dir": root / "papers",
+                "results_dir": root / "results",
+                "database_path": root / "data" / "literature_review.db",
+            }
+
+            collect_config = ResearchConfig(
+                **base_kwargs,
+                run_mode="collect",
+                citation_snowballing_enabled=False,
+            ).finalize()
+            analyze_config = ResearchConfig(
+                **{**base_kwargs, "fixture_data_path": None},
+                run_mode="analyze",
+                skip_discovery=True,
+                citation_snowballing_enabled=True,
+                llm_provider="heuristic",
+                relevance_threshold=50,
+            ).finalize()
+
+            PipelineController(collect_config).run()
+            result = PipelineController(analyze_config).run()
+
+            self.assertEqual(result["run_status"], "completed")
+            papers = pd.read_csv(root / "results" / "papers.csv")
+            self.assertTrue(papers["inclusion_decision"].notna().any())
+
+    def test_controller_can_stop_before_work_begins(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = ResearchConfig(
+                research_topic="AI-assisted literature reviews",
+                search_keywords=["large language models", "screening", "systematic review"],
+                openalex_enabled=False,
+                semantic_scholar_enabled=False,
+                crossref_enabled=False,
+                include_pubmed=False,
+                disable_progress_bars=True,
+                fixture_data_path=Path("tests/fixtures/offline_papers.json"),
+                data_dir=root / "data",
+                papers_dir=root / "papers",
+                results_dir=root / "results",
+                database_path=root / "data" / "literature_review.db",
+            ).finalize()
+
+            controller = PipelineController(config)
+            controller.request_stop()
+            result = controller.run()
+
+            self.assertEqual(result["run_status"], "stopped")

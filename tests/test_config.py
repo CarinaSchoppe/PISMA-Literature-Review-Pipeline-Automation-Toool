@@ -86,6 +86,7 @@ class ConfigTests(unittest.TestCase):
                 "20",
                 "--max-papers",
                 "10",
+                "--skip-discovery",
                 "--citation-snowballing",
                 "--threshold",
                 "70",
@@ -98,10 +99,24 @@ class ConfigTests(unittest.TestCase):
                 "--no-include-pubmed",
                 "--llm-provider",
                 "huggingface_local",
+                "--semantic-scholar-api-key",
+                "sem-key",
+                "--crossref-mailto",
+                "carina@example.com",
+                "--unpaywall-email",
+                "carina@example.com",
+                "--springer-api-key",
+                "springer-key",
+                "--openai-api-key",
+                "openai-key",
                 "--openai-model",
                 "gpt-5.4",
                 "--ollama-model",
                 "gpt-oss:20b",
+                "--ollama-api-key",
+                "ollama-key",
+                "--llm-temperature",
+                "0.2",
                 "--huggingface-model",
                 "openai/gpt-oss-20b",
                 "--huggingface-max-new-tokens",
@@ -136,13 +151,21 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(config.springer_enabled)
         self.assertTrue(config.arxiv_enabled)
         self.assertEqual(config.llm_provider, "huggingface_local")
+        self.assertEqual(config.api_settings.semantic_scholar_api_key, "sem-key")
+        self.assertEqual(config.api_settings.crossref_mailto, "carina@example.com")
+        self.assertEqual(config.api_settings.unpaywall_email, "carina@example.com")
+        self.assertEqual(config.api_settings.springer_api_key, "springer-key")
+        self.assertEqual(config.api_settings.openai_api_key, "openai-key")
         self.assertEqual(config.api_settings.openai_model, "gpt-5.4")
         self.assertEqual(config.api_settings.ollama_model, "gpt-oss:20b")
+        self.assertEqual(config.api_settings.ollama_api_key, "ollama-key")
+        self.assertEqual(config.api_settings.llm_temperature, 0.2)
         self.assertEqual(config.api_settings.huggingface_model, "openai/gpt-oss-20b")
         self.assertEqual(config.api_settings.huggingface_max_new_tokens, 512)
         self.assertEqual(config.discovery_strategy, "broad")
         self.assertEqual(config.max_discovered_records, 250)
         self.assertEqual(config.min_discovered_records, 20)
+        self.assertTrue(config.skip_discovery)
         self.assertTrue(config.download_pdfs)
         self.assertEqual(config.pdf_download_mode, "relevant_only")
         self.assertTrue(config.log_http_requests)

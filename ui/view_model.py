@@ -74,6 +74,7 @@ SCALAR_FIELD_DEFAULTS: dict[str, Any] = {
 
 BOOLEAN_FIELD_DEFAULTS = {
     "citation_snowballing_enabled": True,
+    "skip_discovery": False,
     "download_pdfs": False,
     "analyze_full_text": False,
     "output_csv": True,
@@ -135,6 +136,7 @@ def config_to_form_values(config: ResearchConfig) -> dict[str, Any]:
             "max_discovered_records": config.max_discovered_records or "",
             "min_discovered_records": config.min_discovered_records,
             "max_papers_to_analyze": config.max_papers_to_analyze,
+            "skip_discovery": config.skip_discovery,
             "relevance_threshold": config.relevance_threshold,
             "pdf_download_mode": config.pdf_download_mode,
             "full_text_max_chars": config.full_text_max_chars,
@@ -245,6 +247,7 @@ def form_values_to_config(values: dict[str, Any]) -> ResearchConfig:
         max_discovered_records=as_int("max_discovered_records"),
         min_discovered_records=as_int("min_discovered_records", 0) or 0,
         max_papers_to_analyze=as_int("max_papers_to_analyze", 50) or 50,
+        skip_discovery=as_bool("skip_discovery"),
         citation_snowballing_enabled=as_bool("citation_snowballing_enabled"),
         relevance_threshold=as_float("relevance_threshold", 70.0),
         download_pdfs=as_bool("download_pdfs"),
