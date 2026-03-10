@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 from config import ApiSettings, ResearchConfig
@@ -39,6 +40,25 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("Gemini", self.workbench._help_text_for_field("gemini_model"))
         self.assertIn("rate", self.workbench._help_text_for_field("semantic_scholar_calls_per_second").lower())
         self.assertIn("cache", self.workbench._help_text_for_field("clear_screening_cache").lower())
+        self.assertIn("If you set this to Yes", self.workbench._help_text_for_field("download_pdfs"))
+        self.assertIn("If you set this to No", self.workbench._help_text_for_field("download_pdfs"))
+        self.assertIn("Available choices", self.workbench._help_text_for_field("llm_provider"))
+        self.assertIn("Example path", self.workbench._help_text_for_field("database_path"))
+        self.assertIn("What higher values do", self.workbench._help_text_for_field("relevance_threshold"))
+
+    def test_core_user_facing_files_are_english_only(self) -> None:
+        paths = (
+            Path("README.md"),
+            Path("HANDBOOK.md"),
+            Path("config.py"),
+            Path("main.py"),
+            Path("ui/desktop_app.py"),
+            Path("ui/view_model.py"),
+        )
+        forbidden_terms = (" beispiel", " erklaer", " erklär", " deutsch", " englisch", " ja ", " nein ")
+        for path in paths:
+            text = path.read_text(encoding="utf-8-sig").lower()
+            self.assertEqual([term for term in forbidden_terms if term in text], [], str(path))
 
     def test_output_labels_are_explicit_in_settings_ui(self) -> None:
         self.assertEqual(self.workbench.LABELS["boolean_operators"], "Boolean operators")

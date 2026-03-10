@@ -795,6 +795,121 @@ class DesktopWorkbench:
         ),
     }
 
+    FIELD_HELP_EXAMPLES = {
+        "database_path": "C:/reviews/llm_review/review.db",
+        "results_dir": "C:/reviews/llm_review/results",
+        "papers_dir": "C:/reviews/llm_review/papers/all_pdfs",
+        "relevant_pdfs_dir": "C:/reviews/llm_review/papers/relevant_only",
+        "manual_source_path": "C:/imports/manual_records.csv",
+        "google_scholar_import_path": "C:/imports/google_scholar_export.csv",
+        "researchgate_import_path": "C:/imports/researchgate_export.json",
+        "openai_model": "gpt-5.4",
+        "gemini_model": "gemini-2.5-flash",
+        "ollama_model": "qwen3:8b",
+        "huggingface_model": "Qwen/Qwen3-14B",
+        "llm_provider": "Choose Gemini when you want Google's hosted model, or choose heuristic for a no-LLM baseline.",
+        "run_mode": "Use collect when you only want metadata, and use analyze when you want screening, ranking, and reports.",
+        "pdf_download_mode": "Use relevant_only when you want to save disk space and download PDFs only for papers that pass screening.",
+        "relevance_threshold": "An 85 threshold means a paper usually needs to be a strong topical match before it is kept.",
+        "maybe_threshold_margin": "With threshold 85 and margin 10, papers scoring 75-84 can remain in the maybe band.",
+        "openai_api_key": "Paste the provider key from your OpenAI-compatible dashboard.",
+        "gemini_api_key": "Paste the API key from Google AI Studio or your Gemini deployment.",
+        "semantic_scholar_api_key": "Paste the authenticated key when you want higher limits than anonymous access.",
+    }
+
+    BOOLEAN_HELP_OVERRIDES = {
+        "download_pdfs": (
+            "When this is Yes, the pipeline tries to download open-access PDFs into the configured PDF folders.",
+            "When this is No, the run keeps metadata, scores, and links only, and does not write PDF files.",
+        ),
+        "output_csv": (
+            "When this is Yes, tabular outputs such as papers.csv, included_papers.csv, and excluded_papers.csv are written.",
+            "When this is No, CSV files are skipped even if other report formats are enabled.",
+        ),
+        "output_sqlite_exports": (
+            "When this is Yes, separate included/excluded export databases are created in addition to the main runtime database.",
+            "When this is No, only the main runtime SQLite database is maintained.",
+        ),
+        "citation_snowballing_enabled": (
+            "When this is Yes, the pipeline expands the seed set with references and citing papers after initial discovery.",
+            "When this is No, only the directly discovered seed records are screened.",
+        ),
+        "skip_discovery": (
+            "When this is Yes, the run skips new API discovery and starts from records already stored for the current query.",
+            "When this is No, the run performs fresh discovery against the enabled sources before screening.",
+        ),
+        "analyze_full_text": (
+            "When this is Yes, extracted PDF text is added to title and abstract screening when a PDF is available.",
+            "When this is No, screening decisions use title and abstract only.",
+        ),
+        "resume_mode": (
+            "When this is Yes, the pipeline reuses prior progress and avoids repeating finished work where possible.",
+            "When this is No, the run behaves like a fresh execution for the current configuration.",
+        ),
+        "reset_query_records": (
+            "When this is Yes, previously stored papers for the current query are deleted before the new run starts.",
+            "When this is No, existing query rows remain in place and can be reused or merged with new results.",
+        ),
+        "clear_screening_cache": (
+            "When this is Yes, cached screening results for the current review context are removed before the run starts.",
+            "When this is No, cached screening decisions may be reused when the context still matches.",
+        ),
+        "disable_progress_bars": (
+            "When this is Yes, console progress bars are hidden, which can make logs easier to read or easier to capture.",
+            "When this is No, progress bars remain visible during long discovery, download, and screening stages.",
+        ),
+    }
+
+    CHOICE_HELP_OVERRIDES = {
+        "llm_provider": (
+            "The provider decides which screening engine evaluates papers and where model calls are sent.",
+            "Changing this setting changes which API keys, model names, and runtime controls matter for the run.",
+        ),
+        "run_mode": (
+            "Run mode decides how far the pipeline continues after discovery.",
+            "Collect is useful for building a corpus first, while analyze is the full end-to-end review pipeline.",
+        ),
+        "pdf_download_mode": (
+            "This setting decides whether PDFs are downloaded immediately for every discoverable paper or only after a paper passes screening.",
+            "Use relevant_only when storage matters or when you do not want rejected papers downloaded.",
+        ),
+        "verbosity": (
+            "Verbosity controls how much operational detail appears in the console and GUI log window.",
+            "Debug is the most detailed setting and is best when you are auditing API traffic or model behavior.",
+        ),
+        "decision_mode": (
+            "Decision mode changes how strict the keep versus maybe boundary is during screening.",
+            "Strict is best when you want a smaller, cleaner shortlist; triage is better when you want to review borderline papers manually.",
+        ),
+        "discovery_strategy": (
+            "Discovery strategy controls how aggressively the system expands or narrows search queries.",
+            "Broad usually improves recall, while precise reduces noise and API traffic.",
+        ),
+    }
+
+    NUMERIC_HELP_OVERRIDES = {
+        "relevance_threshold": (
+            "Higher values make the keep decision stricter, so fewer borderline papers survive screening.",
+            "Lower values broaden the shortlist and are useful when you prefer manual review after screening.",
+        ),
+        "maybe_threshold_margin": (
+            "Higher values create a wider maybe zone below the main threshold.",
+            "Lower values force papers to be either clearly kept or clearly excluded more often.",
+        ),
+        "pages_to_retrieve": (
+            "Higher values ask each source for more result pages, which can improve recall but increases runtime and API traffic.",
+            "Lower values keep runs faster and cheaper when you are exploring a topic or testing settings.",
+        ),
+        "results_per_page": (
+            "Higher values request larger batches from each source API.",
+            "Lower values can be gentler on rate-limited APIs and make early stopping kick in sooner.",
+        ),
+        "max_workers": (
+            "Higher values allow more concurrent work in IO-bound stages such as discovery and PDF preparation.",
+            "Lower values reduce pressure on local hardware and remote services when you need a conservative run.",
+        ),
+    }
+
     def __init__(self, args: Any) -> None:
         self.args = args
         self.root = tk.Tk()
@@ -1566,19 +1681,120 @@ class DesktopWorkbench:
         """Return the explanatory hover text for one settings field."""
 
         if field_name in self.FIELD_HELP_TEXTS:
-            return self.FIELD_HELP_TEXTS[field_name]
+            base_text = self.FIELD_HELP_TEXTS[field_name]
+            return self._expand_help_text(field_name, base_text)
         label = self.LABELS.get(field_name, field_name.replace("_", " ").replace("-", " ").title())
         if field_name.endswith(("_dir", "_path")):
-            return f"Filesystem location used for {label.lower()}."
+            return self._expand_help_text(field_name, f"Filesystem location used for {label.lower()}.")
         if field_name.endswith("_api_key"):
-            return f"Credential used for {label.lower()}. Leave it blank if the provider is not enabled."
+            return self._expand_help_text(
+                field_name,
+                f"Credential used for {label.lower()}. Leave it blank if the provider is not enabled.",
+            )
         if field_name.startswith("output_"):
-            return f"Toggle whether {label.lower()} artifacts are written after the run."
+            return self._expand_help_text(field_name, f"Toggle whether {label.lower()} artifacts are written after the run.")
         if field_name.startswith("log_"):
-            return f"Toggle whether {label.lower()} details are shown in verbose or debug logging."
+            return self._expand_help_text(
+                field_name,
+                f"Toggle whether {label.lower()} details are shown in verbose or debug logging.",
+            )
         if field_name in BOOLEAN_FIELD_DEFAULTS or field_name.endswith("_enabled"):
-            return f"Turn {label.lower()} on or off for this run."
-        return f"Configure {label.lower()} for this run. This value is saved into profiles and JSON configs."
+            return self._expand_help_text(field_name, f"Turn {label.lower()} on or off for this run.")
+        return self._expand_help_text(
+            field_name,
+            f"Configure {label.lower()} for this run. This value is saved into profiles and JSON configs.",
+        )
+
+    def _expand_help_text(self, field_name: str, base_text: str) -> str:
+        """Expand one help entry into a fuller English explanation with behavior notes and examples."""
+
+        parts = [base_text.rstrip(".") + "."]
+        label = self.LABELS.get(field_name, field_name.replace("_", " ").replace("-", " ").title())
+
+        if field_name in self.SECRET_FIELDS or field_name.endswith("_api_key"):
+            example = self.FIELD_HELP_EXAMPLES.get(field_name, f"Paste the key for {label.lower()} here.")
+            parts.append(
+                "Purpose: store the credential used when this provider or service is active. The value is masked in the GUI."
+            )
+            parts.append(
+                "If you leave it blank, authenticated requests may fail, run with lower limits, or the related provider may be skipped."
+            )
+            parts.append(f"Example: {example}")
+            return " ".join(parts)
+
+        if field_name.endswith(("_dir", "_path")):
+            example = self.FIELD_HELP_EXAMPLES.get(field_name, f"C:/reviews/example/{field_name}")
+            parts.append(
+                "Purpose: control where the pipeline reads inputs from or writes outputs to on disk."
+            )
+            parts.append(
+                "Changing this value changes the filesystem location used by the current run and by any profile saved from it."
+            )
+            parts.append(f"Example path: {example}")
+            return " ".join(parts)
+
+        if field_name in BOOLEAN_FIELD_DEFAULTS or field_name.endswith("_enabled") or field_name.startswith("output_"):
+            enabled_disabled = self.BOOLEAN_HELP_OVERRIDES.get(
+                field_name,
+                (
+                    f"When this is Yes, {label.lower()} is enabled for the current run.",
+                    f"When this is No, {label.lower()} is disabled for the current run.",
+                ),
+            )
+            example = self.FIELD_HELP_EXAMPLES.get(
+                field_name,
+                f"Example: choose Yes when you want {label.lower()} to affect this run, or No when you want it skipped.",
+            )
+            parts.append(f"If you set this to Yes: {enabled_disabled[0]}")
+            parts.append(f"If you set this to No: {enabled_disabled[1]}")
+            if not example.startswith("Example:"):
+                example = f"Example: {example}"
+            parts.append(example)
+            return " ".join(parts)
+
+        if field_name in self.RADIO_FIELDS or field_name in self.COMBOBOX_FIELDS:
+            options = self.RADIO_FIELDS.get(field_name) or self.COMBOBOX_FIELDS.get(field_name) or []
+            if options:
+                parts.append(f"Available choices: {', '.join(str(option) for option in options)}.")
+            choice_help = self.CHOICE_HELP_OVERRIDES.get(
+                field_name,
+                (
+                    f"This setting changes how {label.lower()} behaves for the current run.",
+                    "Pick the choice that matches the behavior you want to prioritize.",
+                ),
+            )
+            parts.append(f"What changes: {choice_help[0]}")
+            parts.append(choice_help[1])
+            example = self.FIELD_HELP_EXAMPLES.get(field_name)
+            if example:
+                if not example.startswith("Example:"):
+                    example = f"Example: {example}"
+                parts.append(example)
+            return " ".join(parts)
+
+        if field_name in self.SLIDER_FIELDS or field_name in self.SPINBOX_FIELDS or field_name in self.FLOAT_SPINBOX_FIELDS:
+            numeric_help = self.NUMERIC_HELP_OVERRIDES.get(
+                field_name,
+                (
+                    f"Higher values usually make {label.lower()} more aggressive or more permissive, depending on the setting.",
+                    "Lower values usually make the run more conservative, faster, or stricter.",
+                ),
+            )
+            parts.append(f"What higher values do: {numeric_help[0]}")
+            parts.append(f"What lower values do: {numeric_help[1]}")
+            example = self.FIELD_HELP_EXAMPLES.get(field_name)
+            if example:
+                if not example.startswith("Example:"):
+                    example = f"Example: {example}"
+                parts.append(example)
+            return " ".join(parts)
+
+        example = self.FIELD_HELP_EXAMPLES.get(field_name)
+        if example:
+            if not example.startswith("Example:"):
+                example = f"Example: {example}"
+            parts.append(example)
+        return " ".join(parts)
 
     def _build_settings_quick_access(self, parent: ttk.LabelFrame) -> None:
         """Create searchable shortcuts and live summaries for the most requested settings."""

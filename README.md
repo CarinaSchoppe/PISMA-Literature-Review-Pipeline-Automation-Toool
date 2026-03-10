@@ -104,6 +104,7 @@ The guided desktop workbench provides:
 
 - startup launcher with guided UI or classic console wizard
 - a refreshed light theme with higher-contrast tabs, accent actions, danger-stop styling, and cleaner tables
+- English-only visible text across the GUI, CLI prompts, handbook entries, hover help, and status guidance
 - settings pages:
   - `Review Setup`
   - `Discovery`
@@ -115,7 +116,7 @@ The guided desktop workbench provides:
 - `Show advanced settings` toggle so lower-level runtime options stay out of the way until needed
 - quick-access controls for the most-used model and output settings
 - searchable `Handbook` tab
-- hover help and keyboard-focus help for settings
+- hover help and keyboard-focus help for settings, with detailed English explanations that describe the purpose of each flag, what changes when a switch is on or off, and concrete examples for common workflows
 - live `Run Log` tab
 - result tabs for:
   - `All Papers`

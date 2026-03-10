@@ -1,6 +1,7 @@
 ﻿# Project Handbook
 
 This handbook is the operator guide for the PRISMA Literature Review Pipeline.
+All user-facing documentation, GUI labels, GUI help text, and CLI prompts are intentionally written in English only.
 
 Use it when you want one place that explains:
 
@@ -102,6 +103,7 @@ Important visibility behavior:
 - each settings page is vertically scrollable
 - `Connections and Keys` is the dedicated page for provider URLs, API keys, Crossref mailto, and Unpaywall email
 - `Advanced Runtime` stays hidden until `Show advanced settings` is enabled or a search jump opens one of its fields
+- hover help, handbook entries, and focus help use expanded English explanations that describe the purpose of a setting, what happens when the setting is enabled or disabled, and a practical example where useful
 
 Toolbar actions:
 
