@@ -131,6 +131,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
     def test_settings_layout_uses_navigation_and_inspector_tabs(self) -> None:
         self.assertEqual(set(self.workbench.settings_nav_buttons.keys()), {name for name, _ in self.workbench.SETTINGS_PAGES})
         self.assertIsNotNone(self.workbench.settings_tools_notebook)
+        self.assertIsNotNone(self.workbench.settings_panedwindow)
         self.assertIsNotNone(self.workbench.quick_destination_combo)
         self.assertIsNotNone(self.workbench.guide_choice_combo)
 
@@ -139,6 +140,10 @@ class DesktopWorkbenchTests(unittest.TestCase):
         ]
         self.assertEqual(inspector_labels, ["Find", "Quick Edit", "Guides", "Summary"])
         self.assertEqual(self.workbench.active_settings_page_var.get(), "Review Setup")
+        self.assertEqual(
+            self.workbench.active_settings_page_description_var.get(),
+            self.workbench.SETTINGS_PAGE_DESCRIPTIONS["Review Setup"],
+        )
         self.assertIn("Model provider and pass chain", tuple(self.workbench.quick_destination_combo["values"]))
         self.assertIn("Output guide", tuple(self.workbench.guide_choice_combo["values"]))
 
@@ -178,7 +183,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
 
     def test_theme_styles_are_configured_for_modern_toolbar_and_tabs(self) -> None:
         self.assertEqual(self.workbench.active_theme, "clam")
-        self.assertEqual(self.workbench.root.cget("bg"), self.workbench.PALETTE["window_bg"])
+        self.assertEqual(self.workbench.root.cget("bg"), self.workbench.PALETTE["shell_bg"])
         self.assertEqual(self.workbench.toolbar_buttons["Start Run"].cget("style"), "Accent.TButton")
         self.assertEqual(self.workbench.toolbar_buttons["Analyze Stored Results"].cget("style"), "Secondary.TButton")
         self.assertEqual(self.workbench.toolbar_buttons["Force Stop"].cget("style"), "Danger.TButton")
@@ -296,6 +301,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
     def test_quick_access_contains_direct_model_and_storage_controls(self) -> None:
         frame = self.workbench.quick_access_controls_frame
         self.assertIsNotNone(frame)
+        self.assertEqual(frame.master.winfo_class(), "Canvas")
 
         visible_texts: list[str] = []
         for child in _walk_widgets(frame):
@@ -308,8 +314,11 @@ class DesktopWorkbenchTests(unittest.TestCase):
 
         joined = " ".join(visible_texts)
         self.assertIn("Edit Pass Chain", joined)
+        self.assertIn("Thresholds and decisions", joined)
         self.assertIn("Download paper PDFs", joined)
         self.assertIn("Write SQLite exports", joined)
+        self.assertIn("Write JSON exports", joined)
+        self.assertIn("Write Markdown summary", joined)
         self.assertNotIn("Jump to Thresholds", joined)
         self.assertNotIn("Open Connections and Keys", joined)
         self.assertIn("provider keys stay on Connections and Keys", joined)

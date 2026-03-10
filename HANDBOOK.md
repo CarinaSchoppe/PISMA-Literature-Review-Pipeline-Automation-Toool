@@ -103,10 +103,12 @@ Settings layout:
 - the left rail is the primary page navigation for the settings workflow
 - the center pane keeps the current settings page in focus
 - the right inspector contains `Find`, `Quick Edit`, `Guides`, and `Summary` tabs so secondary tools do not overwhelm the main form
+- the three settings panes are resizable, so you can give more space to the editor or inspector when needed
 
 Important visibility behavior:
 
 - each settings page is vertically scrollable
+- the `Quick Edit` inspector tab is also scrollable when its cards exceed the visible window height
 - `Connections and Keys` is the dedicated page for provider URLs, API keys, Crossref mailto, and Unpaywall email
 - `Advanced Runtime` stays hidden until `Show advanced settings` is enabled or a search jump opens one of its fields
 - hover help, handbook entries, and focus help use expanded English explanations that describe the purpose of a setting, what happens when the setting is enabled or disabled, and a practical example where useful
@@ -136,7 +138,7 @@ Boolean fields usually support both forms:
 - `--download-pdfs`
 - `--no-download-pdfs`
 
-The GUI exposes the same underlying settings as checkboxes, dropdowns, sliders, spinboxes, path pickers, scrollable settings pages, and a search box that can reveal hidden advanced pages automatically.
+The GUI exposes the same underlying settings as checkboxes, dropdowns, sliders, spinboxes, path pickers, resizable panes, scrollable settings pages, a scrollable quick-edit panel, and a search box that can reveal hidden advanced pages automatically.
 
 If in doubt, the authoritative sources are:
 

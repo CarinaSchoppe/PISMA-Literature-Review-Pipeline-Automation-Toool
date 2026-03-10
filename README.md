@@ -118,14 +118,34 @@ py -3 main.py
 
 The guided workbench includes:
 
-* workflow-oriented settings pages
-* searchable handbook/help access
-* hover and focus explanations for settings
-* live run logs
-* result tabs for all, included, excluded, and output artifacts
-* path pickers for database, output, cache, and PDF locations
-* stored-result re-analysis
-* controlled stop requests via `Force Stop`
+- startup launcher with guided UI or classic console wizard
+- a refreshed light theme with higher-contrast tabs, accent actions, danger-stop styling, and cleaner tables
+- English-only visible text across the GUI, CLI prompts, handbook entries, hover help, and status guidance
+- settings pages:
+  - `Review Setup`
+  - `Discovery`
+  - `AI Screening`
+  - `Connections and Keys`
+  - `Storage and Output`
+  - `Advanced Runtime`
+- a left-hand page rail so the settings follow the review workflow instead of one long stacked panel
+- a resizable three-pane settings shell, so you can widen the editor or the inspector instead of being stuck with one fixed layout
+- a right-hand inspector with dedicated `Find`, `Quick Edit`, `Guides`, and `Summary` tabs
+- scrollable settings pages and a scrollable quick-edit panel so the window stays usable on smaller screens
+- `Show advanced settings` toggle so lower-level runtime options stay out of the way until needed
+- quick-edit controls for the most-used model, threshold, and output settings, without forcing every option onto the main form at once
+- searchable `Handbook` tab
+- hover help and keyboard-focus help for settings, with detailed English explanations that describe the purpose of each flag, what changes when a switch is on or off, and concrete examples for common workflows
+- live `Run Log` tab
+- result tabs for:
+  - `All Papers`
+  - `Included`
+  - `Excluded`
+  - `Outputs`
+- `Analyze Stored Results` button to skip discovery and rerun screening/reporting
+- `Force Stop` button for controlled stop requests
+- path pickers for database, results, PDF, cache, and import paths
+- error pop-ups for invalid configuration, failed runs, stopped runs, and invalid paths
 
 The GUI is not a separate implementation. It edits the same validated runtime configuration used by the CLI.
 

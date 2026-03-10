@@ -94,17 +94,24 @@ class DesktopWorkbench:
     """Tkinter workbench for guided configuration and result inspection."""
 
     PALETTE = {
-        "window_bg": "#f4f7fb",
+        "window_bg": "#edf2f9",
+        "shell_bg": "#e8eef7",
         "surface_bg": "#ffffff",
-        "muted_surface": "#eef3f9",
-        "border": "#d5dfeb",
-        "text": "#17324d",
-        "muted_text": "#5d7188",
-        "accent": "#1f6feb",
-        "accent_active": "#1557b0",
+        "surface_alt": "#f7faff",
+        "muted_surface": "#edf3fb",
+        "sidebar_bg": "#f2f6fd",
+        "inspector_bg": "#f8fbff",
+        "border": "#d2ddeb",
+        "border_strong": "#bfd0e6",
+        "shadow": "#dde8f6",
+        "text": "#18324d",
+        "muted_text": "#5e738b",
+        "accent": "#2563eb",
+        "accent_active": "#1d4ed8",
+        "accent_soft": "#dce8ff",
         "danger": "#c0392b",
         "danger_active": "#992d22",
-        "selection": "#dce9ff",
+        "selection": "#e4eeff",
     }
 
     SETTINGS_PAGES = [
@@ -923,8 +930,8 @@ class DesktopWorkbench:
         self.args = args
         self.root = tk.Tk()
         self.root.title("PRISMA Literature Review Workbench")
-        self.root.geometry("1220x780")
-        self.root.minsize(1000, 680)
+        self.root.geometry("1180x760")
+        self.root.minsize(920, 640)
         self.style = ttk.Style(self.root)
         self.active_theme = self._configure_theme()
         self.profile_manager = ProfileManager()
@@ -958,6 +965,7 @@ class DesktopWorkbench:
         self.handbook_text: scrolledtext.ScrolledText | None = None
         self.settings_pages_notebook: ttk.Notebook | None = None
         self.settings_tools_notebook: ttk.Notebook | None = None
+        self.settings_panedwindow: ttk.Panedwindow | None = None
         self.settings_page_frames: dict[str, ttk.Frame] = {}
         self.settings_page_content_frames: dict[str, ttk.Frame] = {}
         self.settings_page_canvases: dict[str, tk.Canvas] = {}
@@ -973,7 +981,11 @@ class DesktopWorkbench:
         self.model_summary_text: scrolledtext.ScrolledText | None = None
         self.output_summary_text: scrolledtext.ScrolledText | None = None
         self.active_settings_page_var = tk.StringVar(value="Review Setup")
+        self.active_settings_page_description_var = tk.StringVar(
+            value=self.SETTINGS_PAGE_DESCRIPTIONS.get("Review Setup", "")
+        )
         self.slider_value_labels: dict[str, ttk.Label] = {}
+        self.slider_value_label_groups: dict[str, list[ttk.Label]] = {}
         self.base_status_message = "Ready."
         self.status_var = tk.StringVar(value=self.base_status_message)
         self.hover_help_enabled = tk.BooleanVar(value=True)
@@ -1010,16 +1022,18 @@ class DesktopWorkbench:
         heading_font = tkfont.nametofont("TkHeadingFont")
         heading_font.configure(family="Segoe UI Semibold", size=10)
 
-        self.root.configure(background=self.PALETTE["window_bg"])
-        self.root.option_add("*Background", self.PALETTE["window_bg"])
+        self.root.configure(background=self.PALETTE["shell_bg"])
+        self.root.option_add("*Background", self.PALETTE["shell_bg"])
         self.root.option_add("*Foreground", self.PALETTE["text"])
         self.root.option_add("*Text.background", self.PALETTE["surface_bg"])
         self.root.option_add("*Text.foreground", self.PALETTE["text"])
         self.root.option_add("*Text.insertBackground", self.PALETTE["text"])
 
-        self.style.configure(".", background=self.PALETTE["window_bg"], foreground=self.PALETTE["text"])
-        self.style.configure("TFrame", background=self.PALETTE["window_bg"])
+        self.style.configure(".", background=self.PALETTE["shell_bg"], foreground=self.PALETTE["text"])
+        self.style.configure("TFrame", background=self.PALETTE["shell_bg"])
+        self.style.configure("Shell.TFrame", background=self.PALETTE["shell_bg"])
         self.style.configure("Surface.TFrame", background=self.PALETTE["surface_bg"])
+        self.style.configure("Panel.TFrame", background=self.PALETTE["surface_bg"])
         self.style.configure(
             "Header.TFrame",
             background=self.PALETTE["surface_bg"],
@@ -1028,11 +1042,19 @@ class DesktopWorkbench:
         )
         self.style.configure(
             "Sidebar.TFrame",
-            background=self.PALETTE["window_bg"],
+            background=self.PALETTE["sidebar_bg"],
+        )
+        self.style.configure(
+            "Inspector.TFrame",
+            background=self.PALETTE["inspector_bg"],
+        )
+        self.style.configure(
+            "PageHero.TFrame",
+            background=self.PALETTE["surface_alt"],
         )
         self.style.configure(
             "TLabel",
-            background=self.PALETTE["window_bg"],
+            background=self.PALETTE["surface_bg"],
             foreground=self.PALETTE["text"],
             font=("Segoe UI", 10),
         )
@@ -1050,9 +1072,34 @@ class DesktopWorkbench:
         )
         self.style.configure(
             "Muted.TLabel",
-            background=self.PALETTE["window_bg"],
+            background=self.PALETTE["shell_bg"],
             foreground=self.PALETTE["muted_text"],
             font=("Segoe UI", 10),
+        )
+        self.style.configure(
+            "PageTitle.TLabel",
+            background=self.PALETTE["surface_alt"],
+            foreground=self.PALETTE["text"],
+            font=("Segoe UI Semibold", 14),
+        )
+        self.style.configure(
+            "PageBody.TLabel",
+            background=self.PALETTE["surface_alt"],
+            foreground=self.PALETTE["muted_text"],
+            font=("Segoe UI", 10),
+        )
+        self.style.configure(
+            "Kicker.TLabel",
+            background=self.PALETTE["surface_alt"],
+            foreground=self.PALETTE["accent"],
+            font=("Segoe UI Semibold", 9),
+        )
+        self.style.configure(
+            "Pill.TLabel",
+            background=self.PALETTE["accent_soft"],
+            foreground=self.PALETTE["accent_active"],
+            font=("Segoe UI Semibold", 9),
+            padding=(10, 6),
         )
         self.style.configure(
             "Status.TLabel",
@@ -1065,7 +1112,7 @@ class DesktopWorkbench:
         self.style.configure(
             "TLabelframe",
             background=self.PALETTE["surface_bg"],
-            bordercolor=self.PALETTE["border"],
+            bordercolor=self.PALETTE["border_strong"],
             relief="solid",
             borderwidth=1,
             padding=10,
@@ -1079,7 +1126,7 @@ class DesktopWorkbench:
         self.style.configure(
             "Card.TLabelframe",
             background=self.PALETTE["surface_bg"],
-            bordercolor=self.PALETTE["border"],
+            bordercolor=self.PALETTE["border_strong"],
             relief="solid",
             borderwidth=1,
             padding=12,
@@ -1091,10 +1138,38 @@ class DesktopWorkbench:
             font=("Segoe UI Semibold", 10),
         )
         self.style.configure(
+            "Sidebar.TLabelframe",
+            background=self.PALETTE["sidebar_bg"],
+            bordercolor=self.PALETTE["border_strong"],
+            relief="solid",
+            borderwidth=1,
+            padding=12,
+        )
+        self.style.configure(
+            "Sidebar.TLabelframe.Label",
+            background=self.PALETTE["sidebar_bg"],
+            foreground=self.PALETTE["text"],
+            font=("Segoe UI Semibold", 10),
+        )
+        self.style.configure(
+            "Inspector.TLabelframe",
+            background=self.PALETTE["inspector_bg"],
+            bordercolor=self.PALETTE["border_strong"],
+            relief="solid",
+            borderwidth=1,
+            padding=12,
+        )
+        self.style.configure(
+            "Inspector.TLabelframe.Label",
+            background=self.PALETTE["inspector_bg"],
+            foreground=self.PALETTE["text"],
+            font=("Segoe UI Semibold", 10),
+        )
+        self.style.configure(
             "Workbench.TNotebook",
-            background=self.PALETTE["window_bg"],
+            background=self.PALETTE["shell_bg"],
             borderwidth=0,
-            tabmargins=(0, 0, 0, 0),
+            tabmargins=(0, 6, 0, 0),
         )
         self.style.configure(
             "Workbench.TNotebook.Tab",
@@ -1105,7 +1180,7 @@ class DesktopWorkbench:
         )
         self.style.map(
             "Workbench.TNotebook.Tab",
-            background=[("selected", self.PALETTE["surface_bg"]), ("active", self.PALETTE["selection"])],
+            background=[("selected", self.PALETTE["surface_bg"]), ("active", self.PALETTE["accent_soft"])],
             foreground=[("selected", self.PALETTE["text"]), ("active", self.PALETTE["text"])],
         )
         self.style.configure(
@@ -1126,6 +1201,7 @@ class DesktopWorkbench:
             "Accent.TButton",
             background=self.PALETTE["accent"],
             foreground="#ffffff",
+            padding=(14, 9),
         )
         self.style.map(
             "Accent.TButton",
@@ -1134,32 +1210,33 @@ class DesktopWorkbench:
         )
         self.style.configure(
             "Secondary.TButton",
-            background=self.PALETTE["surface_bg"],
+            background=self.PALETTE["surface_alt"],
             foreground=self.PALETTE["text"],
             borderwidth=1,
             relief="solid",
+            padding=(12, 8),
         )
         self.style.map(
             "Secondary.TButton",
-            background=[("active", self.PALETTE["selection"])],
+            background=[("active", self.PALETTE["accent_soft"])],
         )
         self.style.configure(
             "Nav.TButton",
-            background=self.PALETTE["surface_bg"],
+            background=self.PALETTE["sidebar_bg"],
             foreground=self.PALETTE["text"],
-            padding=(14, 10),
+            padding=(14, 11),
             borderwidth=1,
             relief="solid",
         )
         self.style.map(
             "Nav.TButton",
-            background=[("active", self.PALETTE["selection"])],
+            background=[("active", self.PALETTE["accent_soft"])],
         )
         self.style.configure(
             "SelectedNav.TButton",
             background=self.PALETTE["accent"],
             foreground="#ffffff",
-            padding=(14, 10),
+            padding=(14, 11),
             borderwidth=0,
         )
         self.style.map(
@@ -1171,6 +1248,7 @@ class DesktopWorkbench:
             "Danger.TButton",
             background=self.PALETTE["danger"],
             foreground="#ffffff",
+            padding=(14, 9),
         )
         self.style.map(
             "Danger.TButton",
@@ -1179,7 +1257,7 @@ class DesktopWorkbench:
         )
         self.style.configure(
             "TCheckbutton",
-            background=self.PALETTE["window_bg"],
+            background=self.PALETTE["surface_bg"],
             foreground=self.PALETTE["text"],
             font=("Segoe UI", 10),
         )
@@ -1223,7 +1301,7 @@ class DesktopWorkbench:
         self.style.configure(
             "Tooltip.TFrame",
             background=self.PALETTE["surface_bg"],
-            bordercolor=self.PALETTE["border"],
+            bordercolor=self.PALETTE["border_strong"],
             relief="solid",
             borderwidth=1,
         )
@@ -1296,6 +1374,7 @@ class DesktopWorkbench:
         page_name = self.settings_pages_notebook.tab(current_tab, "text")
         self.settings_canvas = self.settings_page_canvases.get(page_name)
         self.active_settings_page_var.set(page_name)
+        self.active_settings_page_description_var.set(self.SETTINGS_PAGE_DESCRIPTIONS.get(page_name, ""))
         for name, button in self.settings_nav_buttons.items():
             button.configure(style="SelectedNav.TButton" if name == page_name else "Nav.TButton")
 
@@ -1477,51 +1556,103 @@ class DesktopWorkbench:
 
     def _build_settings_tab(self) -> None:
         """Render the grouped configuration form used to build a `ResearchConfig`."""
-        container = ttk.Frame(self.settings_tab, padding=12, style="Surface.TFrame")
+        container = ttk.Frame(self.settings_tab, padding=12, style="Shell.TFrame")
         container.pack(fill="both", expand=True)
-        container.columnconfigure(0, weight=0)
-        container.columnconfigure(1, weight=1)
-        container.columnconfigure(2, weight=0)
+        container.columnconfigure(0, weight=1)
         container.rowconfigure(1, weight=1)
 
+        hero = ttk.Frame(container, padding=16, style="PageHero.TFrame")
+        hero.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        hero.columnconfigure(0, weight=1)
+        hero.columnconfigure(1, weight=0)
+        ttk.Label(hero, text="Settings workspace", style="Kicker.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
-            container,
+            hero,
+            text="Configure the review one logical page at a time",
+            style="PageTitle.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        hero_body = ttk.Label(
+            hero,
             text=(
-                "Every CLI-relevant runtime setting is exposed here. Use the left page rail to move between logical "
-                "areas, keep the center focused on the current page, and use the right inspector for search, quick "
-                "edits, guides, and live summaries. Exports live on 'Storage and Output', API credentials live on "
-                "'Connections and Keys', and advanced runtime tuning stays hidden until you ask for it."
+                "Every CLI-relevant runtime setting is exposed here, but the layout is split into a page rail, a "
+                "focused editing canvas, and an inspector so the interface stays easier to scan. Storage paths live on "
+                "'Storage and Output', API credentials live on 'Connections and Keys', and advanced runtime tuning "
+                "stays hidden until you ask for it."
             ),
-            wraplength=1180,
+            wraplength=760,
             justify="left",
-            style="Muted.TLabel",
-        ).grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 10))
+            style="PageBody.TLabel",
+        )
+        hero_body.grid(row=2, column=0, sticky="w", pady=(8, 0))
+        hero_chip = ttk.Label(
+            hero,
+            text="Resizable panes  •  Scrollable settings pages  •  Compact jump menus",
+            style="Pill.TLabel",
+        )
+        hero_chip.grid(row=0, column=1, rowspan=3, sticky="ne", padx=(20, 0))
+        self._bind_hover_help(
+            hero_chip,
+            "You can resize the page rail, the main editor, and the inspector. The center pages scroll independently, "
+            "and common jumps stay in dropdown menus instead of a button wall.",
+        )
+        self._bind_hover_help(hero_body, "Overview of the guided settings workspace.")
 
-        left_sidebar = ttk.Frame(container, style="Sidebar.TFrame")
-        left_sidebar.grid(row=1, column=0, sticky="nsw", padx=(0, 12))
+        shell_panes = ttk.Panedwindow(container, orient="horizontal")
+        shell_panes.grid(row=1, column=0, sticky="nsew")
+        self.settings_panedwindow = shell_panes
+
+        left_sidebar = ttk.Frame(shell_panes, padding=12, style="Sidebar.TFrame")
         left_sidebar.rowconfigure(1, weight=1)
 
-        center_frame = ttk.Frame(container, style="Surface.TFrame")
-        center_frame.grid(row=1, column=1, sticky="nsew")
+        center_frame = ttk.Frame(shell_panes, padding=0, style="Panel.TFrame")
         center_frame.columnconfigure(0, weight=1)
         center_frame.rowconfigure(1, weight=1)
 
-        right_sidebar = ttk.Frame(container, style="Sidebar.TFrame")
-        right_sidebar.grid(row=1, column=2, sticky="nse", padx=(12, 0))
+        right_sidebar = ttk.Frame(shell_panes, padding=12, style="Inspector.TFrame")
         right_sidebar.rowconfigure(0, weight=1)
+
+        shell_panes.add(left_sidebar, weight=1)
+        shell_panes.add(center_frame, weight=4)
+        shell_panes.add(right_sidebar, weight=2)
 
         self._build_settings_navigation(left_sidebar)
 
-        page_header = ttk.LabelFrame(center_frame, text="Current settings page", padding=10, style="Card.TLabelframe")
+        page_header = ttk.Frame(center_frame, padding=14, style="PageHero.TFrame")
         page_header.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        page_header.columnconfigure(0, weight=1)
+        page_header.columnconfigure(1, weight=0)
+        ttk.Label(page_header, text="Current page", style="Kicker.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
             page_header,
             textvariable=self.active_settings_page_var,
-            style="HeroSubtitle.TLabel",
-        ).grid(row=0, column=0, sticky="w")
+            style="PageTitle.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        page_description = ttk.Label(
+            page_header,
+            textvariable=self.active_settings_page_description_var,
+            wraplength=720,
+            justify="left",
+            style="PageBody.TLabel",
+        )
+        page_description.grid(row=2, column=0, sticky="w", pady=(6, 0))
+        scroll_hint = ttk.Label(
+            page_header,
+            text="Use the mouse wheel or trackpad to scroll this page.",
+            style="Pill.TLabel",
+        )
+        scroll_hint.grid(row=0, column=1, rowspan=3, sticky="ne", padx=(16, 0))
         self._bind_hover_help(
             page_header,
             "This area keeps the currently selected settings page in focus so you can work page by page instead of scanning the whole form at once.",
+        )
+        self._bind_hover_help(
+            page_description,
+            "The description updates when you switch settings pages so the current context stays visible.",
+        )
+        self._bind_hover_help(
+            scroll_hint,
+            "The center pane scrolls independently. If the window is smaller than the page content, keep your cursor "
+            "over the center pane and scroll normally.",
         )
 
         page_notebook = ttk.Notebook(center_frame, style="Workbench.TNotebook")
@@ -1552,7 +1683,7 @@ class DesktopWorkbench:
             for row, section_name in enumerate(section_names, start=1):
                 self._render_settings_group(page_content, page_name, section_name, grouped_fields[section_name], row)
 
-        inspector = ttk.LabelFrame(right_sidebar, text="Inspector", padding=10, style="Card.TLabelframe")
+        inspector = ttk.LabelFrame(right_sidebar, text="Inspector", padding=10, style="Inspector.TLabelframe")
         inspector.grid(row=0, column=0, sticky="nsew")
         inspector.columnconfigure(0, weight=1)
         inspector.rowconfigure(0, weight=1)
@@ -1567,7 +1698,7 @@ class DesktopWorkbench:
 
         parent.columnconfigure(0, weight=1)
 
-        page_card = ttk.LabelFrame(parent, text="Settings pages", padding=10, style="Card.TLabelframe")
+        page_card = ttk.LabelFrame(parent, text="Settings pages", padding=10, style="Sidebar.TLabelframe")
         page_card.grid(row=0, column=0, sticky="new")
         page_card.columnconfigure(0, weight=1)
         ttk.Label(
@@ -1578,7 +1709,7 @@ class DesktopWorkbench:
             ),
             wraplength=240,
             justify="left",
-            style="Muted.TLabel",
+            style="PageBody.TLabel",
         ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
 
         for index, (page_name, _sections) in enumerate(self.SETTINGS_PAGES, start=1):
@@ -1595,13 +1726,13 @@ class DesktopWorkbench:
                 text=self.SETTINGS_PAGE_DESCRIPTIONS.get(page_name, ""),
                 wraplength=240,
                 justify="left",
-                style="Muted.TLabel",
+                style="PageBody.TLabel",
             )
             description.grid(row=index * 2, column=0, sticky="ew", pady=(0, 8))
             self._bind_hover_help(button, self.SETTINGS_PAGE_DESCRIPTIONS.get(page_name, page_name))
             self._bind_hover_help(description, self.SETTINGS_PAGE_DESCRIPTIONS.get(page_name, page_name))
 
-        hint_card = ttk.LabelFrame(parent, text="How to use this layout", padding=10, style="Card.TLabelframe")
+        hint_card = ttk.LabelFrame(parent, text="How to use this layout", padding=10, style="Sidebar.TLabelframe")
         hint_card.grid(row=1, column=0, sticky="sew", pady=(12, 0))
         ttk.Label(
             hint_card,
@@ -1611,7 +1742,7 @@ class DesktopWorkbench:
             ),
             wraplength=240,
             justify="left",
-            style="Muted.TLabel",
+            style="PageBody.TLabel",
         ).grid(row=0, column=0, sticky="ew")
         self._bind_hover_help(hint_card, "Layout guide for the Settings tab.")
 
@@ -1787,6 +1918,7 @@ class DesktopWorkbench:
         value_label = ttk.Label(container, width=8, anchor="e")
         value_label.grid(row=0, column=1, padx=(8, 0))
         self.slider_value_labels[field_name] = value_label
+        self.slider_value_label_groups.setdefault(field_name, []).append(value_label)
         self.scalar_vars[field_name] = variable
         self.field_input_widgets[field_name] = widget
         self.field_focus_widgets[field_name] = widget
@@ -2013,7 +2145,7 @@ class DesktopWorkbench:
             ),
             wraplength=320,
             justify="left",
-            style="Muted.TLabel",
+            style="PageBody.TLabel",
         )
         intro.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         self._bind_hover_help(
@@ -2041,7 +2173,7 @@ class DesktopWorkbench:
             text="Search by name, meaning, or effect to jump directly to the setting you need.",
             wraplength=300,
             justify="left",
-            style="Muted.TLabel",
+            style="PageBody.TLabel",
         ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         ttk.Label(find_tab, text="Find setting:").grid(row=1, column=0, sticky="w")
         search_entry = ttk.Entry(find_tab, textvariable=self.settings_search_var)
@@ -2082,7 +2214,7 @@ class DesktopWorkbench:
             text="Choose a common target and open it without filling the page with navigation buttons.",
             wraplength=300,
             justify="left",
-            style="Muted.TLabel",
+            style="PageBody.TLabel",
         ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
         self.quick_destination_combo = ttk.Combobox(
             destination_frame,
@@ -2108,9 +2240,30 @@ class DesktopWorkbench:
         self._bind_hover_help(destination_button, "Open the destination selected in the quick-destination list.")
 
         quick_tab.columnconfigure(0, weight=1)
-        controls_frame = ttk.Frame(quick_tab, style="Surface.TFrame")
-        controls_frame.grid(row=0, column=0, sticky="nsew")
+        quick_tab.rowconfigure(0, weight=1)
+        quick_canvas = tk.Canvas(
+            quick_tab,
+            background=self.PALETTE["surface_bg"],
+            highlightthickness=0,
+            borderwidth=0,
+        )
+        quick_scrollbar = ttk.Scrollbar(quick_tab, orient="vertical", command=quick_canvas.yview)
+        quick_canvas.configure(yscrollcommand=quick_scrollbar.set)
+        quick_canvas.grid(row=0, column=0, sticky="nsew")
+        quick_scrollbar.grid(row=0, column=1, sticky="ns")
+        controls_frame = ttk.Frame(quick_canvas, padding=(0, 0, 4, 0), style="Surface.TFrame")
         controls_frame.columnconfigure(0, weight=1)
+        quick_window = quick_canvas.create_window((0, 0), window=controls_frame, anchor="nw")
+        controls_frame.bind(
+            "<Configure>",
+            lambda _event, panel_canvas=quick_canvas: panel_canvas.configure(scrollregion=panel_canvas.bbox("all")),
+        )
+        quick_canvas.bind(
+            "<Configure>",
+            lambda event, panel_canvas=quick_canvas, window_id=quick_window: panel_canvas.itemconfigure(window_id, width=event.width),
+        )
+        for widget in (quick_tab, quick_canvas, controls_frame):
+            widget.bind("<Enter>", lambda _event, panel_canvas=quick_canvas: self._activate_settings_canvas(panel_canvas), add="+")
         self.quick_access_controls_frame = controls_frame
 
         guides_tab.columnconfigure(0, weight=1)
@@ -2119,7 +2272,7 @@ class DesktopWorkbench:
             text="Open the focused handbook entries when you need a deeper explanation or examples.",
             wraplength=300,
             justify="left",
-            style="Muted.TLabel",
+            style="PageBody.TLabel",
         ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
         self.guide_choice_combo = ttk.Combobox(
             guides_tab,
@@ -2152,7 +2305,7 @@ class DesktopWorkbench:
             text="Use these summaries to confirm which models and output paths will be used before you start a run.",
             wraplength=300,
             justify="left",
-            style="Muted.TLabel",
+            style="PageBody.TLabel",
         ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
         model_frame = ttk.LabelFrame(summary_tab, text="Current Model Setup", padding=8, style="Card.TLabelframe")
         model_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 8))
@@ -2174,6 +2327,7 @@ class DesktopWorkbench:
         frame = getattr(self, "quick_access_controls_frame", None)
         if frame is None:
             return
+        self.slider_value_label_groups = {field_name: [label] for field_name, label in self.slider_value_labels.items()}
         for child in frame.winfo_children():
             child.destroy()
 
@@ -2185,7 +2339,7 @@ class DesktopWorkbench:
             ),
             wraplength=300,
             justify="left",
-            style="Muted.TLabel",
+            style="PageBody.TLabel",
         ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
 
         def add_label(parent: ttk.Frame, row: int, column: int, field_name: str) -> None:
@@ -2233,7 +2387,7 @@ class DesktopWorkbench:
             ),
             wraplength=300,
             justify="left",
-            style="Muted.TLabel",
+            style="PageBody.TLabel",
         )
         helper_label.grid(row=1, column=0, columnspan=3, sticky="ew", padx=4, pady=(0, 6))
         self._bind_hover_help(
@@ -2256,8 +2410,72 @@ class DesktopWorkbench:
             widget.grid(row=row, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
             self._bind_hover_help(widget, self._help_text_for_field(field_name))
 
+        thresholds_card = ttk.LabelFrame(frame, text="Thresholds and decisions", padding=8, style="Card.TLabelframe")
+        thresholds_card.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        thresholds_card.columnconfigure(1, weight=1)
+        thresholds_card.columnconfigure(2, weight=1)
+        thresholds_card.columnconfigure(3, weight=1)
+        threshold_helper = ttk.Label(
+            thresholds_card,
+            text=(
+                "Keep the core screening cutoffs close at hand. Lower values broaden the shortlist, while higher "
+                "values make the AI keep decision stricter."
+            ),
+            wraplength=300,
+            justify="left",
+            style="PageBody.TLabel",
+        )
+        threshold_helper.grid(row=0, column=0, columnspan=4, sticky="ew", padx=4, pady=(0, 6))
+        self._bind_hover_help(threshold_helper, "Quick access to the most-used screening thresholds and decision rules.")
+
+        add_label(thresholds_card, 1, 0, "relevance_threshold")
+        relevance_slider = ttk.Scale(
+            thresholds_card,
+            from_=self.SLIDER_FIELDS["relevance_threshold"]["from_"],
+            to=self.SLIDER_FIELDS["relevance_threshold"]["to"],
+            variable=self.scalar_vars["relevance_threshold"],
+            command=lambda _value: self._sync_slider_label("relevance_threshold"),
+        )
+        relevance_slider.grid(row=1, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
+        relevance_value = ttk.Label(thresholds_card, width=8, anchor="e")
+        relevance_value.grid(row=1, column=3, sticky="e", padx=4, pady=4)
+        self._bind_hover_help(relevance_slider, self._help_text_for_field("relevance_threshold"))
+        self.slider_value_label_groups.setdefault("relevance_threshold", []).append(relevance_value)
+
+        add_label(thresholds_card, 2, 0, "maybe_threshold_margin")
+        maybe_slider = ttk.Scale(
+            thresholds_card,
+            from_=self.SLIDER_FIELDS["maybe_threshold_margin"]["from_"],
+            to=self.SLIDER_FIELDS["maybe_threshold_margin"]["to"],
+            variable=self.scalar_vars["maybe_threshold_margin"],
+            command=lambda _value: self._sync_slider_label("maybe_threshold_margin"),
+        )
+        maybe_slider.grid(row=2, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
+        maybe_value = ttk.Label(thresholds_card, width=8, anchor="e")
+        maybe_value.grid(row=2, column=3, sticky="e", padx=4, pady=4)
+        self._bind_hover_help(maybe_slider, self._help_text_for_field("maybe_threshold_margin"))
+        self.slider_value_label_groups.setdefault("maybe_threshold_margin", []).append(maybe_value)
+
+        add_label(thresholds_card, 3, 0, "decision_mode")
+        decision_mode_widget = ttk.Combobox(
+            thresholds_card,
+            textvariable=self.scalar_vars["decision_mode"],
+            values=self.RADIO_FIELDS["decision_mode"],
+            state="readonly",
+        )
+        decision_mode_widget.grid(row=3, column=1, sticky="ew", padx=4, pady=4)
+        self._bind_hover_help(decision_mode_widget, self._help_text_for_field("decision_mode"))
+
+        full_text_widget = ttk.Checkbutton(
+            thresholds_card,
+            text=self.LABELS["analyze_full_text"],
+            variable=self.scalar_vars["analyze_full_text"],
+        )
+        full_text_widget.grid(row=3, column=2, columnspan=2, sticky="w", padx=4, pady=4)
+        self._bind_hover_help(full_text_widget, self._help_text_for_field("analyze_full_text"))
+
         outputs_card = ttk.LabelFrame(frame, text="Outputs and storage", padding=8, style="Card.TLabelframe")
-        outputs_card.grid(row=2, column=0, sticky="ew")
+        outputs_card.grid(row=3, column=0, sticky="ew")
         outputs_card.columnconfigure(1, weight=1)
         outputs_card.columnconfigure(2, weight=1)
         outputs_card.columnconfigure(3, weight=1)
@@ -2290,8 +2508,18 @@ class DesktopWorkbench:
             variable=self.scalar_vars["output_sqlite_exports"],
         )
         sqlite_widget.grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        json_widget = ttk.Checkbutton(outputs_card, text=self.LABELS["output_json"], variable=self.scalar_vars["output_json"])
+        json_widget.grid(row=1, column=2, sticky="w", padx=4, pady=4)
+        markdown_widget = ttk.Checkbutton(
+            outputs_card,
+            text=self.LABELS["output_markdown"],
+            variable=self.scalar_vars["output_markdown"],
+        )
+        markdown_widget.grid(row=1, column=3, sticky="w", padx=4, pady=4)
         self._bind_hover_help(csv_widget, self._help_text_for_field("output_csv"))
         self._bind_hover_help(sqlite_widget, self._help_text_for_field("output_sqlite_exports"))
+        self._bind_hover_help(json_widget, self._help_text_for_field("output_json"))
+        self._bind_hover_help(markdown_widget, self._help_text_for_field("output_markdown"))
 
         add_path_control(outputs_card, 2, "database_path")
         add_path_control(outputs_card, 3, "results_dir")
@@ -2457,15 +2685,21 @@ class DesktopWorkbench:
         """Keep the slider value label in sync with the underlying Tk variable."""
 
         variable = self.scalar_vars.get(field_name)
-        label = self.slider_value_labels.get(field_name)
-        if variable is None or label is None:
+        labels = self.slider_value_label_groups.get(field_name, [])
+        if field_name in self.slider_value_labels:
+            labels = [self.slider_value_labels[field_name], *[label for label in labels if label is not self.slider_value_labels[field_name]]]
+        if variable is None or not labels:
             return
         try:
             value = float(variable.get())
         except (TypeError, ValueError):
             return
         formatted = self._format_slider_value(field_name, value)
-        label.configure(text=formatted)
+        for label in labels:
+            try:
+                label.configure(text=formatted)
+            except tk.TclError:
+                continue
         self._refresh_settings_overview()
 
     def _register_settings_observers(self) -> None:
@@ -2480,7 +2714,7 @@ class DesktopWorkbench:
     def _handle_setting_change(self, field_name: str) -> None:
         """Update derived UI state after one scalar setting changes."""
 
-        if field_name in self.slider_value_labels:
+        if field_name in self.slider_value_label_groups or field_name in self.slider_value_labels:
             self._sync_slider_label(field_name)
             return
         self._refresh_settings_overview()
@@ -3101,7 +3335,7 @@ class DesktopWorkbench:
             self._set_text_widget_value(widget, str(values.get(field_name, "")))
         for field_name, variable in self.scalar_vars.items():
             variable.set(values.get(field_name, variable.get()))
-        for field_name in self.slider_value_labels:
+        for field_name in self.slider_value_label_groups:
             self._sync_slider_label(field_name)
         self._refresh_settings_overview()
 

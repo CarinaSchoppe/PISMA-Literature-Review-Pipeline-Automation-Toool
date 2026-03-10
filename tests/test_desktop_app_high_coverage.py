@@ -262,6 +262,11 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         with patch.object(self.workbench, "_focus_field") as focus_mock:
             self.workbench._open_selected_destination()
         focus_mock.assert_called_once_with("verbosity")
+        self.workbench._focus_field("verbosity")
+        self.assertEqual(
+            self.workbench.active_settings_page_description_var.get(),
+            self.workbench.SETTINGS_PAGE_DESCRIPTIONS["Advanced Runtime"],
+        )
 
         self.workbench.guide_choice_var.set("")
         with patch.object(self.workbench, "_open_handbook_entry") as open_mock:
