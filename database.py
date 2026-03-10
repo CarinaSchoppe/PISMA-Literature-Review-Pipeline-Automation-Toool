@@ -1,22 +1,28 @@
+"""SQLite persistence layer for papers, cached screening runs, and incremental resume support."""
+
 from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
+from models.paper import PaperMetadata, ScreeningResult
 from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, create_engine, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
-from models.paper import PaperMetadata, ScreeningResult
 from utils.text_processing import canonical_doi
 
 
 class Base(DeclarativeBase):
+    """Shared SQLAlchemy declarative base for the local SQLite schema."""
+
     pass
 
 
 class PaperRecord(Base):
+    """ORM mapping for normalized paper metadata and screening outcomes."""
+
     __tablename__ = "papers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -54,6 +60,8 @@ class PaperRecord(Base):
 
 
 class ScreeningCacheRecord(Base):
+    """ORM mapping for reusable screening results keyed by paper fingerprint and context."""
+
     __tablename__ = "screening_cache"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -76,19 +84,27 @@ class ScreeningCacheRecord(Base):
 
 
 class DatabaseManager:
+    """High-level repository for storing, updating, and reusing pipeline artifacts."""
+
     def __init__(self, database_path: Path) -> None:
         self.database_path = Path(database_path)
         self.engine = create_engine(f"sqlite:///{self.database_path}", future=True)
         self.SessionLocal = sessionmaker(bind=self.engine, expire_on_commit=False, class_=Session)
 
     def initialize(self) -> None:
+        """Create the schema and apply lightweight forward-only compatibility migrations."""
+
         Base.metadata.create_all(self.engine)
         self._ensure_schema()
 
     def close(self) -> None:
+        """Dispose of the SQLAlchemy engine and close all pooled connections."""
+
         self.engine.dispose()
 
     def upsert_papers(self, papers: Iterable[PaperMetadata], query_key: str) -> list[PaperMetadata]:
+        """Insert new papers or merge them into existing rows for the active query."""
+
         stored: list[PaperMetadata] = []
         with self.SessionLocal() as session:
             for paper in papers:
@@ -106,6 +122,8 @@ class DatabaseManager:
         return stored
 
     def get_papers_for_query(self, query_key: str) -> list[PaperMetadata]:
+        """Load all papers associated with one query key from the database."""
+
         with self.SessionLocal() as session:
             stmt = select(PaperRecord).where(PaperRecord.query_key == query_key)
             return [self._record_to_model(record) for record in session.scalars(stmt).all()]
@@ -117,6 +135,8 @@ class DatabaseManager:
         resume_mode: bool = True,
         screening_context_key: str | None = None,
     ) -> list[PaperMetadata]:
+        """Return the highest-priority papers that still require screening work."""
+
         with self.SessionLocal() as session:
             stmt = select(PaperRecord).where(PaperRecord.query_key == query_key)
             stmt = stmt.order_by(PaperRecord.citation_count.desc(), PaperRecord.year.desc().nullslast()).limit(limit)
@@ -141,6 +161,8 @@ class DatabaseManager:
         result: ScreeningResult,
         screening_details: dict[str, Any] | None = None,
     ) -> None:
+        """Persist the final screening result for one paper row."""
+
         with self.SessionLocal() as session:
             record = session.get(PaperRecord, database_id)
             if record is None:
@@ -160,6 +182,8 @@ class DatabaseManager:
         paper_cache_key: str,
         screening_context_key: str,
     ) -> tuple[ScreeningResult, dict[str, Any]] | None:
+        """Load a cached screening payload for a paper fingerprint and context, if available."""
+
         with self.SessionLocal() as session:
             stmt = (
                 select(ScreeningCacheRecord)
@@ -178,6 +202,8 @@ class DatabaseManager:
             return ScreeningResult(**payload), payload
 
     def get_cached_screening_result(self, paper_cache_key: str, screening_context_key: str) -> ScreeningResult | None:
+        """Return only the cached screening result object without the full metadata payload."""
+
         cached = self.get_cached_screening_entry(paper_cache_key, screening_context_key)
         if cached is None:
             return None
@@ -192,6 +218,8 @@ class DatabaseManager:
         result: ScreeningResult,
         screening_details: dict[str, Any] | None = None,
     ) -> None:
+        """Store or refresh a reusable screening cache entry."""
+
         with self.SessionLocal() as session:
             stmt = (
                 select(ScreeningCacheRecord)
@@ -222,6 +250,8 @@ class DatabaseManager:
             session.commit()
 
     def update_pdf_info(self, database_id: int, *, pdf_link: str | None, pdf_path: str | None, open_access: bool) -> None:
+        """Persist resolved PDF metadata for a paper already stored in SQLite."""
+
         with self.SessionLocal() as session:
             record = session.get(PaperRecord, database_id)
             if record is None:
@@ -232,6 +262,8 @@ class DatabaseManager:
             session.commit()
 
     def update_citations(self, database_id: int, references: list[str], citations: list[str]) -> None:
+        """Persist reference and citation labels collected during snowballing."""
+
         with self.SessionLocal() as session:
             record = session.get(PaperRecord, database_id)
             if record is None:
@@ -243,11 +275,15 @@ class DatabaseManager:
             session.commit()
 
     def count_papers(self, query_key: str) -> int:
+        """Count all stored papers for one query key."""
+
         with self.SessionLocal() as session:
             stmt = select(PaperRecord).where(PaperRecord.query_key == query_key)
             return len(session.scalars(stmt).all())
 
     def get_decision_counts(self, query_key: str) -> dict[str, int]:
+        """Summarize inclusion decisions for reporting and UI display."""
+
         papers = self.get_papers_for_query(query_key)
         counts = {"include": 0, "exclude": 0, "maybe": 0, "unreviewed": 0}
         for paper in papers:
@@ -256,6 +292,8 @@ class DatabaseManager:
         return counts
 
     def _find_existing(self, session: Session, query_key: str, paper: PaperMetadata) -> PaperRecord | None:
+        """Find an existing row by DOI first and normalized title second."""
+
         if paper.doi:
             stmt = select(PaperRecord).where(
                 PaperRecord.query_key == query_key,
@@ -271,6 +309,8 @@ class DatabaseManager:
         return session.scalars(stmt).first()
 
     def _create_record(self, paper: PaperMetadata, query_key: str) -> PaperRecord:
+        """Map a validated paper model into a new ORM record."""
+
         return PaperRecord(
             query_key=query_key,
             normalized_title=paper.normalized_title,
@@ -300,6 +340,8 @@ class DatabaseManager:
         )
 
     def _merge_record(self, record: PaperRecord, paper: PaperMetadata) -> None:
+        """Merge new metadata into an existing ORM row without losing earlier fields."""
+
         existing_model = self._record_to_model(record)
         merged = existing_model.merge_with(paper)
         record.normalized_title = merged.normalized_title
@@ -323,6 +365,8 @@ class DatabaseManager:
             record.screening_details_json = json.dumps(merged.screening_details)
 
     def _record_to_model(self, record: PaperRecord) -> PaperMetadata:
+        """Convert an ORM row back into the pipeline's Pydantic model."""
+
         return PaperMetadata(
             database_id=record.id,
             query_key=record.query_key,
@@ -352,6 +396,8 @@ class DatabaseManager:
         )
 
     def _ensure_schema(self) -> None:
+        """Apply additive schema migrations for databases created by earlier project versions."""
+
         required_columns = {
             "papers": {
                 "screening_details_json": "TEXT DEFAULT '{}'",
@@ -359,6 +405,7 @@ class DatabaseManager:
         }
         with self.engine.begin() as connection:
             for table_name, columns in required_columns.items():
+                # The project intentionally keeps migrations simple and append-only for local SQLite files.
                 existing = {
                     row[1]
                     for row in connection.execute(text(f"PRAGMA table_info({table_name})")).fetchall()

@@ -1,12 +1,19 @@
+"""Application entrypoint for headless runs, the console launcher, and the desktop UI."""
+
 from __future__ import annotations
 
 import logging
+import sys
 
 from config import ResearchConfig, build_arg_parser
 from pipeline.pipeline_controller import PipelineController
+from ui.launcher import LaunchMode, has_explicit_run_arguments, prompt_for_launch_mode
+from utils.http import configure_http_logging
 
 
 def configure_logging(level_name: str) -> None:
+    """Configure process-wide logging to match the selected verbosity level."""
+
     level_map = {
         "quiet": logging.WARNING,
         "normal": logging.INFO,
@@ -19,11 +26,15 @@ def configure_logging(level_name: str) -> None:
     )
 
 
-def main() -> int:
-    parser = build_arg_parser()
-    args = parser.parse_args()
+def _run_headless(args) -> int:
+    """Execute the pipeline without the guided desktop workbench."""
+
     config = ResearchConfig.from_cli(args)
     configure_logging(config.verbosity)
+    configure_http_logging(
+        enabled=config.log_http_requests,
+        log_payloads=config.log_http_payloads,
+    )
     controller = PipelineController(config)
     result = controller.run()
 
@@ -48,6 +59,30 @@ def main() -> int:
     for key, label in output_labels.items():
         if key in result:
             print(f"{label}: {result[key]}")
+    return 0
+
+
+def main() -> int:
+    """Dispatch into UI, wizard, or direct CLI execution based on startup arguments."""
+
+    parser = build_arg_parser()
+    args = parser.parse_args()
+
+    if args.ui:
+        from ui.desktop_app import launch_desktop_app
+
+        return launch_desktop_app(args)
+
+    if args.wizard or has_explicit_run_arguments(args, sys.argv[1:]):
+        return _run_headless(args)
+
+    mode = prompt_for_launch_mode()
+    if mode == LaunchMode.GUIDED_DESKTOP:
+        from ui.desktop_app import launch_desktop_app
+
+        return launch_desktop_app(args)
+    if mode == LaunchMode.CLASSIC_WIZARD:
+        return _run_headless(args)
     return 0
 
 

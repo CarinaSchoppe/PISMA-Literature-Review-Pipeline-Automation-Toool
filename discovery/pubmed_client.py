@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from typing import Any
+
+from models.paper import PaperMetadata
 
 from config import ResearchConfig
-from models.paper import PaperMetadata
 from utils.http import RateLimiter, build_session, request_json
 from utils.text_processing import chunked, normalize_text, safe_year
 
@@ -21,31 +21,40 @@ class PubMedClient:
     def search(self) -> list[PaperMetadata]:
         if not self.config.include_pubmed:
             return []
-        search_term = (
-            f"({self.config.search_query}) AND "
-            f"({self.config.year_range_start}:{self.config.year_range_end}[pdat])"
-        )
-        payload = request_json(
-            self.session,
-            "GET",
-            self.SEARCH_URL,
-            limiter=self.limiter,
-            timeout=self.config.request_timeout_seconds,
-            params={
-                "db": "pubmed",
-                "retmode": "json",
-                "retmax": self.config.per_source_limit,
-                "term": search_term,
-            },
-        )
-        if not payload:
-            return []
-        pmids = payload.get("esearchresult", {}).get("idlist", [])
-        if not pmids:
-            return []
         papers: list[PaperMetadata] = []
-        for batch in chunked(pmids, 100):
-            papers.extend(self._fetch_batch(batch))
+        seen_pmids: set[str] = set()
+        for query in self.config.discovery_queries:
+            search_term = (
+                f"({query}) AND "
+                f"({self.config.year_range_start}:{self.config.year_range_end}[pdat])"
+            )
+            payload = request_json(
+                self.session,
+                "GET",
+                self.SEARCH_URL,
+                limiter=self.limiter,
+                timeout=self.config.request_timeout_seconds,
+                params={
+                    "db": "pubmed",
+                    "retmode": "json",
+                    "retmax": self.config.per_source_limit,
+                    "term": search_term,
+                },
+            )
+            if not payload:
+                continue
+            pmids = [
+                pmid
+                for pmid in payload.get("esearchresult", {}).get("idlist", [])
+                if pmid not in seen_pmids
+            ]
+            seen_pmids.update(pmids)
+            for batch in chunked(pmids, 100):
+                papers.extend(self._fetch_batch(batch))
+                if len(papers) >= self.config.per_source_limit:
+                    break
+            if len(papers) >= self.config.per_source_limit:
+                break
         return papers[: self.config.per_source_limit]
 
     def _fetch_batch(self, pmids: list[str]) -> list[PaperMetadata]:

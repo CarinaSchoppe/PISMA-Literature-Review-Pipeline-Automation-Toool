@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from config import ResearchConfig
 from models.paper import PaperMetadata
+
+from config import ResearchConfig
 from utils.http import RateLimiter, build_session, request_json
 from utils.text_processing import safe_year, strip_markup
 
@@ -19,32 +20,35 @@ class CrossrefClient:
     def search(self) -> list[PaperMetadata]:
         papers: list[PaperMetadata] = []
         rows = self.config.results_per_page
-        for page in range(self.config.pages_to_retrieve):
-            offset = page * rows
-            params = {
-                "query.bibliographic": self.config.search_query,
-                "rows": rows,
-                "offset": offset,
-                "filter": (
-                    f"from-pub-date:{self.config.year_range_start}-01-01,"
-                    f"until-pub-date:{self.config.year_range_end}-12-31"
-                ),
-            }
-            if self.config.api_settings.crossref_mailto:
-                params["mailto"] = self.config.api_settings.crossref_mailto
-            payload = request_json(
-                self.session,
-                "GET",
-                self.BASE_URL,
-                limiter=self.limiter,
-                timeout=self.config.request_timeout_seconds,
-                params=params,
-            )
-            if not payload:
-                break
-            items = (payload.get("message") or {}).get("items", [])
-            papers.extend(self._parse_item(item) for item in items if item.get("title"))
-            if len(items) < rows:
+        for query in self.config.discovery_queries:
+            for page in range(self.config.pages_to_retrieve):
+                offset = page * rows
+                params = {
+                    "query.bibliographic": query,
+                    "rows": rows,
+                    "offset": offset,
+                    "filter": (
+                        f"from-pub-date:{self.config.year_range_start}-01-01,"
+                        f"until-pub-date:{self.config.year_range_end}-12-31"
+                    ),
+                }
+                if self.config.api_settings.crossref_mailto:
+                    params["mailto"] = self.config.api_settings.crossref_mailto
+                payload = request_json(
+                    self.session,
+                    "GET",
+                    self.BASE_URL,
+                    limiter=self.limiter,
+                    timeout=self.config.request_timeout_seconds,
+                    params=params,
+                )
+                if not payload:
+                    break
+                items = (payload.get("message") or {}).get("items", [])
+                papers.extend(self._parse_item(item) for item in items if item.get("title"))
+                if len(papers) >= self.config.per_source_limit or len(items) < rows:
+                    break
+            if len(papers) >= self.config.per_source_limit:
                 break
         return papers[: self.config.per_source_limit]
 
@@ -87,4 +91,3 @@ class CrossrefClient:
             external_ids={"doi": payload.get("DOI", "")},
             raw_payload=payload,
         )
-

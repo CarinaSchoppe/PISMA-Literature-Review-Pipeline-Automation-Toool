@@ -9,8 +9,34 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-
 LOGGER = logging.getLogger(__name__)
+HTTP_LOG_ENABLED = True
+HTTP_LOG_PAYLOADS = True
+
+
+def configure_http_logging(*, enabled: bool, log_payloads: bool) -> None:
+    """Configure HTTP request logging for the current process."""
+
+    global HTTP_LOG_ENABLED, HTTP_LOG_PAYLOADS
+    HTTP_LOG_ENABLED = enabled
+    HTTP_LOG_PAYLOADS = log_payloads
+
+
+def _sanitize_for_log(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            normalized_key = str(key).lower()
+            if any(token in normalized_key for token in ("authorization", "api_key", "apikey", "token")):
+                sanitized[key] = "***REDACTED***"
+            else:
+                sanitized[key] = _sanitize_for_log(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_for_log(item) for item in value]
+    if isinstance(value, str) and len(value) > 500:
+        return value[:500] + "...<truncated>"
+    return value
 
 
 class RateLimiter:
@@ -58,12 +84,26 @@ def request_json(
 ) -> Any:
     if limiter:
         limiter.wait()
+    if HTTP_LOG_ENABLED:
+        LOGGER.info(
+            "HTTP %s %s params=%s",
+            method,
+            url,
+            _sanitize_for_log(kwargs.get("params")),
+        )
+        if HTTP_LOG_PAYLOADS and "json" in kwargs:
+            LOGGER.debug("HTTP %s payload=%s", url, _sanitize_for_log(kwargs.get("json")))
     try:
         response = session.request(method, url, timeout=timeout, **kwargs)
         response.raise_for_status()
+        if HTTP_LOG_ENABLED:
+            LOGGER.info("HTTP %s %s -> %s", method, url, response.status_code)
         if not response.content:
             return None
-        return response.json()
+        payload = response.json()
+        if HTTP_LOG_PAYLOADS:
+            LOGGER.debug("HTTP %s response=%s", url, _sanitize_for_log(payload))
+        return payload
     except requests.RequestException as exc:
         LOGGER.warning("Request failed for %s: %s", url, exc)
         return None
@@ -80,9 +120,13 @@ def request_content(
 ) -> requests.Response | None:
     if limiter:
         limiter.wait()
+    if HTTP_LOG_ENABLED:
+        LOGGER.info("HTTP GET %s", url)
     try:
         response = session.get(url, timeout=timeout, stream=stream, **kwargs)
         response.raise_for_status()
+        if HTTP_LOG_ENABLED:
+            LOGGER.info("HTTP GET %s -> %s", url, response.status_code)
         return response
     except requests.RequestException as exc:
         LOGGER.warning("Content download failed for %s: %s", url, exc)
@@ -100,10 +144,17 @@ def request_text(
 ) -> str | None:
     if limiter:
         limiter.wait()
+    if HTTP_LOG_ENABLED:
+        LOGGER.info("HTTP %s %s params=%s", method, url, _sanitize_for_log(kwargs.get("params")))
     try:
         response = session.request(method, url, timeout=timeout, **kwargs)
         response.raise_for_status()
-        return response.text
+        if HTTP_LOG_ENABLED:
+            LOGGER.info("HTTP %s %s -> %s", method, url, response.status_code)
+        text = response.text
+        if HTTP_LOG_PAYLOADS and text:
+            LOGGER.debug("HTTP %s response=%s", url, _sanitize_for_log(text))
+        return text
     except requests.RequestException as exc:
         LOGGER.warning("Request failed for %s: %s", url, exc)
         return None

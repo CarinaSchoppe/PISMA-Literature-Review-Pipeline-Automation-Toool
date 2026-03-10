@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from config import ResearchConfig
 from models.paper import PaperMetadata
+
+from config import ResearchConfig
 from utils.http import RateLimiter, build_session, request_json
 from utils.text_processing import reconstruct_inverted_abstract
 
@@ -18,31 +19,34 @@ class OpenAlexClient:
 
     def search(self) -> list[PaperMetadata]:
         papers: list[PaperMetadata] = []
-        for page in range(1, self.config.pages_to_retrieve + 1):
-            params = {
-                "search": self.config.search_query,
-                "per-page": self.config.results_per_page,
-                "page": page,
-                "filter": (
-                    f"from_publication_date:{self.config.year_range_start}-01-01,"
-                    f"to_publication_date:{self.config.year_range_end}-12-31"
-                ),
-            }
-            if self.config.api_settings.crossref_mailto:
-                params["mailto"] = self.config.api_settings.crossref_mailto
-            payload = request_json(
-                self.session,
-                "GET",
-                self.BASE_URL,
-                limiter=self.limiter,
-                timeout=self.config.request_timeout_seconds,
-                params=params,
-            )
-            if not payload:
-                break
-            items = payload.get("results", [])
-            papers.extend(self._parse_work(item) for item in items if item.get("display_name"))
-            if len(items) < self.config.results_per_page:
+        for query in self.config.discovery_queries:
+            for page in range(1, self.config.pages_to_retrieve + 1):
+                params = {
+                    "search": query,
+                    "per-page": self.config.results_per_page,
+                    "page": page,
+                    "filter": (
+                        f"from_publication_date:{self.config.year_range_start}-01-01,"
+                        f"to_publication_date:{self.config.year_range_end}-12-31"
+                    ),
+                }
+                if self.config.api_settings.crossref_mailto:
+                    params["mailto"] = self.config.api_settings.crossref_mailto
+                payload = request_json(
+                    self.session,
+                    "GET",
+                    self.BASE_URL,
+                    limiter=self.limiter,
+                    timeout=self.config.request_timeout_seconds,
+                    params=params,
+                )
+                if not payload:
+                    break
+                items = payload.get("results", [])
+                papers.extend(self._parse_work(item) for item in items if item.get("display_name"))
+                if len(papers) >= self.config.per_source_limit or len(items) < self.config.results_per_page:
+                    break
+            if len(papers) >= self.config.per_source_limit:
                 break
         return papers[: self.config.per_source_limit]
 

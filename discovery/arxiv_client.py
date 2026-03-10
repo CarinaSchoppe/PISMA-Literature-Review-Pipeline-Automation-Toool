@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from typing import Any
+
+from models.paper import PaperMetadata
 
 from config import ResearchConfig
-from models.paper import PaperMetadata
 from utils.http import RateLimiter, build_session, request_text
 from utils.text_processing import normalize_text, safe_year
-
 
 ATOM_NS = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
 
@@ -26,50 +25,53 @@ class ArxivClient:
     def search(self) -> list[PaperMetadata]:
         papers: list[PaperMetadata] = []
         rows = self.config.results_per_page
-        search_query = self._build_search_query()
-        for page in range(self.config.pages_to_retrieve):
-            start = page * rows
-            payload = request_text(
-                self.session,
-                "GET",
-                self.BASE_URL,
-                limiter=self.limiter,
-                timeout=max(60, self.config.request_timeout_seconds),
-                params={
-                    "search_query": search_query,
-                    "start": start,
-                    "max_results": rows,
-                    "sortBy": "relevance",
-                    "sortOrder": "descending",
-                },
-            )
-            if not payload:
-                break
-            entries = self._parse_feed(payload)
-            if not entries:
-                break
-            filtered = [
-                paper
-                for paper in entries
-                if paper.year is None or self.config.year_range_start <= paper.year <= self.config.year_range_end
-            ]
-            papers.extend(filtered)
-            if len(entries) < rows:
+        for query in self.config.discovery_queries:
+            search_query = self._build_search_query(query)
+            for page in range(self.config.pages_to_retrieve):
+                start = page * rows
+                payload = request_text(
+                    self.session,
+                    "GET",
+                    self.BASE_URL,
+                    limiter=self.limiter,
+                    timeout=max(60, self.config.request_timeout_seconds),
+                    params={
+                        "search_query": search_query,
+                        "start": start,
+                        "max_results": rows,
+                        "sortBy": "relevance",
+                        "sortOrder": "descending",
+                    },
+                )
+                if not payload:
+                    break
+                entries = self._parse_feed(payload)
+                if not entries:
+                    break
+                filtered = [
+                    paper
+                    for paper in entries
+                    if paper.year is None or self.config.year_range_start <= paper.year <= self.config.year_range_end
+                ]
+                papers.extend(filtered)
+                if len(papers) >= self.config.per_source_limit or len(entries) < rows:
+                    break
+            if len(papers) >= self.config.per_source_limit:
                 break
         return papers[: self.config.per_source_limit]
 
-    def _build_search_query(self) -> str:
-        terms = [self.config.research_topic, *self.config.search_keywords]
+    def _build_search_query(self, query: str) -> str:
+        terms = [query]
         operator = (self.config.boolean_operators or "AND").strip().upper()
         if operator not in {"AND", "OR", "NOT"}:
-            return f'all:"{self.config.search_query}"'
+            return f'all:"{query}"'
         query_terms = []
         for term in terms:
             cleaned = normalize_text(term)
             if not cleaned:
                 continue
             query_terms.append(f'all:"{cleaned}"')
-        return f" {operator} ".join(query_terms) if query_terms else f'all:"{self.config.search_query}"'
+        return f" {operator} ".join(query_terms) if query_terms else f'all:"{query}"'
 
     def _parse_feed(self, payload: str) -> list[PaperMetadata]:
         root = ET.fromstring(payload)

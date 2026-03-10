@@ -1,3 +1,5 @@
+"""Configuration models and CLI parsing for the literature review pipeline."""
+
 from __future__ import annotations
 
 import argparse
@@ -36,6 +38,8 @@ DEFAULT_EXCLUDED_TITLE_TERMS = [
 
 
 class ApiSettings(BaseModel):
+    """API credentials, endpoints, and model settings resolved from env vars or config."""
+
     semantic_scholar_api_key: str | None = Field(default_factory=lambda: os.getenv("SEMANTIC_SCHOLAR_API_KEY"))
     crossref_mailto: str | None = Field(default_factory=lambda: os.getenv("CROSSREF_MAILTO"))
     unpaywall_email: str | None = Field(default_factory=lambda: os.getenv("UNPAYWALL_EMAIL"))
@@ -46,7 +50,7 @@ class ApiSettings(BaseModel):
     ollama_base_url: str = Field(default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"))
     ollama_model: str = Field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen3:8b"))
     ollama_api_key: str = Field(default_factory=lambda: os.getenv("OLLAMA_API_KEY", "ollama"))
-    huggingface_model: str = Field(default_factory=lambda: os.getenv("HF_MODEL_ID", "Qwen/Qwen3-8B"))
+    huggingface_model: str = Field(default_factory=lambda: os.getenv("HF_MODEL_ID", "Qwen/Qwen3-14B"))
     huggingface_task: str = Field(default_factory=lambda: os.getenv("HF_TASK", "text-generation"))
     huggingface_device: str = Field(default_factory=lambda: os.getenv("HF_DEVICE", "auto"))
     huggingface_dtype: str = Field(default_factory=lambda: os.getenv("HF_DTYPE", "auto"))
@@ -59,6 +63,8 @@ class ApiSettings(BaseModel):
 
 
 class AnalysisPassConfig(BaseModel):
+    """One screening pass in the configurable multi-pass analysis chain."""
+
     name: str
     llm_provider: Literal["heuristic", "openai_compatible", "ollama", "huggingface_local"] = "heuristic"
     threshold: float = 70.0
@@ -68,6 +74,8 @@ class AnalysisPassConfig(BaseModel):
 
 
 class ResearchConfig(BaseModel):
+    """Validated runtime configuration shared across discovery, screening, and reporting."""
+
     research_topic: str
     research_question: str = ""
     review_objective: str = ""
@@ -79,8 +87,11 @@ class ResearchConfig(BaseModel):
     boolean_operators: str | None = None
     pages_to_retrieve: int = 2
     results_per_page: int = 25
+    discovery_strategy: Literal["precise", "balanced", "broad"] = "balanced"
     year_range_start: int = 2018
     year_range_end: int = 2026
+    max_discovered_records: int | None = None
+    min_discovered_records: int = 0
     max_papers_to_analyze: int = 50
     citation_snowballing_enabled: bool = True
     relevance_threshold: float = 70.0
@@ -109,6 +120,12 @@ class ResearchConfig(BaseModel):
     resume_mode: bool = True
     disable_progress_bars: bool = False
     title_similarity_threshold: float = 0.92
+    log_http_requests: bool = True
+    log_http_payloads: bool = True
+    log_llm_prompts: bool = True
+    log_llm_responses: bool = True
+    log_screening_decisions: bool = True
+    profile_name: str | None = None
     fixture_data_path: Path | None = None
     manual_source_path: Path | None = None
     google_scholar_import_path: Path | None = None
@@ -196,6 +213,22 @@ class ResearchConfig(BaseModel):
     def validate_similarity_threshold(cls, value: float) -> float:
         return min(max(float(value), 0.0), 1.0)
 
+    @field_validator("max_discovered_records")
+    @classmethod
+    def validate_optional_positive_int(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if int(value) < 1:
+            raise ValueError("Configuration value must be at least 1")
+        return int(value)
+
+    @field_validator("min_discovered_records")
+    @classmethod
+    def validate_non_negative_int(cls, value: int) -> int:
+        if int(value) < 0:
+            raise ValueError("Configuration value must be at least 0")
+        return int(value)
+
     @property
     def search_query(self) -> str:
         return build_query(self.research_topic, self.search_keywords, self.boolean_operators)
@@ -203,6 +236,33 @@ class ResearchConfig(BaseModel):
     @property
     def per_source_limit(self) -> int:
         return self.pages_to_retrieve * self.results_per_page
+
+    @property
+    def discovery_queries(self) -> list[str]:
+        queries = [self.search_query]
+        topic = self.research_topic.strip()
+        keywords = [keyword.strip() for keyword in self.search_keywords if keyword.strip()]
+
+        if self.discovery_strategy in {"balanced", "broad"} and topic:
+            queries.append(topic)
+
+        if self.discovery_strategy == "balanced" and keywords:
+            queries.append(build_query(topic, keywords[: min(3, len(keywords))], "AND"))
+
+        if self.discovery_strategy == "broad":
+            queries.extend(build_query(topic, [keyword], "AND") for keyword in keywords[:5])
+            if len(keywords) >= 2:
+                queries.append(" OR ".join(keywords[: min(5, len(keywords))]))
+
+        unique_queries: list[str] = []
+        seen: set[str] = set()
+        for query in queries:
+            normalized = " ".join(query.split()).strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            unique_queries.append(normalized)
+        return unique_queries
 
     @property
     def resolved_analysis_passes(self) -> list[AnalysisPassConfig]:
@@ -239,6 +299,11 @@ class ResearchConfig(BaseModel):
             lines.append(f"Banned topics: {'; '.join(self.banned_topics)}")
         if self.excluded_title_terms:
             lines.append(f"Excluded title terms: {'; '.join(self.excluded_title_terms)}")
+        lines.append(f"Discovery strategy: {self.discovery_strategy}")
+        if self.max_discovered_records is not None:
+            lines.append(f"Maximum discovered records: {self.max_discovered_records}")
+        if self.min_discovered_records:
+            lines.append(f"Minimum discovered records: {self.min_discovered_records}")
         return "\n".join(lines)
 
     @property
@@ -253,6 +318,7 @@ class ResearchConfig(BaseModel):
             ",".join(sorted(self.exclusion_criteria)),
             ",".join(sorted(self.banned_topics)),
             ",".join(sorted(self.excluded_title_terms)),
+            self.discovery_strategy,
             self.decision_mode,
             str(self.relevance_threshold),
             str(self.maybe_threshold_margin),
@@ -264,6 +330,8 @@ class ResearchConfig(BaseModel):
         return make_query_key("|".join(components), [], self.year_range_start, self.year_range_end)
 
     def finalize(self) -> "ResearchConfig":
+        """Resolve derived values and ensure the configured output directories exist."""
+
         include_pubmed = self._infer_pubmed() if self.include_pubmed is None else self.include_pubmed
         query_key = self.query_key or make_query_key(
             self.research_topic,
@@ -283,6 +351,8 @@ class ResearchConfig(BaseModel):
         return updated
 
     def ensure_directories(self) -> None:
+        """Create all configured filesystem locations needed by the pipeline."""
+
         paths = [self.data_dir, self.papers_dir, self.results_dir]
         if self.relevant_pdfs_dir:
             paths.append(self.relevant_pdfs_dir)
@@ -291,6 +361,8 @@ class ResearchConfig(BaseModel):
         ensure_parent_directory(self.database_path)
 
     def save_snapshot(self) -> Path:
+        """Persist a redacted copy of the active configuration alongside the run outputs."""
+
         target = self.results_dir / "run_config.json"
         payload = self.model_dump(mode="json")
         api_settings = payload.get("api_settings", {})
@@ -301,11 +373,15 @@ class ResearchConfig(BaseModel):
         return target
 
     def _infer_pubmed(self) -> bool:
+        """Enable PubMed automatically for clearly biomedical topics when not set explicitly."""
+
         haystack = " ".join([self.research_topic, *self.search_keywords]).lower()
         return any(term in haystack for term in BIOMEDICAL_TERMS)
 
     @classmethod
     def from_cli(cls, args: argparse.Namespace) -> "ResearchConfig":
+        """Build a validated config from CLI flags, config files, and interactive prompts."""
+
         file_config = cls._load_config_file(args.config_file) if args.config_file else {}
 
         def ask(prompt: str, default: str | None = None) -> str:
@@ -501,6 +577,16 @@ class ResearchConfig(BaseModel):
             year_range_start=year_start,
             year_range_end=year_end,
             max_papers_to_analyze=max_papers,
+            max_discovered_records=value_for(
+                "max_discovered_records",
+                getattr(args, "max_discovered_records", None),
+                None,
+            ),
+            min_discovered_records=value_for(
+                "min_discovered_records",
+                getattr(args, "min_discovered_records", None),
+                0,
+            ),
             citation_snowballing_enabled=citation_snowballing,
             relevance_threshold=relevance_threshold,
             download_pdfs=download_pdfs,
@@ -516,6 +602,11 @@ class ResearchConfig(BaseModel):
             ),
             run_mode=run_mode,
             verbosity=verbosity,
+            discovery_strategy=value_for(
+                "discovery_strategy",
+                getattr(args, "discovery_strategy", None),
+                "balanced",
+            ),
             output_csv=value_for("output_csv", getattr(args, "output_csv", None), True),
             output_json=value_for("output_json", getattr(args, "output_json", None), True),
             output_markdown=value_for("output_markdown", getattr(args, "output_markdown", None), True),
@@ -540,6 +631,32 @@ class ResearchConfig(BaseModel):
                 args.title_similarity_threshold,
                 0.92,
             ),
+            log_http_requests=value_for(
+                "log_http_requests",
+                getattr(args, "log_http_requests", None),
+                True,
+            ),
+            log_http_payloads=value_for(
+                "log_http_payloads",
+                getattr(args, "log_http_payloads", None),
+                True,
+            ),
+            log_llm_prompts=value_for(
+                "log_llm_prompts",
+                getattr(args, "log_llm_prompts", None),
+                True,
+            ),
+            log_llm_responses=value_for(
+                "log_llm_responses",
+                getattr(args, "log_llm_responses", None),
+                True,
+            ),
+            log_screening_decisions=value_for(
+                "log_screening_decisions",
+                getattr(args, "log_screening_decisions", None),
+                True,
+            ),
+            profile_name=value_for("profile_name", getattr(args, "profile_name", None), None),
             fixture_data_path=value_for("fixture_data_path", args.fixture_data),
             manual_source_path=value_for("manual_source_path", getattr(args, "manual_source_path", None)),
             google_scholar_import_path=value_for(
@@ -568,13 +685,19 @@ class ResearchConfig(BaseModel):
 
     @staticmethod
     def _load_config_file(config_path: str) -> dict[str, Any]:
+        """Load a JSON configuration file used by CLI and UI entrypoints."""
+
         path = Path(config_path)
         return json.loads(path.read_text(encoding="utf-8"))
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    """Create the shared command-line parser for scripted and interactive startup paths."""
+
     parser = argparse.ArgumentParser(description="Systematic literature discovery and screening pipeline")
     parser.add_argument("--config-file", help="Load run settings from a JSON config file")
+    parser.add_argument("--ui", action="store_true", help="Launch the guided Tkinter desktop workbench")
+    parser.add_argument("--wizard", action="store_true", help="Force the classic text-based interactive wizard")
     parser.add_argument("--topic", help="Research topic")
     parser.add_argument("--research-question", help="Explicit research question for AI screening")
     parser.add_argument("--review-objective", help="Review objective or intended output")
@@ -589,8 +712,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--boolean", help="Boolean operator or expression to join keywords")
     parser.add_argument("--pages", type=int, help="Number of pages or result batches per source")
     parser.add_argument("--results-per-page", type=int, dest="results_per_page", help="Results fetched per source page")
+    parser.add_argument(
+        "--discovery-strategy",
+        choices=["precise", "balanced", "broad"],
+        help="Control how many query variants are issued to each discovery source",
+    )
     parser.add_argument("--year-start", type=int, dest="year_start", help="Publication year range start")
     parser.add_argument("--year-end", type=int, dest="year_end", help="Publication year range end")
+    parser.add_argument(
+        "--max-discovered-records",
+        type=int,
+        dest="max_discovered_records",
+        help="Hard cap on globally discovered unique records after deduplication",
+    )
+    parser.add_argument(
+        "--min-discovered-records",
+        type=int,
+        dest="min_discovered_records",
+        help="Hard minimum number of unique records required before screening continues",
+    )
     parser.add_argument("--max-papers", type=int, dest="max_papers", help="Maximum papers to analyze")
     parser.add_argument(
         "--citation-snowballing",
@@ -678,7 +818,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ollama-model", help="Ollama model tag, for example qwen3:8b or gpt-oss:20b")
     parser.add_argument(
         "--huggingface-model",
-        help="Hugging Face model id for local inference, for example Qwen/Qwen3-8B or openai/gpt-oss-20b",
+        help="Hugging Face model id for local inference, for example Qwen/Qwen3-14B or openai/gpt-oss-20b",
     )
     parser.add_argument(
         "--huggingface-task",
@@ -751,6 +891,37 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Deduplication similarity threshold between 0 and 1",
     )
     parser.add_argument(
+        "--log-http-requests",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Log HTTP endpoints, methods, and response summaries in verbose/debug modes",
+    )
+    parser.add_argument(
+        "--log-http-payloads",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Log truncated HTTP request and response payloads in debug mode",
+    )
+    parser.add_argument(
+        "--log-llm-prompts",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Log truncated LLM prompt excerpts in debug mode",
+    )
+    parser.add_argument(
+        "--log-llm-responses",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Log truncated LLM response excerpts in debug mode",
+    )
+    parser.add_argument(
+        "--log-screening-decisions",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Log per-paper screening outcomes in verbose/debug modes",
+    )
+    parser.add_argument("--profile-name", help="Optional name used when saving or loading guided UI profiles")
+    parser.add_argument(
         "--fixture-data",
         help="Path to a local JSON fixture file for fast offline discovery tests",
     )
@@ -802,6 +973,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def parse_analysis_pass(value: str) -> AnalysisPassConfig:
+    """Parse a compact `name:provider:threshold[:decision_mode[:margin]]` analysis-pass string."""
+
     parts = [part.strip() for part in value.split(":")]
     if len(parts) < 3:
         raise ValueError("Analysis pass must use name:provider:threshold[:decision_mode[:margin]]")

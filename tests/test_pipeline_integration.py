@@ -295,3 +295,59 @@ class PipelineIntegrationTests(unittest.TestCase):
             self.assertTrue(any(download is True and path == str(relevant_dir) for _, download, path in calls))
             self.assertFalse(included.empty)
             self.assertTrue(included["pdf_path"].dropna().str.contains("relevant_keep").all())
+
+    def test_max_discovered_records_caps_stored_results(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = ResearchConfig(
+                research_topic="AI-assisted literature reviews",
+                search_keywords=["large language models", "screening", "systematic review"],
+                pages_to_retrieve=1,
+                results_per_page=10,
+                max_discovered_records=2,
+                run_mode="collect",
+                openalex_enabled=False,
+                semantic_scholar_enabled=False,
+                crossref_enabled=False,
+                include_pubmed=False,
+                disable_progress_bars=True,
+                fixture_data_path=Path("tests/fixtures/offline_papers.json"),
+                data_dir=root / "data",
+                papers_dir=root / "papers",
+                results_dir=root / "results",
+                database_path=root / "data" / "literature_review.db",
+            ).finalize()
+
+            result = PipelineController(config).run()
+
+            self.assertEqual(result["database_count"], 2)
+            papers = pd.read_csv(root / "results" / "papers.csv")
+            self.assertEqual(len(papers), 2)
+
+    def test_min_discovered_records_can_fail_run_before_screening(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = ResearchConfig(
+                research_topic="AI-assisted literature reviews",
+                search_keywords=["large language models", "screening", "systematic review"],
+                pages_to_retrieve=1,
+                results_per_page=10,
+                min_discovered_records=99,
+                run_mode="analyze",
+                openalex_enabled=False,
+                semantic_scholar_enabled=False,
+                crossref_enabled=False,
+                include_pubmed=False,
+                disable_progress_bars=True,
+                fixture_data_path=Path("tests/fixtures/offline_papers.json"),
+                data_dir=root / "data",
+                papers_dir=root / "papers",
+                results_dir=root / "results",
+                database_path=root / "data" / "literature_review.db",
+            ).finalize()
+
+            result = PipelineController(config).run()
+
+            self.assertEqual(result["run_status"], "failed_min_discovered_records")
+            papers = pd.read_csv(root / "results" / "papers.csv")
+            self.assertTrue(papers["inclusion_decision"].isna().all())

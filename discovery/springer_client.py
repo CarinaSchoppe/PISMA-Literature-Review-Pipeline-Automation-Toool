@@ -3,11 +3,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from config import ResearchConfig
 from models.paper import PaperMetadata
+
+from config import ResearchConfig
 from utils.http import RateLimiter, build_session, request_json
 from utils.text_processing import safe_year, strip_markup
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,31 +28,34 @@ class SpringerClient:
 
         papers: list[PaperMetadata] = []
         rows = self.config.results_per_page
-        for page in range(self.config.pages_to_retrieve):
-            start = page * rows + 1
-            payload = request_json(
-                self.session,
-                "GET",
-                self.BASE_URL,
-                limiter=self.limiter,
-                timeout=self.config.request_timeout_seconds,
-                params={
-                    "q": self.config.search_query,
-                    "p": rows,
-                    "s": start,
-                    "api_key": api_key,
-                },
-            )
-            if not payload:
-                break
-            items = payload.get("records", []) or []
-            parsed = [self._parse_record(item) for item in items if item.get("title")]
-            papers.extend(
-                paper
-                for paper in parsed
-                if paper.year is None or self.config.year_range_start <= paper.year <= self.config.year_range_end
-            )
-            if len(items) < rows:
+        for query in self.config.discovery_queries:
+            for page in range(self.config.pages_to_retrieve):
+                start = page * rows + 1
+                payload = request_json(
+                    self.session,
+                    "GET",
+                    self.BASE_URL,
+                    limiter=self.limiter,
+                    timeout=self.config.request_timeout_seconds,
+                    params={
+                        "q": query,
+                        "p": rows,
+                        "s": start,
+                        "api_key": api_key,
+                    },
+                )
+                if not payload:
+                    break
+                items = payload.get("records", []) or []
+                parsed = [self._parse_record(item) for item in items if item.get("title")]
+                papers.extend(
+                    paper
+                    for paper in parsed
+                    if paper.year is None or self.config.year_range_start <= paper.year <= self.config.year_range_end
+                )
+                if len(papers) >= self.config.per_source_limit or len(items) < rows:
+                    break
+            if len(papers) >= self.config.per_source_limit:
                 break
         return papers[: self.config.per_source_limit]
 

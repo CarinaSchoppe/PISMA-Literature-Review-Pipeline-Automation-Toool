@@ -1,3 +1,5 @@
+"""High-level orchestration for discovery, enrichment, screening, and reporting."""
+
 from __future__ import annotations
 
 import logging
@@ -26,14 +28,22 @@ from discovery.semantic_scholar_client import SemanticScholarClient
 from discovery.springer_client import SpringerClient
 from reporting.report_generator import ReportGenerator
 from utils.deduplication import deduplicate_papers
+from utils.http import configure_http_logging
 from utils.text_processing import stable_hash
 
 LOGGER = logging.getLogger(__name__)
 
 
 class PipelineController:
-    def __init__(self, config: ResearchConfig) -> None:
+    """Coordinate the end-to-end literature review workflow for one run configuration."""
+
+    def __init__(self, config: ResearchConfig, *, event_sink: Callable[[dict[str, Any]], None] | None = None) -> None:
         self.config = config.finalize()
+        self.event_sink = event_sink
+        configure_http_logging(
+            enabled=self.config.log_http_requests and self.config.verbosity in {"verbose", "debug"},
+            log_payloads=self.config.log_http_payloads and self.config.verbosity == "debug",
+        )
         self.database = DatabaseManager(self.config.database_path)
         self.database.initialize()
         self.fixture_client = FixtureDiscoveryClient(self.config) if self.config.fixture_data_path else None
@@ -57,7 +67,10 @@ class PipelineController:
             LOGGER.info("Local Hugging Face inference is active; screening parallelism is reduced to 1 worker.")
 
     def run(self) -> dict[str, str | int]:
+        """Execute the configured workflow and return paths plus summary statistics."""
+
         try:
+            self._emit_event("stage_started", stage="pipeline")
             LOGGER.info(
                 "Starting literature pipeline in %s mode for topic '%s'.",
                 self.config.run_mode,
@@ -65,28 +78,74 @@ class PipelineController:
             )
             self._log_verbose("Search query: %s", self.config.search_query)
             self.config.save_snapshot()
+            self._emit_event("stage_started", stage="discovery")
             discovered = self._discover()
+            self._emit_event("stage_finished", stage="discovery", record_count=len(discovered))
             LOGGER.info("Discovery completed with %s records.", len(discovered))
             deduplicated = deduplicate_papers(
                 discovered,
                 title_similarity_threshold=self.config.title_similarity_threshold,
             )
+            deduplicated = self._apply_discovery_limits(deduplicated)
             LOGGER.info("Deduplication completed with %s unique records.", len(deduplicated))
             stored = self.database.upsert_papers(deduplicated, self.config.query_key or "")
             self._log_verbose("Stored %s records in SQLite.", len(stored))
+            if self._below_minimum_discovery_threshold(len(deduplicated)):
+                reason = (
+                    f"Discovered {len(deduplicated)} unique records, below the configured minimum of "
+                    f"{self.config.min_discovered_records}."
+                )
+                LOGGER.error(reason)
+                self._emit_event("run_failed", stage="discovery", reason=reason)
+                final_papers = self._normalize_papers_for_current_context(
+                    self.database.get_papers_for_query(self.config.query_key or "")
+                )
+                stats = {
+                    "discovered_count": len(discovered),
+                    "deduplicated_count": len(deduplicated),
+                    "snowballing_added_count": 0,
+                    "decision_counts": self._decision_counts(final_papers),
+                    "screened_count": 0,
+                    "newly_screened_count": 0,
+                    "full_text_screened_count": 0,
+                    "run_mode": self.config.run_mode,
+                }
+                report_paths = self.report_generator.generate(final_papers, stats=stats)
+                self._emit_report_artifacts(report_paths)
+                return {
+                    **report_paths,
+                    "discovered_count": len(discovered),
+                    "deduplicated_count": len(deduplicated),
+                    "database_count": len(final_papers),
+                    "run_status": "failed_min_discovered_records",
+                    "run_error": reason,
+                }
 
-            expanded = self.citation_expander.expand(stored)
+            expanded: list[PaperMetadata] = []
+            if self.config.max_discovered_records is not None and len(stored) >= self.config.max_discovered_records:
+                LOGGER.info(
+                    "Skipping citation snowballing because the discovery cap of %s records is already reached.",
+                    self.config.max_discovered_records,
+                )
+            else:
+                expanded = self.citation_expander.expand(stored)
             if expanded:
                 LOGGER.info("Citation snowballing discovered %s additional records.", len(expanded))
                 expanded_deduplicated = deduplicate_papers(
                     expanded,
                     title_similarity_threshold=self.config.title_similarity_threshold,
                 )
-                self.database.upsert_papers(expanded_deduplicated, self.config.query_key or "")
+                if self.config.max_discovered_records is not None:
+                    remaining_capacity = max(self.config.max_discovered_records - len(stored), 0)
+                    expanded_deduplicated = expanded_deduplicated[:remaining_capacity]
+                if expanded_deduplicated:
+                    self.database.upsert_papers(expanded_deduplicated, self.config.query_key or "")
             elif self.config.citation_snowballing_enabled:
                 self._log_verbose("Citation snowballing returned no additional records.")
 
-            current_papers = self.database.get_papers_for_query(self.config.query_key or "")
+            current_papers = self._apply_discovery_limits(
+                self.database.get_papers_for_query(self.config.query_key or "")
+            )
             self._log_verbose("Loaded %s records for enrichment.", len(current_papers))
             enriched_papers = self._enrich_with_pdfs(current_papers)
             if enriched_papers:
@@ -99,12 +158,16 @@ class PipelineController:
                 screening_stats = self._screen_papers()
                 if self.config.download_pdfs and self.config.pdf_download_mode == "relevant_only":
                     relevant_pdf_updates = self._download_relevant_pdfs(
-                        self.database.get_papers_for_query(self.config.query_key or "")
+                        self._apply_discovery_limits(
+                            self.database.get_papers_for_query(self.config.query_key or "")
+                        )
                     )
                     if relevant_pdf_updates:
                         self.database.upsert_papers(relevant_pdf_updates, self.config.query_key or "")
-            final_papers = self._normalize_papers_for_current_context(
-                self.database.get_papers_for_query(self.config.query_key or "")
+            final_papers = self._apply_discovery_limits(
+                self._normalize_papers_for_current_context(
+                    self.database.get_papers_for_query(self.config.query_key or "")
+                )
             )
             stats = {
                 "discovered_count": len(discovered),
@@ -117,19 +180,26 @@ class PipelineController:
                 "run_mode": self.config.run_mode,
             }
             report_paths = self.report_generator.generate(final_papers, stats=stats)
+            self._emit_report_artifacts(report_paths)
+            self._emit_event("run_completed", stage="pipeline", report_paths=report_paths)
             return {
                 **report_paths,
                 "discovered_count": len(discovered),
                 "deduplicated_count": len(deduplicated),
-                "database_count": self.database.count_papers(self.config.query_key or ""),
+                "database_count": len(final_papers),
+                "run_status": "completed",
             }
         finally:
             self.close()
 
     def close(self) -> None:
+        """Release external resources held by the controller."""
+
         self.database.close()
 
     def _discover(self) -> list[PaperMetadata]:
+        """Collect metadata from fixtures, manual imports, and enabled API clients."""
+
         if self.fixture_client:
             self._log_verbose("Loading discovery records from fixture file %s.", self.config.fixture_data_path)
             return self.fixture_client.search()
@@ -156,12 +226,37 @@ class PipelineController:
             ):
                 source_name = future_map[future]
                 try:
-                    discovered.extend(future.result())
+                    source_records = future.result()
+                    discovered.extend(source_records)
+                    self._emit_event(
+                        "source_completed",
+                        source=source_name,
+                        record_count=len(source_records),
+                    )
+                    if self.config.max_discovered_records is not None:
+                        limited = deduplicate_papers(
+                            discovered,
+                            title_similarity_threshold=self.config.title_similarity_threshold,
+                        )
+                        # The cap is enforced on the merged global result set, not per source.
+                        if len(limited) >= self.config.max_discovered_records:
+                            LOGGER.info(
+                                "Discovery cap of %s unique records reached; trimming the result set.",
+                                self.config.max_discovered_records,
+                            )
+                            self._emit_event(
+                                "discovery_limit_reached",
+                                limit=self.config.max_discovered_records,
+                                record_count=len(limited),
+                            )
+                            return limited[: self.config.max_discovered_records]
                 except Exception as exc:  # noqa: BLE001
                     LOGGER.exception("Discovery failed for %s: %s", source_name, exc)
         return discovered
 
     def _build_discovery_clients(self, *, allow_empty: bool = False) -> dict[str, Callable[[], list[PaperMetadata]]]:
+        """Return the enabled discovery clients for the current configuration."""
+
         clients: dict[str, Callable[[], list[PaperMetadata]]] = {}
         if self.config.openalex_enabled:
             clients["openalex"] = self.openalex_client.search
@@ -180,6 +275,8 @@ class PipelineController:
         return clients
 
     def _enrich_with_pdfs(self, papers: list[PaperMetadata]) -> list[PaperMetadata]:
+        """Resolve PDF metadata and optionally download files for discovered papers."""
+
         enriched: list[PaperMetadata] = []
         self._log_verbose("Checking PDF availability for %s papers.", len(papers))
         download_now = self.config.download_pdfs and self.config.pdf_download_mode == "all"
@@ -207,6 +304,8 @@ class PipelineController:
         return enriched
 
     def _download_relevant_pdfs(self, papers: list[PaperMetadata]) -> list[PaperMetadata]:
+        """Download PDFs only for papers that survive final thresholding."""
+
         relevant_papers = [paper for paper in papers if self._paper_meets_pdf_download_threshold(paper)]
         if not relevant_papers:
             return []
@@ -236,11 +335,16 @@ class PipelineController:
         return downloaded
 
     def _screen_papers(self) -> dict[str, int]:
+        """Run screening passes on the highest-priority papers still requiring analysis."""
+
         if not self.config.resolved_analysis_passes:
             return {"screened_count": 0, "full_text_screened_count": 0}
         candidates = self.database.get_papers_for_analysis(
             self.config.query_key or "",
-            self.config.max_papers_to_analyze,
+            min(
+                self.config.max_papers_to_analyze,
+                self.config.max_discovered_records or self.config.max_papers_to_analyze,
+            ),
             resume_mode=self.config.resume_mode,
             screening_context_key=self.config.screening_context_key,
         )
@@ -305,6 +409,8 @@ class PipelineController:
         }
 
     def _prepare_paper_for_screening(self, paper: PaperMetadata) -> PaperMetadata:
+        """Attach an extracted full-text excerpt when configured and available."""
+
         if not self.config.analyze_full_text or not paper.pdf_path:
             return paper
         full_text_excerpt = self.full_text_extractor.extract_excerpt(paper.pdf_path)
@@ -313,6 +419,8 @@ class PipelineController:
         return paper.model_copy(update={"raw_payload": {**paper.raw_payload, "full_text_excerpt": full_text_excerpt}})
 
     def _screen_paper_with_passes(self, paper: PaperMetadata) -> tuple[ScreeningResult, dict[str, Any]]:
+        """Apply all configured screening passes to one paper and keep pass-level metadata."""
+
         passes: dict[str, dict[str, Any]] = {}
         final_result: ScreeningResult | None = None
         final_pass_name = ""
@@ -333,6 +441,23 @@ class PipelineController:
                 "decision_mode": analysis_pass.decision_mode,
                 "llm_provider": analysis_pass.llm_provider,
             }
+            if self.config.log_screening_decisions and self.config.verbosity in {"verbose", "debug"}:
+                LOGGER.info(
+                    "Screened '%s' in pass '%s': decision=%s score=%.2f provider=%s",
+                    paper.title,
+                    analysis_pass.name,
+                    result.decision,
+                    result.relevance_score,
+                    analysis_pass.llm_provider,
+                )
+            self._emit_event(
+                "screening_result",
+                paper_title=paper.title,
+                pass_name=analysis_pass.name,
+                decision=result.decision,
+                relevance_score=result.relevance_score,
+                provider=analysis_pass.llm_provider,
+            )
             final_result = result
             final_pass_name = analysis_pass.name
 
@@ -348,6 +473,8 @@ class PipelineController:
         return final_result, screening_details
 
     def _paper_cache_key(self, paper: PaperMetadata) -> str:
+        """Build a stable cache key from metadata plus optional full-text context."""
+
         fingerprint = stable_hash(
             "|".join(
                 [
@@ -362,6 +489,8 @@ class PipelineController:
         return f"{paper.identity_key}|{fingerprint}"
 
     def _normalize_papers_for_current_context(self, papers: list[PaperMetadata]) -> list[PaperMetadata]:
+        """Clear stale screening fields when they were computed under a different screening context."""
+
         normalized: list[PaperMetadata] = []
         for paper in papers:
             context_key = paper.screening_details.get("screening_context_key")
@@ -384,6 +513,8 @@ class PipelineController:
         return normalized
 
     def _decision_counts(self, papers: list[PaperMetadata]) -> dict[str, int]:
+        """Count include, maybe, exclude, and unreviewed labels for reporting."""
+
         counts = {"include": 0, "exclude": 0, "maybe": 0, "unreviewed": 0}
         for paper in papers:
             decision = paper.inclusion_decision or "unreviewed"
@@ -395,12 +526,17 @@ class PipelineController:
         source_name: str,
         search_callable: Callable[[], list[PaperMetadata]],
     ) -> list[PaperMetadata]:
+        """Run one discovery client and emit source-level progress events."""
+
         self._log_verbose("Querying %s.", source_name)
+        self._emit_event("source_requested", source=source_name)
         records = search_callable()
         self._log_verbose("%s returned %s records.", source_name, len(records))
         return records
 
     def _config_for_analysis_pass(self, analysis_pass: AnalysisPassConfig) -> ResearchConfig:
+        """Create a per-pass config view with pass-specific model and threshold settings."""
+
         return self.config.model_copy(
             update={
                 "llm_provider": analysis_pass.llm_provider,
@@ -417,12 +553,16 @@ class PipelineController:
         return self._config_for_analysis_pass(resolved_passes[-1])
 
     def _build_pass_screeners(self) -> dict[str, AIScreener]:
+        """Instantiate one screener per configured analysis pass."""
+
         screeners: dict[str, AIScreener] = {}
         for analysis_pass in self.config.resolved_analysis_passes:
             screeners[analysis_pass.name] = AIScreener(self._config_for_analysis_pass(analysis_pass))
         return screeners
 
     def _summary_screener(self) -> AIScreener:
+        """Return the screener responsible for final review-summary generation."""
+
         resolved_passes = self.config.resolved_analysis_passes
         if not resolved_passes:
             return AIScreener(self.config)
@@ -435,6 +575,8 @@ class PipelineController:
         )
 
     def _screening_worker_count(self) -> int:
+        """Reduce concurrency for local model inference that is not safe to parallelize heavily."""
+
         if self._requires_local_llm_serial_execution():
             return 1
         return self.config.max_workers
@@ -469,3 +611,28 @@ class PipelineController:
             if path:
                 clients.append(ManualImportClient(self.config, path=path, source_name=source_name))
         return clients
+
+    def _apply_discovery_limits(self, papers: list[PaperMetadata]) -> list[PaperMetadata]:
+        """Trim the current paper set to the configured global discovery cap, if any."""
+
+        if self.config.max_discovered_records is None:
+            return papers
+        return papers[: self.config.max_discovered_records]
+
+    def _below_minimum_discovery_threshold(self, discovered_count: int) -> bool:
+        """Check whether discovery found enough unique records to justify screening."""
+
+        return self.config.min_discovered_records > 0 and discovered_count < self.config.min_discovered_records
+
+    def _emit_event(self, event_type: str, **payload: Any) -> None:
+        """Send a structured event to the UI or any other external observer."""
+
+        if self.event_sink is None:
+            return
+        self.event_sink({"event_type": event_type, **payload})
+
+    def _emit_report_artifacts(self, report_paths: dict[str, str]) -> None:
+        """Emit one event per generated artifact so the UI can refresh its result tabs."""
+
+        for label, path in report_paths.items():
+            self._emit_event("artifact_written", label=label, path=path)

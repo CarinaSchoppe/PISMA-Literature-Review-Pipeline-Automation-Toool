@@ -1,3 +1,5 @@
+"""Pydantic models for paper metadata and screening outputs."""
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -10,6 +12,8 @@ DecisionLabel = Literal["include", "maybe", "exclude"]
 
 
 class ScreeningResult(BaseModel):
+    """Structured outcome returned by the heuristic or LLM-assisted screening step."""
+
     stage_one_decision: DecisionLabel = "maybe"
     relevance_score: float = 0.0
     explanation: str = ""
@@ -28,6 +32,8 @@ class ScreeningResult(BaseModel):
 
 
 class PaperMetadata(BaseModel):
+    """Canonical representation of one literature record across all pipeline stages."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     database_id: int | None = None
@@ -99,6 +105,8 @@ class PaperMetadata(BaseModel):
         return self.doi or self.title
 
     def merge_with(self, other: "PaperMetadata") -> "PaperMetadata":
+        """Combine metadata from two records that refer to the same underlying paper."""
+
         merged_authors = list(dict.fromkeys([*self.authors, *other.authors]))
         merged_references = list(dict.fromkeys([*self.references, *other.references]))
         merged_citations = list(dict.fromkeys([*self.citations, *other.citations]))

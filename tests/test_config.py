@@ -70,10 +70,16 @@ class ConfigTests(unittest.TestCase):
                 "AND",
                 "--pages",
                 "1",
+                "--discovery-strategy",
+                "broad",
                 "--year-start",
                 "2020",
                 "--year-end",
                 "2026",
+                "--max-discovered-records",
+                "250",
+                "--min-discovered-records",
+                "20",
                 "--max-papers",
                 "10",
                 "--citation-snowballing",
@@ -110,6 +116,13 @@ class ConfigTests(unittest.TestCase):
                 "results/test_cli",
                 "--database-path",
                 "data/test_cli/review.db",
+                "--log-http-requests",
+                "--log-http-payloads",
+                "--log-llm-prompts",
+                "--log-llm-responses",
+                "--log-screening-decisions",
+                "--profile-name",
+                "test-profile",
             ]
         )
 
@@ -123,8 +136,17 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.api_settings.ollama_model, "gpt-oss:20b")
         self.assertEqual(config.api_settings.huggingface_model, "openai/gpt-oss-20b")
         self.assertEqual(config.api_settings.huggingface_max_new_tokens, 512)
+        self.assertEqual(config.discovery_strategy, "broad")
+        self.assertEqual(config.max_discovered_records, 250)
+        self.assertEqual(config.min_discovered_records, 20)
         self.assertTrue(config.download_pdfs)
         self.assertEqual(config.pdf_download_mode, "relevant_only")
+        self.assertTrue(config.log_http_requests)
+        self.assertTrue(config.log_http_payloads)
+        self.assertTrue(config.log_llm_prompts)
+        self.assertTrue(config.log_llm_responses)
+        self.assertTrue(config.log_screening_decisions)
+        self.assertEqual(config.profile_name, "test-profile")
         self.assertEqual(config.excluded_title_terms, ["correction", "editorial", "erratum"])
         self.assertEqual(config.google_scholar_import_path, Path("tests/fixtures/google_scholar_import.json"))
         self.assertEqual(config.researchgate_import_path, Path("tests/fixtures/researchgate_import.csv"))

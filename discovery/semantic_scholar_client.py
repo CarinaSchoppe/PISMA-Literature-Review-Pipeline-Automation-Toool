@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from config import ResearchConfig
 from models.paper import PaperMetadata
+
+from config import ResearchConfig
 from utils.http import RateLimiter, build_session, request_json
 
 
@@ -37,27 +38,30 @@ class SemanticScholarClient:
     def search(self) -> list[PaperMetadata]:
         papers: list[PaperMetadata] = []
         limit = self.config.results_per_page
-        for page in range(self.config.pages_to_retrieve):
-            offset = page * limit
-            payload = request_json(
-                self.session,
-                "GET",
-                self.BASE_URL,
-                limiter=self.limiter,
-                timeout=self.config.request_timeout_seconds,
-                params={
-                    "query": self.config.search_query,
-                    "limit": limit,
-                    "offset": offset,
-                    "fields": self.SEARCH_FIELDS,
-                    "year": f"{self.config.year_range_start}-{self.config.year_range_end}",
-                },
-            )
-            if not payload:
-                break
-            items = payload.get("data", [])
-            papers.extend(self._parse_paper(item) for item in items if item.get("title"))
-            if len(items) < limit:
+        for query in self.config.discovery_queries:
+            for page in range(self.config.pages_to_retrieve):
+                offset = page * limit
+                payload = request_json(
+                    self.session,
+                    "GET",
+                    self.BASE_URL,
+                    limiter=self.limiter,
+                    timeout=self.config.request_timeout_seconds,
+                    params={
+                        "query": query,
+                        "limit": limit,
+                        "offset": offset,
+                        "fields": self.SEARCH_FIELDS,
+                        "year": f"{self.config.year_range_start}-{self.config.year_range_end}",
+                    },
+                )
+                if not payload:
+                    break
+                items = payload.get("data", [])
+                papers.extend(self._parse_paper(item) for item in items if item.get("title"))
+                if len(papers) >= self.config.per_source_limit or len(items) < limit:
+                    break
+            if len(papers) >= self.config.per_source_limit:
                 break
         return papers[: self.config.per_source_limit]
 

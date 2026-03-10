@@ -22,13 +22,18 @@ class AIScreener:
 
     def screen(self, paper: PaperMetadata) -> ScreeningResult:
         if self.scorer.has_hard_exclusion(paper):
+            LOGGER.info("Hard exclusion triggered for '%s'.", paper.title)
             return self.scorer.deep_score(paper, stage_one_decision="exclude")
 
         if not self.llm_enabled:
             stage_one = self.scorer.quick_screen(paper)
+            if self.config.log_screening_decisions and self.config.verbosity in {"verbose", "debug"}:
+                LOGGER.info("Heuristic Stage 1 for '%s': %s", paper.title, stage_one)
             return self.scorer.deep_score(paper, stage_one_decision=stage_one)
 
         stage_one = self._llm_stage_one(paper) or self.scorer.quick_screen(paper)
+        if self.config.log_screening_decisions and self.config.verbosity in {"verbose", "debug"}:
+            LOGGER.info("LLM Stage 1 for '%s': %s", paper.title, stage_one)
         if stage_one == "exclude":
             return self.scorer.deep_score(paper, stage_one_decision=stage_one)
 
@@ -131,7 +136,12 @@ class AIScreener:
             return None
 
     def _chat_completion(self, *, system_prompt: str, user_prompt: str) -> str | None:
+        if self.config.log_llm_prompts and self.config.verbosity == "debug":
+            LOGGER.debug("LLM system prompt: %s", system_prompt[:1000])
+            LOGGER.debug("LLM user prompt: %s", user_prompt[:2000])
         response = self.llm_client.chat(system_prompt=system_prompt, user_prompt=user_prompt)
+        if self.config.log_llm_responses and self.config.verbosity == "debug" and response.content:
+            LOGGER.debug("LLM response: %s", response.content[:2000])
         return response.content
 
     def _parse_json_response(self, text: str) -> dict[str, Any]:

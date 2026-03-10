@@ -1,3 +1,5 @@
+"""Report and artifact generation for ranked papers, PRISMA summaries, and exports."""
+
 from __future__ import annotations
 
 import json
@@ -15,11 +17,15 @@ from utils.text_processing import top_terms
 
 
 class ReportGenerator:
+    """Render the pipeline state into CSV, JSON, Markdown, and SQLite outputs."""
+
     def __init__(self, config: ResearchConfig, ai_screener: AIScreener) -> None:
         self.config = config
         self.ai_screener = ai_screener
 
     def generate(self, papers: list[PaperMetadata], *, stats: dict[str, Any] | None = None) -> dict[str, str]:
+        """Generate all configured artifacts and return a mapping of logical names to file paths."""
+
         self._clear_previous_outputs()
         ranked = self._rank_papers(papers)
         scored = [paper for paper in ranked if paper.relevance_score is not None]
@@ -81,6 +87,8 @@ class ReportGenerator:
         return outputs
 
     def _clear_previous_outputs(self) -> None:
+        """Remove stale artifacts so each run produces a self-consistent result directory."""
+
         for filename in (
             "papers.csv",
             "included_papers.csv",
@@ -98,6 +106,8 @@ class ReportGenerator:
                 path.unlink()
 
     def _rank_papers(self, papers: list[PaperMetadata]) -> list[PaperMetadata]:
+        """Sort papers so exports and summaries emphasize the strongest candidates first."""
+
         return sorted(
             papers,
             key=lambda paper: (
@@ -163,6 +173,8 @@ class ReportGenerator:
         shortlisted: list[PaperMetadata],
         graph_path: Path | None,
     ) -> Path:
+        """Create the final narrative summary using the configured LLM or a heuristic fallback."""
+
         path = Path(self.config.results_dir) / "review_summary.md"
         llm_summary = None if self.config.run_mode == "collect" else self.ai_screener.summarize_review(shortlisted or ranked[:12])
         if llm_summary:
@@ -309,6 +321,8 @@ class ReportGenerator:
         return keys
 
     def _heuristic_summary(self, ranked: list[PaperMetadata], shortlisted: list[PaperMetadata]) -> str:
+        """Create a compact summary when no external LLM summary is available."""
+
         scored = [paper for paper in ranked if paper.relevance_score is not None]
         candidate_set = shortlisted or scored[:10] or ranked[:10]
         top_keywords = top_terms([f"{paper.title} {paper.abstract}" for paper in candidate_set], limit=10)
