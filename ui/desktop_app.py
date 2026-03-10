@@ -91,7 +91,7 @@ class DesktopWorkbench:
         "exclusion_criteria": ("Exclusion criteria (; separated)", 3),
         "banned_topics": ("Banned topics (; separated)", 2),
         "excluded_title_terms": ("Excluded title terms (; separated)", 2),
-        "analysis_passes": ("Analysis passes (one per line)", 4),
+        "analysis_passes": ("Analysis passes / chained models", 4),
     }
 
     ENUM_FIELDS = {
@@ -320,7 +320,15 @@ class DesktopWorkbench:
             "Use the 'Screening and Models' section. 'LLM provider' decides whether the run uses heuristic scoring, "
             "OpenAI-compatible APIs, Ollama, or a local Hugging Face model. Then configure the matching model fields "
             "such as OpenAI model, Ollama model, or HF model. Thresholds and decision mode in the same section "
-            "control how strict the keep/exclude decisions are.",
+            "control how strict the keep/exclude decisions are. If you need multiple models in sequence, use "
+            "'Edit Passes' to build a pass chain with per-pass thresholds, model overrides, and entry-score gates.",
+        ),
+        "guide:api_keys": (
+            "Guide",
+            "Where API keys and endpoint settings go",
+            "Provider keys and endpoint URLs live in 'Screening and Models' and 'Execution and Logging'. "
+            "OpenAI-compatible keys, OpenAI base URL, Ollama base URL and API key, Semantic Scholar API key, "
+            "Springer API key, Crossref mailto, and Unpaywall email are all editable in the GUI and saved into profiles.",
         ),
         "guide:verbose": (
             "Guide",
@@ -475,9 +483,9 @@ class DesktopWorkbench:
             "without a model, and the other options pin the run to a specific provider."
         ),
         "analysis_passes": (
-            "Optional multi-pass screening plan, one pass per line. This lets you chain a fast first pass with a "
-            "deeper second pass, each with its own provider and threshold. You can type lines directly or use the "
-            "pass builder button in the GUI."
+            "Optional multi-pass screening plan. This lets you chain multiple models or providers in sequence, each "
+            "with its own threshold, decision mode, optional model override, and optional minimum previous-pass score. "
+            "Use the pass builder button in the GUI for the easiest setup."
         ),
         "relevance_threshold": (
             "Final score threshold for keeping a paper. For example, 85 means only strong matches should be retained."
@@ -600,11 +608,20 @@ class DesktopWorkbench:
 
         self.scalar_vars: dict[str, tk.Variable] = {}
         self.text_widgets: dict[str, tk.Text] = {}
+        self.field_focus_widgets: dict[str, tk.Widget] = {}
+        self.section_frames: dict[str, ttk.LabelFrame] = {}
         self.treeviews: dict[str, ttk.Treeview] = {}
         self.table_frames: dict[str, ttk.Frame] = {}
         self.outputs_tree: ttk.Treeview | None = None
         self.handbook_tree: ttk.Treeview | None = None
         self.handbook_text: scrolledtext.ScrolledText | None = None
+        self.settings_canvas: tk.Canvas | None = None
+        self.settings_scrollable: ttk.Frame | None = None
+        self.settings_search_choice_var = tk.StringVar(value="")
+        self.settings_search_var = tk.StringVar(value="")
+        self.settings_search_combo: ttk.Combobox | None = None
+        self.model_summary_text: scrolledtext.ScrolledText | None = None
+        self.output_summary_text: scrolledtext.ScrolledText | None = None
         self.slider_value_labels: dict[str, ttk.Label] = {}
         self.base_status_message = "Ready."
         self.status_var = tk.StringVar(value=self.base_status_message)
@@ -618,6 +635,9 @@ class DesktopWorkbench:
 
         self._build_layout()
         self._apply_form_values(self.form_values)
+        self._register_settings_observers()
+        self._refresh_settings_search_results()
+        self._refresh_settings_overview()
         self._refresh_profile_choices()
         self.root.after(100, self._poll_messages)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -683,6 +703,7 @@ class DesktopWorkbench:
         status_bar.pack(fill="x", side="bottom")
 
         notebook = ttk.Notebook(self.root)
+        self.notebook = notebook
         notebook.pack(fill="both", expand=True)
 
         self.settings_tab = ttk.Frame(notebook)
@@ -712,8 +733,10 @@ class DesktopWorkbench:
         """Render the grouped configuration form used to build a `ResearchConfig`."""
 
         canvas = tk.Canvas(self.settings_tab)
+        self.settings_canvas = canvas
         scrollbar = ttk.Scrollbar(self.settings_tab, orient="vertical", command=canvas.yview)
         scrollable = ttk.Frame(canvas, padding=12)
+        self.settings_scrollable = scrollable
         scrollable.bind(
             "<Configure>",
             lambda _event: canvas.configure(scrollregion=canvas.bbox("all")),
@@ -734,10 +757,17 @@ class DesktopWorkbench:
             justify="left",
         ).grid(row=row, column=0, sticky="w", padx=6, pady=(0, 8))
         row += 1
+        quick_access = ttk.LabelFrame(scrollable, text="Quick Access", padding=10)
+        quick_access.grid(row=row, column=0, sticky="nsew", padx=6, pady=6)
+        quick_access.columnconfigure(0, weight=1)
+        quick_access.columnconfigure(1, weight=1)
+        self._build_settings_quick_access(quick_access)
+        row += 1
         for section_name, field_names in self.GROUPS:
             frame = ttk.LabelFrame(scrollable, text=section_name, padding=10)
             frame.grid(row=row, column=0, sticky="nsew", padx=6, pady=6)
             frame.columnconfigure(1, weight=1)
+            self.section_frames[section_name] = frame
             self._bind_hover_help(frame, self.SECTION_HELP_TEXTS.get(section_name, section_name))
             summary_label = ttk.Label(
                 frame,
@@ -762,6 +792,7 @@ class DesktopWorkbench:
                     widget = tk.Text(multiline_frame, height=height, wrap="word")
                     widget.grid(row=0, column=0, sticky="ew")
                     self.text_widgets[field_name] = widget
+                    self.field_focus_widgets[field_name] = widget
                     self._bind_hover_help(widget, help_text)
                     if field_name == "analysis_passes":
                         button_bar = ttk.Frame(multiline_frame)
@@ -783,6 +814,7 @@ class DesktopWorkbench:
                     widget = ttk.Checkbutton(frame, text=label, variable=variable)
                     widget.grid(row=inner_row, column=0, columnspan=2, sticky="w", padx=4, pady=4)
                     self.scalar_vars[field_name] = variable
+                    self.field_focus_widgets[field_name] = widget
                     self._bind_hover_help(widget, help_text)
                 else:
                     label_widget = ttk.Label(frame, text=label)
@@ -834,6 +866,7 @@ class DesktopWorkbench:
                             widget = ttk.Entry(frame, **entry_kwargs)
                             widget.grid(row=inner_row, column=1, sticky="ew", padx=4, pady=4)
                     self.scalar_vars[field_name] = variable
+                    self.field_focus_widgets[field_name] = widget
                     self._bind_hover_help(widget, help_text)
                 inner_row += 1
             row += 1
@@ -855,6 +888,129 @@ class DesktopWorkbench:
         if field_name in BOOLEAN_FIELD_DEFAULTS or field_name.endswith("_enabled"):
             return f"Turn {label.lower()} on or off for this run."
         return f"Configure {label.lower()} for this run. This value is saved into profiles and JSON configs."
+
+    def _build_settings_quick_access(self, parent: ttk.LabelFrame) -> None:
+        """Create searchable shortcuts and live summaries for the most requested settings."""
+
+        intro = ttk.Label(
+            parent,
+            text=(
+                "Use search or the jump buttons to find model selection, chained passes, thresholds, CSV/SQLite outputs, "
+                "PDF folders, and verbose logging immediately."
+            ),
+            wraplength=1040,
+            justify="left",
+        )
+        intro.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+
+        search_bar = ttk.Frame(parent)
+        search_bar.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        search_bar.columnconfigure(1, weight=1)
+        search_bar.columnconfigure(2, weight=1)
+        ttk.Label(search_bar, text="Find setting:").grid(row=0, column=0, sticky="w")
+        search_entry = ttk.Entry(search_bar, textvariable=self.settings_search_var)
+        search_entry.grid(row=0, column=1, sticky="ew", padx=(6, 6))
+        search_entry.bind("<KeyRelease>", lambda _event: self._refresh_settings_search_results())
+        search_entry.bind("<Return>", lambda _event: self._focus_selected_setting())
+        self.settings_search_combo = ttk.Combobox(search_bar, textvariable=self.settings_search_choice_var, state="readonly")
+        self.settings_search_combo.grid(row=0, column=2, sticky="ew", padx=(0, 6))
+        self.settings_search_combo.bind("<<ComboboxSelected>>", lambda _event: self._focus_selected_setting())
+        ttk.Button(search_bar, text="Go", command=self._focus_selected_setting).grid(row=0, column=3)
+
+        jump_bar = ttk.Frame(parent)
+        jump_bar.grid(row=2, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        jumps = [
+            ("Jump to Models", lambda: self._focus_field("llm_provider")),
+            ("Jump to Thresholds", lambda: self._focus_field("relevance_threshold")),
+            ("Jump to Outputs", lambda: self._focus_field("output_csv")),
+            ("Jump to Storage Paths", lambda: self._focus_field("database_path")),
+            ("Jump to Logging", lambda: self._focus_field("verbosity")),
+            ("Edit Pass Chain", self._open_pass_builder),
+        ]
+        for text, command in jumps:
+            button = ttk.Button(jump_bar, text=text, command=command)
+            button.pack(side="left", padx=(0, 6))
+            self._bind_hover_help(button, f"Jump to the GUI area for {text.lower()}.")
+
+        model_frame = ttk.LabelFrame(parent, text="Current Model Setup", padding=8)
+        model_frame.grid(row=3, column=0, sticky="nsew", padx=(0, 6))
+        output_frame = ttk.LabelFrame(parent, text="Current Output Paths", padding=8)
+        output_frame.grid(row=3, column=1, sticky="nsew", padx=(6, 0))
+        parent.rowconfigure(3, weight=1)
+        model_frame.rowconfigure(0, weight=1)
+        output_frame.rowconfigure(0, weight=1)
+        model_frame.columnconfigure(0, weight=1)
+        output_frame.columnconfigure(0, weight=1)
+
+        self.model_summary_text = scrolledtext.ScrolledText(model_frame, height=10, wrap="word", state="disabled")
+        self.model_summary_text.grid(row=0, column=0, sticky="nsew")
+        self.output_summary_text = scrolledtext.ScrolledText(output_frame, height=10, wrap="word", state="disabled")
+        self.output_summary_text.grid(row=0, column=0, sticky="nsew")
+
+    def _settings_index(self) -> list[tuple[str, str]]:
+        """Return searchable setting targets in a human-readable label format."""
+
+        entries: list[tuple[str, str]] = []
+        for section_name, field_names in self.GROUPS:
+            for field_name in field_names:
+                label = self.LABELS.get(field_name, field_name.replace("_", " ").title())
+                entries.append((field_name, f"{section_name} -> {label}"))
+        return entries
+
+    def _refresh_settings_search_results(self) -> None:
+        """Filter the settings search list based on the current query string."""
+
+        if self.settings_search_combo is None:
+            return
+        query = self.settings_search_var.get().strip().lower()
+        matches: list[str] = []
+        for field_name, display in self._settings_index():
+            haystack = " ".join([display, self._help_text_for_field(field_name)]).lower()
+            if query and query not in haystack:
+                continue
+            matches.append(display)
+        self.settings_search_combo["values"] = matches
+        if matches:
+            self.settings_search_choice_var.set(matches[0])
+        else:
+            self.settings_search_choice_var.set("")
+
+    def _focus_selected_setting(self) -> None:
+        """Scroll to the setting chosen in the quick-access search box."""
+
+        selected = self.settings_search_choice_var.get().strip()
+        if not selected:
+            return
+        for field_name, display in self._settings_index():
+            if display == selected:
+                self._focus_field(field_name)
+                break
+
+    def _focus_field(self, field_name: str) -> None:
+        """Scroll the settings canvas to a field and focus its primary widget."""
+
+        widget = self.field_focus_widgets.get(field_name)
+        if widget is None:
+            return
+        self.notebook.select(self.settings_tab)
+        self._scroll_widget_into_view(widget)
+        try:
+            widget.focus_set()
+        except tk.TclError:
+            pass
+        self._show_hover_help(self._help_text_for_field(field_name))
+        self._set_status(f"Focused setting: {self.LABELS.get(field_name, field_name)}")
+
+    def _scroll_widget_into_view(self, widget: tk.Widget) -> None:
+        """Move the settings scroll region so the target widget is visible."""
+
+        if self.settings_canvas is None or self.settings_scrollable is None:
+            return
+        self.root.update_idletasks()
+        scrollable_height = max(self.settings_scrollable.winfo_height(), 1)
+        relative_y = max(widget.winfo_rooty() - self.settings_scrollable.winfo_rooty(), 0)
+        target = max(min(relative_y / scrollable_height, 1.0), 0.0)
+        self.settings_canvas.yview_moveto(max(target - 0.08, 0.0))
 
     def _format_slider_value(self, field_name: str, value: float) -> str:
         """Format slider-backed numeric values consistently for display labels."""
@@ -878,8 +1034,87 @@ class DesktopWorkbench:
         except (TypeError, ValueError):
             return
         formatted = self._format_slider_value(field_name, value)
-        variable.set(float(formatted) if "." in formatted else int(formatted))
         label.configure(text=formatted)
+        self._refresh_settings_overview()
+
+    def _register_settings_observers(self) -> None:
+        """Attach lightweight observers so overview panels stay in sync with form edits."""
+
+        for field_name, variable in self.scalar_vars.items():
+            variable.trace_add("write", lambda *_args, name=field_name: self._handle_setting_change(name))
+        analysis_widget = self.text_widgets.get("analysis_passes")
+        if analysis_widget is not None:
+            analysis_widget.bind("<KeyRelease>", lambda _event: self._refresh_settings_overview(), add="+")
+
+    def _handle_setting_change(self, field_name: str) -> None:
+        """Update derived UI state after one scalar setting changes."""
+
+        if field_name in self.slider_value_labels:
+            self._sync_slider_label(field_name)
+            return
+        self._refresh_settings_overview()
+
+    def _refresh_settings_overview(self) -> None:
+        """Update the quick-access summaries for model configuration and outputs."""
+
+        values = self._collect_form_values()
+        results_dir = Path(str(values.get("results_dir", "results") or "results"))
+        papers_dir = Path(str(values.get("papers_dir", "papers") or "papers"))
+        relevant_dir_raw = str(values.get("relevant_pdfs_dir", "") or "").strip()
+        relevant_dir = Path(relevant_dir_raw) if relevant_dir_raw else papers_dir / "relevant"
+        pdf_mode = str(values.get("pdf_download_mode", "all") or "all")
+        chain_entries = self._current_analysis_passes()
+        model_lines = [
+            f"Primary provider: {values.get('llm_provider', 'auto')}",
+            f"Chained pass setup: {'yes' if chain_entries else 'no'}",
+            f"OpenAI model: {values.get('openai_model', '') or '(not set)'}",
+            f"Ollama model: {values.get('ollama_model', '') or '(not set)'}",
+            f"HF model: {values.get('huggingface_model', '') or '(not set)'}",
+            f"Relevance threshold: {values.get('relevance_threshold')}",
+            f"Maybe margin: {values.get('maybe_threshold_margin')}",
+            f"LLM temperature: {values.get('llm_temperature')}",
+        ]
+        if chain_entries:
+            model_lines.append("")
+            model_lines.append("Pass chain:")
+            for index, entry in enumerate(chain_entries, start=1):
+                line = (
+                    f"{index}. {entry['name']} -> {entry['provider']} | threshold {int(round(float(entry['threshold'])))} "
+                    f"| {entry['decision_mode']} | maybe {int(round(float(entry['margin'])))}"
+                )
+                if entry.get("model_name"):
+                    line += f" | model {entry['model_name']}"
+                if entry.get("min_input_score") not in {None, ''}:
+                    line += f" | start if previous >= {int(round(float(entry['min_input_score'])))}"
+                model_lines.append(line)
+        output_lines = [
+            f"Main SQLite DB: {values.get('database_path')}",
+            f"CSV exports: {'on' if values.get('output_csv') else 'off'} -> {results_dir / 'papers.csv'}",
+            f"JSON exports: {'on' if values.get('output_json') else 'off'} -> {results_dir / 'top_papers.json'}",
+            f"Markdown summary: {'on' if values.get('output_markdown') else 'off'} -> {results_dir / 'review_summary.md'}",
+            f"SQLite exports: {'on' if values.get('output_sqlite_exports') else 'off'} -> {results_dir / 'included_papers.db'}",
+            f"PDF downloads: {'on' if values.get('download_pdfs') else 'off'} | mode={pdf_mode}",
+            f"Main PDF folder: {papers_dir}",
+        ]
+        if pdf_mode == "relevant_only":
+            folder_mode = "same folder" if relevant_dir == papers_dir else "separate relevant folder"
+            output_lines.append(f"Relevant PDF folder: {relevant_dir} ({folder_mode})")
+        else:
+            output_lines.append("Relevant PDFs are not split into a separate folder in 'all' mode.")
+        output_lines.append(f"Results folder: {results_dir}")
+
+        self._write_summary_widget(self.model_summary_text, "\n".join(model_lines))
+        self._write_summary_widget(self.output_summary_text, "\n".join(output_lines))
+
+    def _write_summary_widget(self, widget: scrolledtext.ScrolledText | None, text: str) -> None:
+        """Render summary text into a read-only scrolled text widget."""
+
+        if widget is None:
+            return
+        widget.configure(state="normal")
+        widget.delete("1.0", tk.END)
+        widget.insert("1.0", text)
+        widget.configure(state="disabled")
 
     def _bind_hover_help(self, widget: tk.Widget, help_text: str) -> None:
         """Attach hover and keyboard-focus help handlers to a settings widget."""
@@ -1073,6 +1308,8 @@ class DesktopWorkbench:
                     "threshold": parsed.threshold,
                     "decision_mode": parsed.decision_mode,
                     "margin": parsed.maybe_threshold_margin,
+                    "model_name": parsed.model_name or "",
+                    "min_input_score": parsed.min_input_score,
                 }
             )
         return passes
@@ -1084,7 +1321,21 @@ class DesktopWorkbench:
         if widget is None:
             return
         lines = [
-            f"{entry['name']}:{entry['provider']}:{float(entry['threshold']):.0f}:{entry['decision_mode']}:{float(entry['margin']):.0f}"
+            "|".join(
+                [
+                    str(entry["name"]),
+                    str(entry["provider"]),
+                    f"{float(entry['threshold']):.0f}",
+                    str(entry["decision_mode"]),
+                    f"{float(entry['margin']):.0f}",
+                    str(entry.get("model_name", "") or ""),
+                    (
+                        ""
+                        if entry.get("min_input_score") in {None, ""}
+                        else f"{float(entry['min_input_score']):.0f}"
+                    ),
+                ]
+            )
             for entry in passes
         ]
         widget.delete("1.0", tk.END)
@@ -1115,13 +1366,20 @@ class DesktopWorkbench:
         right = ttk.Frame(dialog, padding=10)
         right.pack(side="left", fill="both", expand=True)
 
-        tree = ttk.Treeview(left, columns=("name", "provider", "threshold", "mode", "margin"), show="headings", height=16)
+        tree = ttk.Treeview(
+            left,
+            columns=("name", "provider", "threshold", "mode", "margin", "model", "min_score"),
+            show="headings",
+            height=16,
+        )
         for column, title, width in (
             ("name", "Pass", 120),
             ("provider", "Provider", 180),
             ("threshold", "Threshold", 90),
             ("mode", "Mode", 100),
             ("margin", "Maybe", 90),
+            ("model", "Model override", 220),
+            ("min_score", "Start if prev >=", 120),
         ):
             tree.heading(column, text=title)
             tree.column(column, width=width, anchor="w")
@@ -1133,9 +1391,13 @@ class DesktopWorkbench:
             "decision_mode": tk.StringVar(value="strict"),
             "threshold": tk.DoubleVar(value=70.0),
             "margin": tk.DoubleVar(value=10.0),
+            "model_name": tk.StringVar(value=""),
+            "min_input_score_enabled": tk.BooleanVar(value=False),
+            "min_input_score": tk.DoubleVar(value=70.0),
         }
         threshold_label = ttk.Label(right, width=8, anchor="e")
         margin_label = ttk.Label(right, width=8, anchor="e")
+        min_input_score_label = ttk.Label(right, width=8, anchor="e")
 
         def refresh_tree() -> None:
             for item in tree.get_children():
@@ -1151,6 +1413,12 @@ class DesktopWorkbench:
                         int(round(float(entry["threshold"]))),
                         entry["decision_mode"],
                         int(round(float(entry["margin"]))),
+                        entry.get("model_name", "") or "",
+                        (
+                            int(round(float(entry["min_input_score"])))
+                            if entry.get("min_input_score") not in {None, ""}
+                            else "always"
+                        ),
                     ],
                 )
             if entries:
@@ -1162,6 +1430,10 @@ class DesktopWorkbench:
         def sync_labels() -> None:
             threshold_label.configure(text=str(int(round(form_vars["threshold"].get()))))
             margin_label.configure(text=str(int(round(form_vars["margin"].get()))))
+            if form_vars["min_input_score_enabled"].get():
+                min_input_score_label.configure(text=str(int(round(form_vars["min_input_score"].get()))))
+            else:
+                min_input_score_label.configure(text="always")
 
         def load_selected(_event: Any | None = None) -> None:
             selection = tree.selection()
@@ -1173,6 +1445,14 @@ class DesktopWorkbench:
             form_vars["decision_mode"].set(entry["decision_mode"])
             form_vars["threshold"].set(float(entry["threshold"]))
             form_vars["margin"].set(float(entry["margin"]))
+            form_vars["model_name"].set(str(entry.get("model_name", "") or ""))
+            min_input_score = entry.get("min_input_score")
+            if min_input_score in {None, ""}:
+                form_vars["min_input_score_enabled"].set(False)
+                form_vars["min_input_score"].set(float(entry.get("threshold", 70.0)))
+            else:
+                form_vars["min_input_score_enabled"].set(True)
+                form_vars["min_input_score"].set(float(min_input_score))
             sync_labels()
 
         def save_current() -> None:
@@ -1186,6 +1466,12 @@ class DesktopWorkbench:
                 "threshold": float(form_vars["threshold"].get()),
                 "decision_mode": form_vars["decision_mode"].get().strip(),
                 "margin": float(form_vars["margin"].get()),
+                "model_name": form_vars["model_name"].get().strip(),
+                "min_input_score": (
+                    float(form_vars["min_input_score"].get())
+                    if form_vars["min_input_score_enabled"].get()
+                    else None
+                ),
             }
             selection = tree.selection()
             if selection:
@@ -1202,6 +1488,12 @@ class DesktopWorkbench:
                     "threshold": float(form_vars["threshold"].get()),
                     "decision_mode": form_vars["decision_mode"].get().strip(),
                     "margin": float(form_vars["margin"].get()),
+                    "model_name": form_vars["model_name"].get().strip(),
+                    "min_input_score": (
+                        float(form_vars["min_input_score"].get())
+                        if form_vars["min_input_score_enabled"].get()
+                        else None
+                    ),
                 }
             )
             refresh_tree()
@@ -1254,11 +1546,31 @@ class DesktopWorkbench:
         margin_scale = ttk.Scale(right, from_=0, to=100, variable=form_vars["margin"], command=lambda _value: sync_labels())
         margin_scale.grid(row=4, column=1, sticky="ew", pady=4)
         margin_label.grid(row=4, column=2, sticky="e", padx=(8, 0))
+        ttk.Label(right, text="Model override").grid(row=5, column=0, sticky="w", pady=4)
+        ttk.Entry(right, textvariable=form_vars["model_name"]).grid(row=5, column=1, columnspan=2, sticky="ew", pady=4)
+        min_gate_frame = ttk.Frame(right)
+        min_gate_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=4)
+        ttk.Checkbutton(
+            min_gate_frame,
+            text="Only run this pass if the previous pass scored at least",
+            variable=form_vars["min_input_score_enabled"],
+            command=sync_labels,
+        ).pack(side="left")
+        min_gate_scale = ttk.Scale(
+            right,
+            from_=0,
+            to=100,
+            variable=form_vars["min_input_score"],
+            command=lambda _value: sync_labels(),
+        )
+        min_gate_scale.grid(row=7, column=1, sticky="ew", pady=4)
+        ttk.Label(right, text="Entry score gate (%)").grid(row=7, column=0, sticky="w", pady=4)
+        min_input_score_label.grid(row=7, column=2, sticky="e", padx=(8, 0))
         right.columnconfigure(1, weight=1)
         sync_labels()
 
         button_bar = ttk.Frame(right)
-        button_bar.grid(row=5, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        button_bar.grid(row=8, column=0, columnspan=3, sticky="w", pady=(12, 0))
         ttk.Button(button_bar, text="Add Pass", command=add_pass).pack(side="left")
         ttk.Button(button_bar, text="Update Pass", command=save_current).pack(side="left", padx=(6, 0))
         ttk.Button(button_bar, text="Remove Pass", command=remove_pass).pack(side="left", padx=(6, 0))
@@ -1266,7 +1578,7 @@ class DesktopWorkbench:
         ttk.Button(button_bar, text="Move Down", command=lambda: move(1)).pack(side="left", padx=(6, 0))
 
         footer = ttk.Frame(right)
-        footer.grid(row=6, column=0, columnspan=3, sticky="e", pady=(16, 0))
+        footer.grid(row=9, column=0, columnspan=3, sticky="e", pady=(16, 0))
         ttk.Button(footer, text="Cancel", command=dialog.destroy).pack(side="right")
         ttk.Button(
             footer,

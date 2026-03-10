@@ -29,6 +29,7 @@ class UIViewModelTests(unittest.TestCase):
                 "max_discovered_records": "120",
                 "min_discovered_records": "10",
                 "skip_discovery": True,
+                "analysis_passes": "fast|huggingface_local|72|strict|8|Qwen/Qwen3-14B|0\ndeep|openai_compatible|85|triage|12|gpt-5.4|70",
                 "llm_temperature": "0.25",
                 "huggingface_model": "Qwen/Qwen3-14B",
                 "log_http_requests": True,
@@ -44,6 +45,10 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(config.max_discovered_records, 120)
         self.assertEqual(config.min_discovered_records, 10)
         self.assertTrue(config.skip_discovery)
+        self.assertEqual(len(config.analysis_passes), 2)
+        self.assertEqual(config.analysis_passes[0].model_name, "Qwen/Qwen3-14B")
+        self.assertEqual(config.analysis_passes[1].model_name, "gpt-5.4")
+        self.assertEqual(config.analysis_passes[1].min_input_score, 70.0)
         self.assertEqual(config.api_settings.llm_temperature, 0.25)
         self.assertEqual(config.api_settings.huggingface_model, "Qwen/Qwen3-14B")
         self.assertTrue(config.log_http_requests)
@@ -77,6 +82,17 @@ class UIViewModelTests(unittest.TestCase):
             discovery_strategy="balanced",
             max_discovered_records=75,
             min_discovered_records=5,
+            analysis_passes=[
+                {
+                    "name": "fast",
+                    "llm_provider": "huggingface_local",
+                    "threshold": 72,
+                    "decision_mode": "strict",
+                    "maybe_threshold_margin": 8,
+                    "model_name": "Qwen/Qwen3-14B",
+                    "min_input_score": 0,
+                }
+            ],
             include_pubmed=False,
         ).finalize()
 
@@ -86,6 +102,7 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(values["search_keywords"], "llm, screening")
         self.assertEqual(values["max_discovered_records"], 75)
         self.assertEqual(values["min_discovered_records"], 5)
+        self.assertIn("Qwen/Qwen3-14B", values["analysis_passes"])
 
     def test_config_payload_to_form_values_accepts_saved_json_shape(self) -> None:
         payload = {

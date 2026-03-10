@@ -86,6 +86,8 @@ class DesktopWorkbenchTests(unittest.TestCase):
                 "threshold": 72,
                 "decision_mode": "strict",
                 "margin": 8,
+                "model_name": "Qwen/Qwen3-14B",
+                "min_input_score": 0,
             },
             {
                 "name": "deep",
@@ -93,6 +95,8 @@ class DesktopWorkbenchTests(unittest.TestCase):
                 "threshold": 85,
                 "decision_mode": "triage",
                 "margin": 12,
+                "model_name": "gpt-5.4",
+                "min_input_score": 70,
             },
         ]
 
@@ -103,6 +107,45 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(round_trip[0]["provider"], "huggingface_local")
         self.assertEqual(round_trip[1]["provider"], "openai_compatible")
         self.assertEqual(round_trip[1]["threshold"], 85.0)
+        self.assertEqual(round_trip[0]["model_name"], "Qwen/Qwen3-14B")
+        self.assertEqual(round_trip[1]["min_input_score"], 70.0)
+
+    def test_quick_access_summaries_show_model_and_output_details(self) -> None:
+        self.assertIsNotNone(self.workbench.model_summary_text)
+        self.assertIsNotNone(self.workbench.output_summary_text)
+
+        model_text = self.workbench.model_summary_text.get("1.0", tk.END)
+        output_text = self.workbench.output_summary_text.get("1.0", tk.END)
+
+        self.assertIn("Primary provider", model_text)
+        self.assertIn("HF model", model_text)
+        self.assertIn("Main SQLite DB", output_text)
+        self.assertIn("CSV exports", output_text)
+
+        self.workbench._write_analysis_passes(
+            [
+                {
+                    "name": "deep",
+                    "provider": "ollama",
+                    "threshold": 80,
+                    "decision_mode": "triage",
+                    "margin": 10,
+                    "model_name": "gpt-oss:20b",
+                    "min_input_score": 70,
+                }
+            ]
+        )
+        self.workbench._refresh_settings_overview()
+        updated_model_text = self.workbench.model_summary_text.get("1.0", tk.END)
+        self.assertIn("gpt-oss:20b", updated_model_text)
+        self.assertIn("start if previous >= 70", updated_model_text)
+
+    def test_settings_search_can_find_output_controls(self) -> None:
+        self.workbench.settings_search_var.set("sqlite")
+        self.workbench._refresh_settings_search_results()
+        values = tuple(self.workbench.settings_search_combo["values"])
+
+        self.assertTrue(any("SQLite" in value for value in values))
 
     def test_hover_help_updates_and_restores_status_bar(self) -> None:
         original_status = self.workbench.status_var.get()

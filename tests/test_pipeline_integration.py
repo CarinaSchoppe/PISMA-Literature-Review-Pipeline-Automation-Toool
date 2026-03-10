@@ -13,6 +13,7 @@ import pandas as pd
 
 from acquisition.pdf_fetcher import PDFFetcher
 from config import ResearchConfig
+from models.paper import PaperMetadata, ScreeningResult
 from pipeline.pipeline_controller import PipelineController
 
 
@@ -423,3 +424,78 @@ class PipelineIntegrationTests(unittest.TestCase):
             result = controller.run()
 
             self.assertEqual(result["run_status"], "stopped")
+
+    def test_pass_chain_can_skip_expensive_follow_up_models_below_entry_score(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = ResearchConfig(
+                research_topic="AI-assisted literature reviews",
+                search_keywords=["large language models", "screening"],
+                openalex_enabled=False,
+                semantic_scholar_enabled=False,
+                crossref_enabled=False,
+                include_pubmed=False,
+                disable_progress_bars=True,
+                data_dir=root / "data",
+                papers_dir=root / "papers",
+                results_dir=root / "results",
+                database_path=root / "data" / "literature_review.db",
+                analysis_passes=[
+                    {
+                        "name": "fast",
+                        "llm_provider": "heuristic",
+                        "threshold": 60,
+                        "decision_mode": "strict",
+                    },
+                    {
+                        "name": "deep",
+                        "llm_provider": "ollama",
+                        "threshold": 85,
+                        "decision_mode": "triage",
+                        "maybe_threshold_margin": 10,
+                        "model_name": "gpt-oss:20b",
+                        "min_input_score": 70,
+                    },
+                ],
+            ).finalize()
+
+            controller = PipelineController(config)
+            try:
+                class FakeScreener:
+                    def __init__(self, result: ScreeningResult) -> None:
+                        self.result = result
+                        self.calls = 0
+
+                    def screen(self, paper: PaperMetadata) -> ScreeningResult:
+                        self.calls += 1
+                        return self.result
+
+                fast = FakeScreener(
+                    ScreeningResult(
+                        stage_one_decision="maybe",
+                        relevance_score=65,
+                        decision="maybe",
+                        explanation="Fast pass result",
+                    )
+                )
+                deep = FakeScreener(
+                    ScreeningResult(
+                        stage_one_decision="include",
+                        relevance_score=92,
+                        decision="include",
+                        explanation="Deep pass result",
+                    )
+                )
+                controller.pass_screeners = {"fast": fast, "deep": deep}
+                paper = PaperMetadata(database_id=1, title="Example paper", abstract="Example abstract", source="fixture")
+
+                result, screening_details = controller._screen_paper_with_passes(paper)
+
+                self.assertEqual(fast.calls, 1)
+                self.assertEqual(deep.calls, 0)
+                self.assertEqual(result.relevance_score, 65)
+                self.assertTrue(screening_details["passes"]["deep"]["skipped"])
+                self.assertEqual(screening_details["passes"]["deep"]["model_name"], "gpt-oss:20b")
+                self.assertEqual(screening_details["passes"]["deep"]["min_input_score"], 70.0)
+            finally:
+                controller.close()

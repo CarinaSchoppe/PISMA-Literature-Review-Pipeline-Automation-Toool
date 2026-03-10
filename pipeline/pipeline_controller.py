@@ -495,6 +495,36 @@ class PipelineController:
         final_pass_name = ""
         for analysis_pass in self.config.resolved_analysis_passes:
             self._check_stop()
+            if (
+                final_result is not None
+                and analysis_pass.min_input_score is not None
+                and (final_result.relevance_score or 0.0) < analysis_pass.min_input_score
+            ):
+                self._log_verbose(
+                    "Skipping pass '%s' for '%s' because the previous score %.2f is below %.2f.",
+                    analysis_pass.name,
+                    paper.title,
+                    final_result.relevance_score or 0.0,
+                    analysis_pass.min_input_score,
+                )
+                passes[analysis_pass.name] = {
+                    "skipped": True,
+                    "skip_reason": "below_min_input_score",
+                    "llm_provider": analysis_pass.llm_provider,
+                    "model_name": analysis_pass.model_name,
+                    "threshold": analysis_pass.threshold,
+                    "decision_mode": analysis_pass.decision_mode,
+                    "min_input_score": analysis_pass.min_input_score,
+                }
+                self._emit_event(
+                    "screening_result",
+                    paper_title=paper.title,
+                    pass_name=analysis_pass.name,
+                    decision="skipped",
+                    relevance_score=final_result.relevance_score,
+                    provider=analysis_pass.llm_provider,
+                )
+                continue
             self._log_verbose(
                 "Analyzing '%s' with pass '%s' using %s.",
                 paper.title,
@@ -510,6 +540,9 @@ class PipelineController:
                 "threshold": analysis_pass.threshold,
                 "decision_mode": analysis_pass.decision_mode,
                 "llm_provider": analysis_pass.llm_provider,
+                "model_name": analysis_pass.model_name,
+                "min_input_score": analysis_pass.min_input_score,
+                "skipped": False,
             }
             if self.config.log_screening_decisions and self.config.verbosity in {"verbose", "debug"}:
                 LOGGER.info(
@@ -607,12 +640,27 @@ class PipelineController:
     def _config_for_analysis_pass(self, analysis_pass: AnalysisPassConfig) -> ResearchConfig:
         """Create a per-pass config view with pass-specific model and threshold settings."""
 
+        api_updates: dict[str, Any] = {}
+        if analysis_pass.model_name:
+            provider_model_field = {
+                "openai_compatible": "openai_model",
+                "ollama": "ollama_model",
+                "huggingface_local": "huggingface_model",
+            }.get(analysis_pass.llm_provider)
+            if provider_model_field:
+                api_updates[provider_model_field] = analysis_pass.model_name
+        api_settings = (
+            self.config.api_settings.model_copy(update=api_updates)
+            if api_updates
+            else self.config.api_settings
+        )
         return self.config.model_copy(
             update={
                 "llm_provider": analysis_pass.llm_provider,
                 "relevance_threshold": analysis_pass.threshold,
                 "decision_mode": analysis_pass.decision_mode,
                 "maybe_threshold_margin": analysis_pass.maybe_threshold_margin,
+                "api_settings": api_settings,
             }
         )
 

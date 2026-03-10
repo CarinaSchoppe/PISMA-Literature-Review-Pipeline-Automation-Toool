@@ -315,7 +315,10 @@ class ReportGenerator:
                     f"pass_{pass_name}_decision",
                     f"pass_{pass_name}_reason",
                     f"pass_{pass_name}_provider",
+                    f"pass_{pass_name}_model",
                     f"pass_{pass_name}_threshold",
+                    f"pass_{pass_name}_min_input_score",
+                    f"pass_{pass_name}_skipped",
                 ]
             )
         return keys
@@ -414,13 +417,18 @@ class ReportGenerator:
             payload[f"pass_{pass_name}_score"] = pass_payload.get("relevance_score")
             payload[f"pass_{pass_name}_decision"] = pass_payload.get("decision")
             payload[f"pass_{pass_name}_reason"] = (
+                pass_payload.get("skip_reason")
+                or
                 pass_payload.get("retain_reason")
                 or pass_payload.get("exclusion_reason")
                 or pass_payload.get("explanation")
                 or ""
             )
             payload[f"pass_{pass_name}_provider"] = pass_payload.get("llm_provider", "")
+            payload[f"pass_{pass_name}_model"] = pass_payload.get("model_name", "")
             payload[f"pass_{pass_name}_threshold"] = pass_payload.get("threshold")
+            payload[f"pass_{pass_name}_min_input_score"] = pass_payload.get("min_input_score")
+            payload[f"pass_{pass_name}_skipped"] = pass_payload.get("skipped", False)
         return payload
 
     def _collect_pass_names(self, papers: list[PaperMetadata]) -> list[str]:

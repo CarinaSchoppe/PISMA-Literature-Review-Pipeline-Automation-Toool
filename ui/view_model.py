@@ -123,8 +123,17 @@ def config_to_form_values(config: ResearchConfig) -> dict[str, Any]:
             "banned_topics": "; ".join(config.banned_topics),
             "excluded_title_terms": "; ".join(config.excluded_title_terms),
             "analysis_passes": "\n".join(
-                f"{analysis_pass.name}:{analysis_pass.llm_provider}:{analysis_pass.threshold}:"
-                f"{analysis_pass.decision_mode}:{analysis_pass.maybe_threshold_margin}"
+                "|".join(
+                    [
+                        analysis_pass.name,
+                        analysis_pass.llm_provider,
+                        str(analysis_pass.threshold),
+                        analysis_pass.decision_mode,
+                        str(analysis_pass.maybe_threshold_margin),
+                        analysis_pass.model_name or "",
+                        "" if analysis_pass.min_input_score is None else str(analysis_pass.min_input_score),
+                    ]
+                )
                 for analysis_pass in config.analysis_passes
             ),
             "boolean_operators": config.boolean_operators or "",

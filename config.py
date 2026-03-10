@@ -70,7 +70,21 @@ class AnalysisPassConfig(BaseModel):
     threshold: float = 70.0
     decision_mode: Literal["strict", "triage"] = "strict"
     maybe_threshold_margin: float = 10.0
+    model_name: str | None = None
+    min_input_score: float | None = None
     enabled: bool = True
+
+    @field_validator("threshold", "maybe_threshold_margin")
+    @classmethod
+    def validate_score_like_fields(cls, value: float) -> float:
+        return min(max(float(value), 0.0), 100.0)
+
+    @field_validator("min_input_score")
+    @classmethod
+    def validate_optional_min_input_score(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        return min(max(float(value), 0.0), 100.0)
 
 
 class ResearchConfig(BaseModel):
@@ -423,7 +437,7 @@ class ResearchConfig(BaseModel):
                 return file_config[name]
             return default
 
-        topic = value_for("research_topic", args.topic)
+        topic = value_for("research_topic", getattr(args, "research_topic", None))
         if not topic:
             topic = ask("Enter research topic")
 
@@ -443,7 +457,7 @@ class ResearchConfig(BaseModel):
         ):
             review_objective = ask("Optional review objective", "")
 
-        keywords = value_for("search_keywords", args.keywords)
+        keywords = value_for("search_keywords", getattr(args, "search_keywords", None))
         if not keywords:
             keywords = ask("Enter search keywords separated by comma")
 
@@ -486,38 +500,40 @@ class ResearchConfig(BaseModel):
             )
             excluded_title_terms = [item.strip() for item in raw_excluded_titles.split(";") if item.strip()]
 
-        boolean_operators = value_for("boolean_operators", args.boolean, "AND")
-        if args.boolean is None and "boolean_operators" not in file_config:
+        boolean_operators = value_for("boolean_operators", getattr(args, "boolean_operators", None), "AND")
+        if getattr(args, "boolean_operators", None) is None and "boolean_operators" not in file_config:
             boolean_operators = ask("Optional boolean operator or expression", "AND")
 
-        pages_to_retrieve = value_for("pages_to_retrieve", args.pages)
+        pages_to_retrieve = value_for("pages_to_retrieve", getattr(args, "pages_to_retrieve", None))
         if pages_to_retrieve is None:
             pages_to_retrieve = ask_int("Number of pages or result batches to retrieve per source", 2)
 
         results_per_page = value_for("results_per_page", args.results_per_page, 25)
 
-        year_start = value_for("year_range_start", args.year_start)
+        year_start = value_for("year_range_start", getattr(args, "year_range_start", None))
         if year_start is None:
             year_start = ask_int("Year range start", 2018)
 
-        year_end = value_for("year_range_end", args.year_end)
+        year_end = value_for("year_range_end", getattr(args, "year_range_end", None))
         if year_end is None:
             year_end = ask_int("Year range end", 2026)
 
-        max_papers = value_for("max_papers_to_analyze", args.max_papers)
+        max_papers = value_for("max_papers_to_analyze", getattr(args, "max_papers_to_analyze", None))
         if max_papers is None:
             max_papers = ask_int("Max results to analyze", 50)
 
         citation_snowballing = (
-            args.citation_snowballing
-            if args.citation_snowballing is not None
+            getattr(args, "citation_snowballing_enabled", None)
+            if getattr(args, "citation_snowballing_enabled", None) is not None
             else file_config.get("citation_snowballing_enabled")
         )
         if citation_snowballing is None:
             citation_snowballing = ask_bool("Enable citation snowballing? (yes/no)", True)
 
         relevance_threshold = (
-            args.threshold if args.threshold is not None else file_config.get("relevance_threshold")
+            getattr(args, "relevance_threshold", None)
+            if getattr(args, "relevance_threshold", None) is not None
+            else file_config.get("relevance_threshold")
         )
         if relevance_threshold is None:
             relevance_threshold = ask_float("Relevance score threshold", 70.0)
@@ -542,7 +558,7 @@ class ResearchConfig(BaseModel):
 
         run_mode = value_for("run_mode", getattr(args, "run_mode", None), "analyze")
         verbosity = value_for("verbosity", getattr(args, "verbosity", None), "normal")
-        analysis_passes = value_for("analysis_passes", getattr(args, "analysis_pass", None), [])
+        analysis_passes = value_for("analysis_passes", getattr(args, "analysis_passes", None), [])
         file_api_settings = file_config.get("api_settings", {}) or {}
         api_overrides = {
             key: value
@@ -666,7 +682,7 @@ class ResearchConfig(BaseModel):
                 True,
             ),
             profile_name=value_for("profile_name", getattr(args, "profile_name", None), None),
-            fixture_data_path=value_for("fixture_data_path", args.fixture_data),
+            fixture_data_path=value_for("fixture_data_path", getattr(args, "fixture_data_path", None)),
             manual_source_path=value_for("manual_source_path", getattr(args, "manual_source_path", None)),
             google_scholar_import_path=value_for(
                 "google_scholar_import_path",
@@ -707,7 +723,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config-file", help="Load run settings from a JSON config file")
     parser.add_argument("--ui", action="store_true", help="Launch the guided Tkinter desktop workbench")
     parser.add_argument("--wizard", action="store_true", help="Force the classic text-based interactive wizard")
-    parser.add_argument("--topic", help="Research topic")
+    parser.add_argument("--topic", dest="research_topic", help="Research topic")
     parser.add_argument("--research-question", help="Explicit research question for AI screening")
     parser.add_argument("--review-objective", help="Review objective or intended output")
     parser.add_argument("--inclusion-criteria", help="Semicolon-separated inclusion criteria")
@@ -717,17 +733,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--excluded-title-terms",
         help="Semicolon-separated title markers that should be excluded, for example correction;erratum;editorial",
     )
-    parser.add_argument("--keywords", help="Comma-separated search keywords")
-    parser.add_argument("--boolean", help="Boolean operator or expression to join keywords")
-    parser.add_argument("--pages", type=int, help="Number of pages or result batches per source")
+    parser.add_argument("--keywords", dest="search_keywords", help="Comma-separated search keywords")
+    parser.add_argument("--boolean", dest="boolean_operators", help="Boolean operator or expression to join keywords")
+    parser.add_argument("--pages", type=int, dest="pages_to_retrieve", help="Number of pages or result batches per source")
     parser.add_argument("--results-per-page", type=int, dest="results_per_page", help="Results fetched per source page")
     parser.add_argument(
         "--discovery-strategy",
         choices=["precise", "balanced", "broad"],
         help="Control how many query variants are issued to each discovery source",
     )
-    parser.add_argument("--year-start", type=int, dest="year_start", help="Publication year range start")
-    parser.add_argument("--year-end", type=int, dest="year_end", help="Publication year range end")
+    parser.add_argument("--year-start", type=int, dest="year_range_start", help="Publication year range start")
+    parser.add_argument("--year-end", type=int, dest="year_range_end", help="Publication year range end")
     parser.add_argument(
         "--max-discovered-records",
         type=int,
@@ -740,7 +756,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         dest="min_discovered_records",
         help="Hard minimum number of unique records required before screening continues",
     )
-    parser.add_argument("--max-papers", type=int, dest="max_papers", help="Maximum papers to analyze")
+    parser.add_argument("--max-papers", type=int, dest="max_papers_to_analyze", help="Maximum papers to analyze")
     parser.add_argument(
         "--skip-discovery",
         action=argparse.BooleanOptionalAction,
@@ -751,6 +767,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--citation-snowballing",
         action=argparse.BooleanOptionalAction,
         default=None,
+        dest="citation_snowballing_enabled",
         help="Enable or disable backward and forward citation expansion",
     )
     parser.add_argument(
@@ -806,7 +823,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Enable or disable arXiv API discovery",
     )
-    parser.add_argument("--threshold", type=float, help="Relevance score threshold from 0 to 100")
+    parser.add_argument("--threshold", type=float, dest="relevance_threshold", help="Relevance score threshold from 0 to 100")
     parser.add_argument(
         "--run-mode",
         choices=["collect", "analyze"],
@@ -825,7 +842,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--analysis-pass",
         action="append",
-        help="Sequential analysis pass in the form name:provider:threshold[:decision_mode[:margin]]",
+        dest="analysis_passes",
+        help="Sequential analysis pass in the form name:provider:threshold[:decision_mode[:margin]] or the extended UI pipe format",
     )
     parser.add_argument("--semantic-scholar-api-key", help="Semantic Scholar API key")
     parser.add_argument("--crossref-mailto", help="Contact email sent with Crossref requests")
@@ -950,6 +968,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--profile-name", help="Optional name used when saving or loading guided UI profiles")
     parser.add_argument(
         "--fixture-data",
+        dest="fixture_data_path",
         help="Path to a local JSON fixture file for fast offline discovery tests",
     )
     parser.add_argument(
@@ -1000,9 +1019,39 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def parse_analysis_pass(value: str) -> AnalysisPassConfig:
-    """Parse a compact `name:provider:threshold[:decision_mode[:margin]]` analysis-pass string."""
+    """Parse a compact analysis-pass string from CLI, config files, or the GUI builder."""
 
-    parts = [part.strip() for part in value.split(":")]
+    candidate = value.strip()
+    if not candidate:
+        raise ValueError("Analysis pass cannot be empty")
+
+    if candidate.startswith("{"):
+        parsed = json.loads(candidate)
+        if not isinstance(parsed, dict):
+            raise ValueError("Analysis pass JSON must decode to an object")
+        return AnalysisPassConfig(**parsed)
+
+    if "|" in candidate:
+        parts = [part.strip() for part in candidate.split("|")]
+        if len(parts) < 5:
+            raise ValueError(
+                "Extended analysis pass format must use name|provider|threshold|decision_mode|margin"
+                "[|model_name|min_input_score]"
+            )
+        name, provider, threshold, decision_mode, margin = parts[:5]
+        model_name = parts[5] if len(parts) >= 6 and parts[5] else None
+        min_input_score = float(parts[6]) if len(parts) >= 7 and parts[6] else None
+        return AnalysisPassConfig(
+            name=name,
+            llm_provider=provider,  # type: ignore[arg-type]
+            threshold=float(threshold),
+            decision_mode=decision_mode,  # type: ignore[arg-type]
+            maybe_threshold_margin=float(margin),
+            model_name=model_name,
+            min_input_score=min_input_score,
+        )
+
+    parts = [part.strip() for part in candidate.split(":")]
     if len(parts) < 3:
         raise ValueError("Analysis pass must use name:provider:threshold[:decision_mode[:margin]]")
     name, provider, threshold = parts[:3]

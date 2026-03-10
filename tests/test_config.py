@@ -50,6 +50,31 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(analysis_pass.decision_mode, "triage")
         self.assertEqual(analysis_pass.maybe_threshold_margin, 12.0)
 
+    def test_parse_analysis_pass_supports_extended_gui_format(self) -> None:
+        analysis_pass = parse_analysis_pass("deep|huggingface_local|85|triage|12|Qwen/Qwen3-14B|70")
+
+        self.assertEqual(analysis_pass.name, "deep")
+        self.assertEqual(analysis_pass.llm_provider, "huggingface_local")
+        self.assertEqual(analysis_pass.threshold, 85.0)
+        self.assertEqual(analysis_pass.decision_mode, "triage")
+        self.assertEqual(analysis_pass.maybe_threshold_margin, 12.0)
+        self.assertEqual(analysis_pass.model_name, "Qwen/Qwen3-14B")
+        self.assertEqual(analysis_pass.min_input_score, 70.0)
+
+    def test_cli_runtime_destinations_align_with_ui_form_fields(self) -> None:
+        from ui.view_model import default_form_values
+
+        parser = build_arg_parser()
+        form_fields = set(default_form_values())
+        allowed_non_runtime = {"help", "config_file", "ui", "wizard"}
+        parser_dests = {
+            action.dest
+            for action in parser._actions
+            if action.option_strings and action.dest not in allowed_non_runtime
+        }
+
+        self.assertTrue(parser_dests.issubset(form_fields))
+
     def test_from_cli_reads_additional_source_flags(self) -> None:
         parser = build_arg_parser()
         args = parser.parse_args(
@@ -99,6 +124,8 @@ class ConfigTests(unittest.TestCase):
                 "--no-include-pubmed",
                 "--llm-provider",
                 "huggingface_local",
+                "--analysis-pass",
+                "deep|ollama|85|triage|12|gpt-oss:20b|70",
                 "--semantic-scholar-api-key",
                 "sem-key",
                 "--crossref-mailto",
@@ -179,3 +206,6 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.researchgate_import_path, Path("tests/fixtures/researchgate_import.csv"))
         self.assertEqual(config.relevant_pdfs_dir, Path("papers/test_cli/relevant_keep"))
         self.assertEqual(config.results_dir, Path("results/test_cli"))
+        self.assertEqual(len(config.analysis_passes), 1)
+        self.assertEqual(config.analysis_passes[0].model_name, "gpt-oss:20b")
+        self.assertEqual(config.analysis_passes[0].min_input_score, 70.0)
