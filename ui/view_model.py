@@ -68,6 +68,7 @@ SCALAR_FIELD_DEFAULTS: dict[str, Any] = {
     "relevant_pdfs_dir": "",
     "results_dir": "results",
     "database_path": "data/literature_review.db",
+    "log_file_path": "results/pipeline.log",
     "profile_name": "",
     "semantic_scholar_api_key": "",
     "crossref_mailto": "",
@@ -239,6 +240,7 @@ def config_to_form_values(config: ResearchConfig) -> dict[str, Any]:
             "relevant_pdfs_dir": _path_to_ui_value(config.relevant_pdfs_dir),
             "results_dir": _path_to_ui_value(config.results_dir),
             "database_path": _path_to_ui_value(config.database_path),
+            "log_file_path": _path_to_ui_value(config.log_file_path),
             "profile_name": config.profile_name or "",
             "citation_snowballing_enabled": config.citation_snowballing_enabled,
             "google_scholar_enabled": config.google_scholar_enabled,
@@ -425,6 +427,7 @@ def form_values_to_config(values: dict[str, Any]) -> ResearchConfig:
         relevant_pdfs_dir=as_path("relevant_pdfs_dir"),
         results_dir=values.get("results_dir", "results"),
         database_path=values.get("database_path", "data/literature_review.db"),
+        log_file_path=as_path("log_file_path"),
         api_settings={
             "semantic_scholar_api_key": str(values.get("semantic_scholar_api_key", "") or "") or None,
             "crossref_mailto": str(values.get("crossref_mailto", "") or "") or None,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -58,8 +59,8 @@ class PipelineController:
         self.stop_event = stop_event or Event()
         self._active_executors: list[ThreadPoolExecutor] = []
         configure_http_logging(
-            enabled=self.config.log_http_requests and self.config.verbosity in {"verbose", "debug"},
-            log_payloads=self.config.log_http_payloads and self.config.verbosity == "debug",
+            enabled=self.config.log_http_requests and self.config.verbosity in {"verbose", "ultra_verbose"},
+            log_payloads=self.config.log_http_payloads and self.config.verbosity == "ultra_verbose",
         )
         configure_http_runtime(
             cache_enabled=self.config.http_cache_enabled,
@@ -81,7 +82,7 @@ class PipelineController:
         self.pubmed_client = PubMedClient(self.config)
         self.europe_pmc_client = EuropePMCClient(self.config)
         self.core_client = COREClient(self.config)
-        self.google_scholar_client = GoogleScholarClient(self.config)
+        self.google_scholar_client = GoogleScholarClient(self.config, should_stop=self.stop_event.is_set)
         self.pdf_fetcher = PDFFetcher(self.config)
         self.full_text_extractor = FullTextExtractor(max_chars=self.config.full_text_max_chars)
         self.pass_screeners = self._build_pass_screeners()
@@ -100,13 +101,16 @@ class PipelineController:
         try:
             self._check_stop()
             self._emit_event("stage_started", stage="pipeline")
+            pipeline_started = time.perf_counter()
             LOGGER.info(
                 "Starting literature pipeline in %s mode for topic '%s'.",
                 self.config.run_mode,
                 self.config.research_topic,
             )
             self._log_verbose("Search query: %s", self.config.search_query)
-            self.config.save_snapshot()
+            self._log_trace("Effective configuration: %s", self.config.model_dump(mode="json"))
+            snapshot_path = self.config.save_snapshot()
+            self._log_trace("Configuration snapshot written to %s.", snapshot_path)
             if self.config.reset_query_records:
                 deleted_records = self.database.delete_papers_for_query(self.config.query_key or "")
                 LOGGER.info("Deleted %s existing records for query '%s' before the run.", deleted_records, self.config.query_key)
@@ -123,6 +127,7 @@ class PipelineController:
                 return self._run_partial_rerun()
             if self.config.skip_discovery:
                 self._emit_event("stage_started", stage="load_existing")
+                load_started = time.perf_counter()
                 stored = self._apply_discovery_limits(self.database.get_papers_for_query(self.config.query_key or ""))
                 discovered = list(stored)
                 deduplicated = list(stored)
@@ -132,8 +137,10 @@ class PipelineController:
                     len(stored),
                     self.config.query_key,
                 )
+                self._log_verbose("Loading stored records took %.2f seconds.", time.perf_counter() - load_started)
             else:
                 self._emit_event("stage_started", stage="discovery")
+                discovery_started = time.perf_counter()
                 discovered = self._discover()
                 self._emit_event("stage_finished", stage="discovery", record_count=len(discovered))
                 LOGGER.info("Discovery completed with %s records.", len(discovered))
@@ -145,6 +152,7 @@ class PipelineController:
                 LOGGER.info("Deduplication completed with %s unique records.", len(deduplicated))
                 stored = self.database.upsert_papers(deduplicated, self.config.query_key or "")
                 self._log_verbose("Stored %s records in SQLite.", len(stored))
+                self._log_verbose("Discovery and deduplication took %.2f seconds.", time.perf_counter() - discovery_started)
             if self._below_minimum_discovery_threshold(len(deduplicated)):
                 reason = (
                     f"Discovered {len(deduplicated)} unique records, below the configured minimum of "
@@ -217,6 +225,7 @@ class PipelineController:
                     self.database.get_papers_for_query(self.config.query_key or "")
                 )
             )
+            self._log_verbose("Pipeline finished in %.2f seconds.", time.perf_counter() - pipeline_started)
             return self._finalize_run_result(
                 final_papers=final_papers,
                 discovered_count=len(discovered),
@@ -237,6 +246,7 @@ class PipelineController:
                 "database_count": database_count,
                 "run_status": "stopped",
                 "run_error": str(exc),
+                "log_file": str(self.config.log_file_path) if self.config.log_file_path else "",
             }
         finally:
             self.close()
@@ -262,6 +272,7 @@ class PipelineController:
 
         mode = self.config.partial_rerun_mode
         self._emit_event("stage_started", stage="partial_rerun", mode=mode)
+        rerun_started = time.perf_counter()
         LOGGER.info("Running partial rerun mode '%s'.", mode)
         stored_papers = self._apply_discovery_limits(self.database.get_papers_for_query(self.config.query_key or ""))
         if not stored_papers:
@@ -297,6 +308,7 @@ class PipelineController:
                 self.database.get_papers_for_query(self.config.query_key or "")
             )
         )
+        self._log_verbose("Partial rerun '%s' finished in %.2f seconds.", mode, time.perf_counter() - rerun_started)
         return self._finalize_run_result(
             final_papers=final_papers,
             discovered_count=len(stored_papers),
@@ -330,6 +342,7 @@ class PipelineController:
             screening_stats=screening_stats,
         )
         report_paths = self.report_generator.generate(final_papers, stats=stats)
+        self._log_verbose("Generated %s report artifacts.", len(report_paths))
         self._emit_report_artifacts(report_paths)
         if emit_completed_event and run_status.startswith("completed"):
             self._emit_event("run_completed", stage="pipeline", report_paths=report_paths)
@@ -339,6 +352,7 @@ class PipelineController:
             "deduplicated_count": deduplicated_count,
             "database_count": len(final_papers),
             "run_status": run_status,
+            "log_file": str(self.config.log_file_path) if self.config.log_file_path else "",
             **(extra_result_fields or {}),
             **({"run_error": run_error} if run_error else {}),
         }
@@ -683,7 +697,7 @@ class PipelineController:
                 "min_input_score": analysis_pass.min_input_score,
                 "skipped": False,
             }
-            if self.config.log_screening_decisions and self.config.verbosity in {"verbose", "debug"}:
+            if self.config.log_screening_decisions and self.config.verbosity in {"verbose", "ultra_verbose"}:
                 LOGGER.info(
                     "Screened '%s' in pass '%s': decision=%s score=%.2f provider=%s",
                     paper.title,
@@ -772,8 +786,9 @@ class PipelineController:
 
         self._log_verbose("Querying %s.", source_name)
         self._emit_event("source_requested", source=source_name)
+        source_started = time.perf_counter()
         records = search_callable()
-        self._log_verbose("%s returned %s records.", source_name, len(records))
+        self._log_verbose("%s returned %s records in %.2f seconds.", source_name, len(records), time.perf_counter() - source_started)
         return records
 
     def _config_for_analysis_pass(self, analysis_pass: AnalysisPassConfig) -> ResearchConfig:
@@ -1014,12 +1029,18 @@ class PipelineController:
         return max(1, min(self.config.effective_io_workers, item_count))
 
     def _log_verbose(self, message: str, *args: Any) -> None:
-        if self.config.verbosity in {"verbose", "debug"}:
+        if self.config.verbosity in {"verbose", "ultra_verbose"}:
             LOGGER.info(message, *args)
 
     def _log_debug(self, message: str, *args: Any) -> None:
-        if self.config.verbosity == "debug":
+        if self.config.verbosity == "ultra_verbose":
             LOGGER.debug(message, *args)
+
+    def _log_trace(self, message: str, *args: Any) -> None:
+        """Emit one TRACE-level message only in ultra-verbose runs."""
+
+        if self.config.verbosity == "ultra_verbose":
+            LOGGER.log(5, message, *args)
 
     def _build_manual_import_clients(self) -> list[ManualImportClient]:
         clients: list[ManualImportClient] = []

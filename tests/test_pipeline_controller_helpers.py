@@ -313,7 +313,7 @@ class PipelineControllerHelperTests(unittest.TestCase):
                     run_mode="analyze",
                     download_pdfs=True,
                     pdf_download_mode="all",
-                    verbosity="debug",
+                    verbosity="ultra_verbose",
                     analysis_passes=[{"name": "fast", "llm_provider": "heuristic", "threshold": 60}],
                 )
             )
@@ -696,11 +696,13 @@ class PipelineControllerHelperTests(unittest.TestCase):
                 self.assertFalse(no_pass_controller._paper_meets_pdf_download_threshold(PaperMetadata(title="Unset", source="fixture")))
                 with patch("pipeline.pipeline_controller.LOGGER.info") as info_mock, patch(
                     "pipeline.pipeline_controller.LOGGER.debug"
-                ) as debug_mock:
+                ) as debug_mock, patch("pipeline.pipeline_controller.LOGGER.log") as trace_mock:
                     no_pass_controller._log_verbose("hello %s", "world")
                     no_pass_controller._log_debug("debug %s", "world")
+                    no_pass_controller._log_trace("trace %s", "world")
                 info_mock.assert_not_called()
                 debug_mock.assert_not_called()
+                trace_mock.assert_not_called()
             finally:
                 no_pass_controller.close()
 

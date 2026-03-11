@@ -100,7 +100,9 @@ class LocalTopicMatcher(BaseTopicMatcher):
         if not paper_text:
             return None
         try:
+            LOGGER.debug("Local topic prefilter embedding generation started for '%s'.", paper.title)
             review_embedding, paper_embedding = self._embed_texts([self._review_text, paper_text])
+            LOGGER.debug("Local topic prefilter embedding generation finished for '%s'.", paper.title)
             cosine_similarity = float((review_embedding * paper_embedding).sum().item())
             similarity = max(0.0, min(1.0, cosine_similarity))
             score = similarity * 100.0
@@ -109,6 +111,12 @@ class LocalTopicMatcher(BaseTopicMatcher):
             return None
 
         classification = self._classify_similarity(similarity)
+        LOGGER.debug(
+            "Local topic prefilter similarity for '%s': similarity=%.4f classification=%s.",
+            paper.title,
+            similarity,
+            classification,
+        )
         keyword_overlap = keyword_overlap_score(
             paper_text,
             [

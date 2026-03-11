@@ -66,6 +66,8 @@ class ConfigTests(unittest.TestCase):
             ResearchConfig(research_topic="Topic", search_keywords=["llm"], http_retry_base_delay_seconds=-1)
         with self.assertRaises(ValueError):
             ResearchConfig(research_topic="Topic", search_keywords=["llm"], discovery_workers=-1)
+        with self.assertRaises(ValueError):
+            ResearchConfig(research_topic="Topic", search_keywords=["llm"], google_scholar_pages=101)
 
     def test_parse_analysis_pass_accepts_json_object_and_config_file_defaults_full_text_flag(self) -> None:
         analysis_pass = parse_analysis_pass(
@@ -174,6 +176,16 @@ class ConfigTests(unittest.TestCase):
                 "4.5",
                 "--semantic-scholar-calls-per-second",
                 "1.5",
+                "--semantic-scholar-max-requests-per-minute",
+                "60",
+                "--semantic-scholar-request-delay-seconds",
+                "1.25",
+                "--semantic-scholar-retry-attempts",
+                "6",
+                "--semantic-scholar-retry-backoff-strategy",
+                "linear",
+                "--semantic-scholar-retry-backoff-base-seconds",
+                "3.5",
                 "--crossref-calls-per-second",
                 "2.0",
                 "--springer-calls-per-second",
@@ -272,6 +284,11 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.api_settings.openai_model, "gpt-5.4")
         self.assertEqual(config.api_settings.openalex_calls_per_second, 4.5)
         self.assertEqual(config.api_settings.semantic_scholar_calls_per_second, 1.5)
+        self.assertEqual(config.api_settings.semantic_scholar_max_requests_per_minute, 60)
+        self.assertEqual(config.api_settings.semantic_scholar_request_delay_seconds, 1.25)
+        self.assertEqual(config.api_settings.semantic_scholar_retry_attempts, 6)
+        self.assertEqual(config.api_settings.semantic_scholar_retry_backoff_strategy, "linear")
+        self.assertEqual(config.api_settings.semantic_scholar_retry_backoff_base_seconds, 3.5)
         self.assertEqual(config.api_settings.crossref_calls_per_second, 2.0)
         self.assertEqual(config.api_settings.springer_calls_per_second, 0.8)
         self.assertEqual(config.api_settings.arxiv_calls_per_second, 0.25)
@@ -323,6 +340,57 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(len(config.analysis_passes), 1)
         self.assertEqual(config.analysis_passes[0].model_name, "gpt-oss:20b")
         self.assertEqual(config.analysis_passes[0].min_input_score, 70.0)
+
+    def test_cli_parses_google_scholar_page_depth_controls(self) -> None:
+        parser = build_arg_parser()
+        args = parser.parse_args(
+            [
+                "--topic",
+                "AI governance",
+                "--research-question",
+                "How relevant are the discovered papers to AI governance?",
+                "--review-objective",
+                "Collect governance-focused literature.",
+                "--keywords",
+                "llm,policy",
+                "--boolean",
+                "AND",
+                "--inclusion-criteria",
+                "governance",
+                "--exclusion-criteria",
+                "none",
+                "--banned-topics",
+                "spam",
+                "--excluded-title-terms",
+                "correction;erratum;editorial;retraction",
+                "--pages",
+                "1",
+                "--year-start",
+                "2020",
+                "--year-end",
+                "2026",
+                "--max-papers",
+                "5",
+                "--citation-snowballing",
+                "--threshold",
+                "70",
+                "--no-download-pdfs",
+                "--no-analyze-full-text",
+                "--google-scholar-enabled",
+                "--google-scholar-pages",
+                "7",
+                "--google-scholar-results-per-page",
+                "15",
+                "--no-include-pubmed",
+            ]
+        )
+
+        with patch("builtins.input", side_effect=AssertionError("input should not be called")):
+            config = ResearchConfig.from_cli(args)
+
+        self.assertTrue(config.google_scholar_enabled)
+        self.assertEqual(config.google_scholar_pages, 7)
+        self.assertEqual(config.google_scholar_results_per_page, 15)
 
     def test_config_properties_cover_query_variants_screening_brief_and_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

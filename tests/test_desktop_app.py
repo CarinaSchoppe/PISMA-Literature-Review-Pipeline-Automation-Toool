@@ -60,6 +60,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("Available choices", self.workbench._help_text_for_field("llm_provider"))
         self.assertIn("Example path", self.workbench._help_text_for_field("database_path"))
         self.assertIn("What higher values do", self.workbench._help_text_for_field("relevance_threshold"))
+        self.assertIn("commas, semicolons, or line breaks", self.workbench._help_text_for_field("search_keywords"))
 
     def test_core_user_facing_files_are_english_only(self) -> None:
         paths = (
@@ -97,6 +98,53 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.workbench.LABELS["http_cache_dir"], "HTTP cache directory")
         self.assertEqual(self.workbench.LABELS["pdf_batch_size"], "PDF batch size")
 
+    def test_keyword_and_filter_fields_have_placeholders_and_guidance(self) -> None:
+        expected_fields = {
+            "research_topic",
+            "research_question",
+            "review_objective",
+            "search_keywords",
+            "inclusion_criteria",
+            "exclusion_criteria",
+            "banned_topics",
+            "excluded_title_terms",
+        }
+        self.assertTrue(expected_fields.issubset(set(self.workbench.FIELD_PLACEHOLDERS.keys())))
+        self.assertIn("search_keywords", self.workbench.placeholder_widgets)
+        self.assertIn("settings_search", self.workbench.placeholder_widgets)
+        self.assertIn("handbook_search", self.workbench.placeholder_widgets)
+        self.assertIn("all_papers_search", self.workbench.placeholder_widgets)
+        self.assertIn("commas, semicolons, or line breaks", self.workbench.FIELD_INPUT_GUIDANCE["search_keywords"])
+
+    def test_collect_form_values_ignores_placeholder_text(self) -> None:
+        question_widget = self.workbench.text_widgets["research_question"]
+        self.assertIn("Describe the exact review question", question_widget.get("1.0", "end"))
+
+        values = self.workbench._collect_form_values()
+
+        self.assertEqual(values["research_question"], "")
+        self.assertEqual(values["settings_search"], "")
+
+    def test_guided_text_validation_reports_missing_topic_and_empty_keyword_list(self) -> None:
+        messages = self.workbench._validate_guided_text_inputs(
+            {
+                "research_topic": "   ",
+                "search_keywords": " , ; \n ",
+                "inclusion_criteria": "empirical study; benchmark",
+                "exclusion_criteria": "",
+                "banned_topics": "",
+                "excluded_title_terms": "correction; erratum",
+            }
+        )
+
+        self.assertEqual(len(messages), 2)
+        self.assertIn("Research topic is required", messages[0])
+        self.assertIn("Search keywords must contain at least one meaningful term", messages[1])
+
+    def test_settings_search_placeholder_does_not_hide_results(self) -> None:
+        self.workbench._refresh_settings_search_results()
+        self.assertGreater(len(tuple(self.workbench.settings_search_combo["values"])), 0)
+
     def test_gui_covers_all_runtime_fields_and_toolbar_actions(self) -> None:
         config_fields = set(ResearchConfig.model_fields.keys()) - {"api_settings", "query_key"}
         api_fields = set(ApiSettings.model_fields.keys())
@@ -125,6 +173,8 @@ class DesktopWorkbenchTests(unittest.TestCase):
         for field_name in ("relevance_threshold", "maybe_threshold_margin", "llm_temperature", "title_similarity_threshold"):
             self.assertIn(field_name, self.workbench.slider_value_labels)
             self.assertIn(field_name, self.workbench.scalar_vars)
+        self.assertIn("google_scholar_pages", self.workbench.slider_value_label_groups)
+        self.assertEqual(self.workbench.field_widget_types["google_scholar_pages"], "spinbox")
 
     def test_settings_are_split_into_multiple_pages(self) -> None:
         notebook = self.workbench.settings_pages_notebook
@@ -175,6 +225,43 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIsNotNone(self.workbench.run_history_tree)
         self.assertIsNotNone(self.workbench.screening_audit_tree)
 
+    def test_scrollable_shells_exist_for_tables_logs_panels_and_visuals(self) -> None:
+        for tree_key in (
+            "all_papers",
+            "included_papers",
+            "excluded_papers",
+            "outputs_tree",
+            "run_history_tree",
+            "screening_audit_tree",
+            "handbook_tree",
+            "provider_health_tree",
+        ):
+            with self.subTest(tree_key=tree_key):
+                self.assertIn(tree_key, self.workbench.tree_scrollbars)
+                self.assertIn("vertical", self.workbench.tree_scrollbars[tree_key])
+                self.assertIn("horizontal", self.workbench.tree_scrollbars[tree_key])
+
+        for text_key in (
+            "run_log",
+            "handbook_text",
+            "outputs_preview",
+            "artifact_summary",
+            "charts_summary",
+            "run_history_text",
+            "screening_audit_text",
+            "model_summary",
+            "output_summary",
+            "export_preview",
+        ):
+            with self.subTest(text_key=text_key):
+                self.assertIn(text_key, self.workbench.text_scrollbars)
+                self.assertIn("vertical", self.workbench.text_scrollbars[text_key])
+
+        self.assertIn("horizontal", self.workbench.text_scrollbars["run_log"])
+        self.assertIn("chart_preview", self.workbench.canvas_scrollbars)
+        self.assertIn("vertical", self.workbench.canvas_scrollbars["chart_preview"])
+        self.assertIn("horizontal", self.workbench.canvas_scrollbars["chart_preview"])
+
     def test_compact_and_advanced_settings_modes_toggle_helper_density(self) -> None:
         intro_label = self.workbench.settings_page_intro_labels["Review Setup"]
         summary_label = self.workbench.settings_section_summary_labels["Review Brief"]
@@ -209,8 +296,11 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.workbench.field_widget_types["pdf_download_mode"], "radiogroup")
         self.assertEqual(self.workbench.field_widget_types["run_mode"], "radiogroup")
         self.assertEqual(self.workbench.field_widget_types["verbosity"], "radiogroup")
+        self.assertEqual(self.workbench.field_widget_types["log_file_path"], "path")
         self.assertEqual(self.workbench.field_widget_types["partial_rerun_mode"], "combobox")
         self.assertEqual(self.workbench.field_widget_types["pages_to_retrieve"], "spinbox")
+        self.assertEqual(self.workbench.field_widget_types["google_scholar_pages"], "spinbox")
+        self.assertEqual(self.workbench.field_widget_types["google_scholar_results_per_page"], "spinbox")
         self.assertEqual(self.workbench.field_widget_types["discovery_workers"], "spinbox")
         self.assertEqual(self.workbench.field_widget_types["io_workers"], "spinbox")
         self.assertEqual(self.workbench.field_widget_types["screening_workers"], "spinbox")

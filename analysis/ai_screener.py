@@ -34,7 +34,7 @@ class AIScreener:
             return self.scorer.deep_score(paper, stage_one_decision="exclude")
 
         topic_match = self.scorer.evaluate_topic_match(paper)
-        if topic_match and self.config.log_screening_decisions and self.config.verbosity in {"verbose", "debug"}:
+        if topic_match and self.config.log_screening_decisions and self.config.verbosity in {"verbose", "ultra_verbose"}:
             LOGGER.info(
                 "Local topic prefilter for '%s': %s (%.2f / %s).",
                 paper.title,
@@ -46,19 +46,28 @@ class AIScreener:
             return self.scorer.deep_score(paper, stage_one_decision="exclude", topic_match=topic_match)
 
         if not self.llm_enabled:
+            LOGGER.debug("LLM screening is disabled for '%s'; falling back to heuristic screening.", paper.title)
             stage_one = self.scorer.quick_screen(paper, topic_match=topic_match)
-            if self.config.log_screening_decisions and self.config.verbosity in {"verbose", "debug"}:
+            if self.config.log_screening_decisions and self.config.verbosity in {"verbose", "ultra_verbose"}:
                 LOGGER.info("Heuristic Stage 1 for '%s': %s", paper.title, stage_one)
             return self.scorer.deep_score(paper, stage_one_decision=stage_one, topic_match=topic_match)
 
+        LOGGER.debug("Starting LLM Stage 1 for '%s'.", paper.title)
         stage_one = self._llm_stage_one(paper) or self.scorer.quick_screen(paper, topic_match=topic_match)
-        if self.config.log_screening_decisions and self.config.verbosity in {"verbose", "debug"}:
+        if self.config.log_screening_decisions and self.config.verbosity in {"verbose", "ultra_verbose"}:
             LOGGER.info("LLM Stage 1 for '%s': %s", paper.title, stage_one)
         if stage_one == "exclude":
             return self.scorer.deep_score(paper, stage_one_decision=stage_one, topic_match=topic_match)
 
+        LOGGER.debug("Starting LLM Stage 2 for '%s' after Stage 1 decision '%s'.", paper.title, stage_one)
         llm_result = self._llm_stage_two(paper, stage_one)
         if llm_result is not None:
+            LOGGER.info(
+                "LLM Stage 2 completed for '%s': decision=%s score=%.2f",
+                paper.title,
+                llm_result.decision,
+                llm_result.relevance_score,
+            )
             return self._enrich_with_topic_match(llm_result, topic_match)
         return self.scorer.deep_score(paper, stage_one_decision=stage_one, topic_match=topic_match)
 
@@ -211,11 +220,11 @@ class AIScreener:
     def _chat_completion(self, *, system_prompt: str, user_prompt: str) -> str | None:
         """Send a chat-style prompt to the configured LLM client."""
 
-        if self.config.log_llm_prompts and self.config.verbosity == "debug":
+        if self.config.log_llm_prompts and self.config.verbosity == "ultra_verbose":
             LOGGER.debug("LLM system prompt: %s", system_prompt[:1000])
             LOGGER.debug("LLM user prompt: %s", user_prompt[:2000])
         response = self.llm_client.chat(system_prompt=system_prompt, user_prompt=user_prompt)
-        if self.config.log_llm_responses and self.config.verbosity == "debug" and response.content:
+        if self.config.log_llm_responses and self.config.verbosity == "ultra_verbose" and response.content:
             LOGGER.debug("LLM response: %s", response.content[:2000])
         return response.content
 

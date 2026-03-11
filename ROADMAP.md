@@ -17,17 +17,18 @@ Already implemented and verified:
 - guided desktop GUI and classic console wizard
 - CLI, JSON config, and GUI parity for runtime configuration
 - SQLite persistence and screening cache
-- discovery through official APIs and manual import adapters
-- live discovery toggles for OpenAlex, Semantic Scholar, Crossref, Springer, arXiv, PubMed, Europe PMC, and CORE
+- discovery through official APIs, bounded live HTML traversal, and manual import adapters
+- live discovery toggles for OpenAlex, Semantic Scholar, Crossref, Springer, arXiv, PubMed, Europe PMC, CORE, and Google Scholar
 - import adapters for Google Scholar exports, ResearchGate exports, generic CSV or JSON metadata files, and offline fixtures
 - DOI and title-similarity deduplication
 - backward and forward citation snowballing
 - PDF enrichment and optional PDF download routing
 - multi-pass screening with provider chaining
 - heuristic, OpenAI-compatible, Gemini, Ollama, and local Hugging Face screening
+- local MiniLM semantic topic prefiltering with configurable thresholds and optional automatic low-relevance filtering
 - included and excluded outputs with rationale
 - PRISMA-style flow output
-- verbose and debug logging
+- normal, verbose, and ultra-verbose logging
 - controlled stop handling
 - per-source rate limiting controls
 - stage-specific worker overrides
@@ -114,9 +115,10 @@ The same controls should remain available through:
 - institutional repository adapters where stable metadata APIs exist
 - DOI landing-page enrichment when it improves metadata without turning the system into a brittle browser crawler
 
-### Supported by import adapters
+### Supported by live bounded traversal or import adapters
 
-- Google Scholar exports
+- Google Scholar live result traversal with explicit page-depth controls
+- Google Scholar live traversal or exports
 - ResearchGate exports
 - RIS exports
 - BibTeX exports
@@ -125,7 +127,7 @@ The same controls should remain available through:
 
 ### Not the default direction
 
-Direct scraping of Google Scholar, ResearchGate, and arbitrary publisher pages should not be treated as the mainline architecture.
+Unbounded scraping of ResearchGate and arbitrary publisher pages should not be treated as the mainline architecture. Google Scholar support in this project is intentionally bounded, throttled, and operator-controlled rather than open-ended crawling.
 
 Why:
 
@@ -367,3 +369,5 @@ And it should not seriously damage these:
 - maintainability
 - provider compliance
 - user clarity
+
+

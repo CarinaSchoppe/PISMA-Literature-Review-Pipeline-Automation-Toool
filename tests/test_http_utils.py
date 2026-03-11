@@ -99,6 +99,30 @@ class HTTPUtilsTests(unittest.TestCase):
 
         sleep_mock.assert_not_called()
 
+    def test_rate_limiter_wait_respects_requests_per_minute_window(self) -> None:
+        limiter = http.RateLimiter(calls_per_second=0.0, max_requests_per_minute=1, name="Semantic Scholar")
+        limiter._request_history.append(0.0)
+
+        with patch("utils.http.time.monotonic", side_effect=[30.0, 60.0]), patch(
+            "utils.http.time.sleep"
+        ) as sleep_mock, patch.object(http.LOGGER, "info") as info_log:
+            limiter.wait()
+
+        sleep_mock.assert_called_once_with(30.0)
+        info_log.assert_called_once()
+        self.assertEqual(info_log.call_args.args[1], "Semantic Scholar")
+
+    def test_rate_limiter_wait_respects_explicit_request_delay(self) -> None:
+        limiter = http.RateLimiter(calls_per_second=0.0, request_delay_seconds=2.0, name="Semantic Scholar")
+        limiter._last_call = 10.0
+
+        with patch("utils.http.time.monotonic", side_effect=[11.0, 13.0]), patch(
+            "utils.http.time.sleep"
+        ) as sleep_mock:
+            limiter.wait()
+
+        sleep_mock.assert_called_once_with(1.0)
+
     def test_build_session_applies_headers_and_retries(self) -> None:
         session = http.build_session("Agent/1.0", extra_headers={"X-Test": "yes"})
 
@@ -290,6 +314,21 @@ class HTTPUtilsTests(unittest.TestCase):
         self.assertEqual(payload, {"ok": True})
         sleep_mock.assert_called_once_with(2.0)
 
+    def test_calculate_backoff_delay_supports_fixed_linear_and_exponential_strategies(self) -> None:
+        response = FakeResponse(status_code=429)
+        http.configure_http_runtime(
+            cache_enabled=False,
+            cache_dir=self.temp_dir.name,
+            cache_ttl_seconds=3600,
+            retry_max_attempts=4,
+            retry_base_delay_seconds=2.0,
+            retry_max_delay_seconds=30.0,
+        )
+
+        self.assertEqual(http._calculate_backoff_delay(response, 3, strategy="fixed"), 2.0)
+        self.assertEqual(http._calculate_backoff_delay(response, 3, strategy="linear"), 6.0)
+        self.assertEqual(http._calculate_backoff_delay(response, 3, strategy="exponential"), 8.0)
+
     def test_request_json_returns_none_after_final_429_failure(self) -> None:
         session = Mock()
         session.request.side_effect = [
@@ -312,6 +351,34 @@ class HTTPUtilsTests(unittest.TestCase):
             payload = http.request_json(session, "GET", "https://example.org/api")
 
         self.assertIsNone(payload)
+
+    def test_request_json_logs_exhausted_rate_limit_attempts(self) -> None:
+        session = Mock()
+        session.request.side_effect = [
+            FakeResponse(status_code=429),
+            FakeResponse(status_code=429, raise_error=requests.HTTPError("still rate limited")),
+        ]
+        http.configure_http_runtime(
+            cache_enabled=False,
+            cache_dir=self.temp_dir.name,
+            cache_ttl_seconds=3600,
+            retry_max_attempts=2,
+            retry_base_delay_seconds=1.0,
+            retry_max_delay_seconds=30.0,
+        )
+
+        with patch("utils.http.time.sleep"), patch.object(http.LOGGER, "error") as error_log:
+            payload = http.request_json(
+                session,
+                "GET",
+                "https://example.org/api",
+                request_label="Semantic Scholar",
+            )
+
+        self.assertIsNone(payload)
+        error_log.assert_called_once()
+        self.assertEqual(error_log.call_args.args[1], "Semantic Scholar")
+        self.assertEqual(error_log.call_args.args[2], 2)
 
     def test_request_json_can_return_none_when_final_429_response_does_not_raise(self) -> None:
         session = Mock()

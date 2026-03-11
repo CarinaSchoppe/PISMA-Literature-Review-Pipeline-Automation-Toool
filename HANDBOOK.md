@@ -1,4 +1,4 @@
-﻿# Project Handbook
+# Project Handbook
 
 This handbook is the operator guide for the PRISMA Literature Review Pipeline.
 All user-facing documentation, GUI labels, GUI help text, and CLI prompts are intentionally written in English only.
@@ -116,11 +116,13 @@ Important visibility behavior:
 - each settings page is vertically scrollable
 - the `Quick Edit` inspector tab is also scrollable when its cards exceed the visible window height
 - the `Summary` inspector tab is also scrollable
+- the run log, result tables, handbook tree and detail panel, artifact browser, chart preview, run history, and screening audit views all provide the scrollbars they need when the window is smaller than the content
 - `Compact` settings mode collapses longer section descriptions to reduce visual density
 - `Advanced` settings mode restores the full section helper text on the settings pages
 - `Connections and Keys` is the dedicated page for provider URLs, API keys, Crossref mailto, and Unpaywall email
 - `Advanced Runtime` stays hidden until `Show advanced settings` is enabled or a search jump opens one of its fields
 - hover help, handbook entries, and focus help use expanded English explanations that describe the purpose of a setting, what happens when the setting is enabled or disabled, and a practical example where useful
+- text-entry fields for review brief, keywords, criteria, and filter terms use placeholders and helper text that show valid separators explicitly: commas, semicolons, and line breaks
 
 Toolbar actions:
 
@@ -234,6 +236,7 @@ These fields define the research brief used in search, scoring, and explainabili
 `search_keywords`
 
 - Comma-separated keyword list used to build source queries.
+- The GUI accepts commas, semicolons, or line breaks and shows this directly in the placeholder and helper text.
 - GUI: `Review Setup`
 - CLI: `--keywords`
 
@@ -257,6 +260,7 @@ Source toggles:
 - `include_pubmed` -> `--include-pubmed` / `--no-include-pubmed`
 - `europe_pmc_enabled` -> `--europe-pmc-enabled` / `--no-europe-pmc-enabled`
 - `core_enabled` -> `--core-enabled` / `--no-core-enabled`
+- `google_scholar_enabled` -> `--google-scholar-enabled` / `--no-google-scholar-enabled`
 
 What each source is good for:
 
@@ -268,6 +272,7 @@ What each source is good for:
 - `PubMed`: biomedical and clinical coverage
 - `Europe PMC`: biomedical and life-science search, useful when you want another strong biomedical index beyond PubMed
 - `CORE`: open-access and repository-heavy discovery, useful for institutional repositories and broader full-text recall
+- `Google Scholar`: broad web-facing scholarly result discovery, useful when you want bounded page-depth traversal beyond the API sources
 
 Source-specific credentials and throttles:
 
@@ -275,6 +280,7 @@ Source-specific credentials and throttles:
 - `core_api_key` -> `--core-api-key`
 - `crossref_mailto` -> `--crossref-mailto`
 - `unpaywall_email` -> `--unpaywall-email`
+- `topic_prefilter_model` -> `--topic-prefilter-model`
 
 Practical note:
 
@@ -289,6 +295,40 @@ Import-only source paths:
 - `researchgate_import_path` -> `--researchgate-import-path`
 
 These are for deterministic offline testing or bringing in exported metadata from sources that are not queried live.
+
+Google Scholar live controls:
+
+`google_scholar_pages`
+
+- Number of Scholar result pages to traverse for each discovery query.
+- Example:
+  `5` means the client will try to process the first five result pages for each query unless an earlier stop condition is reached.
+- Retrieval volume grows roughly with `google_scholar_pages x google_scholar_results_per_page x generated query count`, before deduplication trims duplicates away.
+- GUI: numeric field on `Discovery` and slider + spinbox in `Quick Edit`
+- CLI: `--google-scholar-pages`
+
+`google_scholar_results_per_page`
+
+- Requested result count per Scholar page fetch.
+- Example:
+  `10` requests the standard ten-result page size.
+- This value controls the start-offset calculation for each page and therefore influences how much metadata the traversal attempts to collect.
+- GUI: `Discovery` and `Quick Edit`
+- CLI: `--google-scholar-results-per-page`
+
+`google_scholar_calls_per_second`
+
+- Rate limit for Scholar page traversal.
+- Lower values are safer and reduce the chance of provider throttling.
+- GUI: `Connections and Keys`
+- CLI: `--google-scholar-calls-per-second`
+
+Google Scholar traversal behavior:
+
+- Each generated search query is processed page by page in order.
+- Partial page failures are logged and skipped so one bad page does not fail the whole run.
+- Deduplication still happens after collection using DOI, normalized title, and title-similarity fallback rules.
+- A force-stop request is checked between queries and pages, so large Scholar traversals can stop cleanly at safe boundaries.
 
 Result volume controls:
 
@@ -445,6 +485,59 @@ These settings control scoring, pass chains, and model behavior.
 - GUI: slider in `AI Screening`
 - CLI: `--maybe-threshold-margin`
 
+`topic_prefilter_enabled`
+
+- Enables the local MiniLM-based semantic topic prefilter.
+- `Yes` means a lightweight local embedding model evaluates semantic fit before or alongside deeper screening.
+- `No` means the pipeline skips this local semantic gate.
+- GUI: `AI Screening`
+- CLI: `--topic-prefilter-enabled` / `--no-topic-prefilter-enabled`
+
+`topic_prefilter_filter_low_relevance`
+
+- If enabled, papers classified as `LOW_RELEVANCE` by the local topic prefilter can be excluded automatically.
+- `Yes` means low-semantic-fit papers can be removed before more expensive screening.
+- `No` means low-semantic-fit papers are only flagged.
+- GUI: `AI Screening`
+- CLI: `--topic-prefilter-filter-low-relevance` / `--no-topic-prefilter-filter-low-relevance`
+
+`topic_prefilter_high_threshold`
+
+- Cosine-similarity threshold for `HIGH_RELEVANCE`.
+- Default: `0.75`.
+- GUI: slider in `AI Screening`
+- CLI: `--topic-prefilter-high-threshold`
+
+`topic_prefilter_review_threshold`
+
+- Cosine-similarity threshold for `REVIEW`.
+- Default: `0.55`.
+- GUI: slider in `AI Screening`
+- CLI: `--topic-prefilter-review-threshold`
+
+`topic_prefilter_text_mode`
+
+- Controls which paper sections feed the local MiniLM matcher.
+- Allowed values:
+  - `title_only`
+  - `title_abstract`
+  - `title_abstract_full_text`
+- GUI: `AI Screening`
+- CLI: `--topic-prefilter-text-mode`
+
+`topic_prefilter_max_chars`
+
+- Caps the amount of paper text passed into the local semantic matcher.
+- GUI: `AI Screening`
+- CLI: `--topic-prefilter-max-chars`
+
+`topic_prefilter_model`
+
+- Local embedding model used by the semantic topic prefilter.
+- Default: `sentence-transformers/all-MiniLM-L6-v2`
+- GUI: `Connections and Keys`
+- CLI: `--topic-prefilter-model`
+
 `analyze_full_text`
 
 - If PDFs exist and full-text extraction succeeds, screening can use text beyond title and abstract.
@@ -600,12 +693,22 @@ What the SQLite files mean:
 
 `verbosity`
 
-- `quiet`: minimal console noise
-- `normal`: stage boundaries and counts
-- `verbose`: source activity, screening activity, output writes
-- `debug`: verbose plus truncated payload and prompt excerpts
+- `normal`: important-only logging for major stages, outcomes, and warnings
+- `verbose`: all major pipeline steps, source activity, screening activity, and output writes
+- `ultra_verbose`: verbose logging plus detailed request, parsing, retry, threshold, and timing traces
 - GUI: `Advanced Runtime`
 - CLI: `--verbosity`
+- Flags:
+  - `--verbose` is a shortcut for `--verbosity verbose`
+  - `--ultra-verbose` is a shortcut for `--verbosity ultra_verbose`
+
+`log_file_path`
+
+- Persistent path for the run log file written during CLI and GUI runs.
+- Example:
+  `results/pipeline.log`
+- GUI: `Storage and Output`, `Advanced Runtime`, and the output preview
+- CLI: `--log-file-path`
 
 `max_workers`
 
@@ -703,7 +806,7 @@ Deduplication and request safety:
 
 - `title_similarity_threshold` -> `--title-similarity-threshold`
 
-Verbose/debug logging switches:
+Verbose and ultra-verbose logging switches:
 
 - `log_http_requests` -> `--log-http-requests`
 - `log_http_payloads` -> `--log-http-payloads`
@@ -729,6 +832,7 @@ Per-source request throttling:
 - `europe_pmc_calls_per_second` -> `--europe-pmc-calls-per-second`
 - `core_calls_per_second` -> `--core-calls-per-second`
 - `unpaywall_calls_per_second` -> `--unpaywall-calls-per-second`
+- `google_scholar_calls_per_second` -> `--google-scholar-calls-per-second`
 
 These live in the GUI on the `Discovery` page and let you slow only the provider that is rate-limiting instead of slowing the entire run.
 
@@ -782,6 +886,11 @@ Semantic Scholar `429`:
 
 - public quota is rate-limited
 - reduce `pages_to_retrieve` or `results_per_page`
+- lower `semantic_scholar_max_requests_per_minute`
+- add a positive `semantic_scholar_request_delay_seconds`
+- keep `semantic_scholar_retry_backoff_strategy` on `exponential` unless you are intentionally testing another policy
+- the runtime now logs proactive throttle sleeps before a request is sent, not only reactive backoff after a `429`
+- if retries are exhausted, the affected Semantic Scholar page is skipped cleanly and the run continues where possible
 - provide `semantic_scholar_api_key`
 - rely more on OpenAlex, Crossref, arXiv, or Springer for that run
 
@@ -812,9 +921,9 @@ GUI stop feels delayed:
 
 Current verified baseline:
 
-- `220` tests passing
-- `99.18%` app-code coverage excluding `tests/*`
-- `99.18%` full-repository coverage including `tests/*`
+- `242` tests passing
+- `99.58%` total coverage in the current full coverage report
+- `99.58%` current measured coverage for the generated full report bundle
 - `ruff` clean
 - `mypy` clean for the configured backend/tooling scope
 - `compileall` clean
@@ -946,3 +1055,8 @@ Main files and directories:
 4. Tune source mix, thresholds, and pass chain.
 5. Move to a config-file-based run for reproducible execution.
 6. Archive the `run_config.json` together with the result files.
+
+
+
+
+

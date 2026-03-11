@@ -78,6 +78,23 @@ class GoogleScholarClientTests(unittest.TestCase):
         self.assertEqual([paper.title for paper in papers], ["Paper A", "Paper B"])
         self.assertEqual(request_mock.call_count, 3)
 
+    def test_search_stops_cleanly_when_stop_callback_is_triggered(self) -> None:
+        config = self._config(google_scholar_pages=3, google_scholar_results_per_page=1)
+        stop_calls = {"count": 0}
+
+        def should_stop() -> bool:
+            stop_calls["count"] += 1
+            return stop_calls["count"] >= 3
+
+        client = GoogleScholarClient(config, should_stop=should_stop)
+        first_page = '<div class="gs_r gs_or"><h3 class="gs_rt"><a href="https://example.org/a">Paper A</a></h3><div class="gs_a">Author - Venue - 2024</div><div class="gs_rs">Abstract A</div></div>'
+
+        with patch("discovery.google_scholar_client.request_text", return_value=first_page) as request_mock:
+            papers = client.search()
+
+        self.assertEqual([paper.title for paper in papers], ["Paper A"])
+        self.assertEqual(request_mock.call_count, 1)
+
     def test_parse_result_block_handles_plain_title_without_link(self) -> None:
         client = GoogleScholarClient(self._config())
         block = '''
@@ -99,3 +116,7 @@ class GoogleScholarClientTests(unittest.TestCase):
     def test_google_scholar_page_bounds_reject_non_positive_values(self) -> None:
         with self.assertRaises(ValueError):
             self._config(google_scholar_pages=0, google_scholar_results_per_page=0)
+
+    def test_google_scholar_page_bounds_reject_values_above_supported_range(self) -> None:
+        with self.assertRaises(ValueError):
+            self._config(google_scholar_pages=101)

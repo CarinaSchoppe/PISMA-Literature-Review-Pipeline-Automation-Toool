@@ -48,6 +48,11 @@ class UIViewModelTests(unittest.TestCase):
                 "llm_temperature": "0.25",
                 "openalex_calls_per_second": "4.5",
                 "semantic_scholar_calls_per_second": "1.5",
+                "semantic_scholar_max_requests_per_minute": "60",
+                "semantic_scholar_request_delay_seconds": "1.25",
+                "semantic_scholar_retry_attempts": "6",
+                "semantic_scholar_retry_backoff_strategy": "linear",
+                "semantic_scholar_retry_backoff_base_seconds": "3.5",
                 "crossref_calls_per_second": "2.0",
                 "springer_calls_per_second": "0.8",
                 "arxiv_calls_per_second": "0.25",
@@ -96,6 +101,11 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(config.api_settings.llm_temperature, 0.25)
         self.assertEqual(config.api_settings.openalex_calls_per_second, 4.5)
         self.assertEqual(config.api_settings.semantic_scholar_calls_per_second, 1.5)
+        self.assertEqual(config.api_settings.semantic_scholar_max_requests_per_minute, 60)
+        self.assertEqual(config.api_settings.semantic_scholar_request_delay_seconds, 1.25)
+        self.assertEqual(config.api_settings.semantic_scholar_retry_attempts, 6)
+        self.assertEqual(config.api_settings.semantic_scholar_retry_backoff_strategy, "linear")
+        self.assertEqual(config.api_settings.semantic_scholar_retry_backoff_base_seconds, 3.5)
         self.assertEqual(config.api_settings.crossref_calls_per_second, 2.0)
         self.assertEqual(config.api_settings.springer_calls_per_second, 0.8)
         self.assertEqual(config.api_settings.arxiv_calls_per_second, 0.25)
@@ -200,6 +210,11 @@ class UIViewModelTests(unittest.TestCase):
             self.assertEqual(values["core_api_key"], "core-key")
             self.assertTrue(values["reset_query_records"])
             self.assertTrue(values["clear_screening_cache"])
+            self.assertEqual(values["semantic_scholar_max_requests_per_minute"], 120)
+            self.assertEqual(values["semantic_scholar_request_delay_seconds"], 0.0)
+            self.assertEqual(values["semantic_scholar_retry_attempts"], 4)
+            self.assertEqual(values["semantic_scholar_retry_backoff_strategy"], "exponential")
+            self.assertEqual(values["semantic_scholar_retry_backoff_base_seconds"], 2.0)
             self.assertIn("Qwen/Qwen3-14B", values["analysis_passes"])
             self.assertTrue(values["europe_pmc_enabled"])
             self.assertTrue(values["core_enabled"])

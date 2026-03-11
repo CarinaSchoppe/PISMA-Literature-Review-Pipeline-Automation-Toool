@@ -240,6 +240,50 @@ class PipelineIntegrationTests(unittest.TestCase):
             self.assertIn("google_scholar_import", set(papers["source"]))
             self.assertIn("researchgate_import", set(papers["source"]))
 
+    def test_google_scholar_live_results_are_deduplicated_after_multi_page_collection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = ResearchConfig(
+                research_topic="AI governance",
+                search_keywords=["llm", "policy"],
+                pages_to_retrieve=1,
+                results_per_page=1,
+                discovery_strategy="precise",
+                google_scholar_enabled=True,
+                google_scholar_pages=2,
+                google_scholar_results_per_page=1,
+                run_mode="collect",
+                openalex_enabled=False,
+                semantic_scholar_enabled=False,
+                crossref_enabled=False,
+                springer_enabled=False,
+                arxiv_enabled=False,
+                include_pubmed=False,
+                disable_progress_bars=True,
+                data_dir=root / "data",
+                papers_dir=root / "papers",
+                results_dir=root / "results",
+                database_path=root / "data" / "literature_review.db",
+            ).finalize()
+
+            duplicate_page = (
+                '<div class="gs_r gs_or gs_scl">'
+                '<h3 class="gs_rt"><a href="https://example.org/paper-a">AI Governance in Hospitals</a></h3>'
+                '<div class="gs_a">Ada Lovelace - Journal of AI Policy - 2024</div>'
+                '<div class="gs_rs">A study of AI governance. DOI 10.1000/xyz123</div>'
+                "</div>"
+            )
+
+            with patch("discovery.google_scholar_client.request_text", side_effect=lambda *args, **kwargs: duplicate_page):
+                result = PipelineController(config).run()
+
+            self.assertEqual(result["discovered_count"], 2)
+            self.assertEqual(result["deduplicated_count"], 1)
+            self.assertEqual(result["database_count"], 1)
+            papers = pd.read_csv(root / "results" / "papers.csv")
+            self.assertEqual(len(papers), 1)
+            self.assertEqual(papers.iloc[0]["doi"], "10.1000/xyz123")
+
     def test_relevant_pdf_downloads_can_be_routed_to_configured_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

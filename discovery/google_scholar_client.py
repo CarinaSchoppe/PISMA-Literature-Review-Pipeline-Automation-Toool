@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from html import unescape
-from typing import Any
+from typing import Callable
 from urllib.parse import urljoin
 
 from config import ResearchConfig
@@ -30,8 +30,9 @@ class GoogleScholarClient:
 
     BASE_URL = "https://scholar.google.com/scholar"
 
-    def __init__(self, config: ResearchConfig) -> None:
+    def __init__(self, config: ResearchConfig, *, should_stop: Callable[[], bool] | None = None) -> None:
         self.config = config
+        self.should_stop = should_stop or (lambda: False)
         self.session = build_session(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 PRISMA-Literature-Review/1.0",
@@ -47,8 +48,18 @@ class GoogleScholarClient:
         page_limit = max(int(self.config.google_scholar_pages), 1)
         source_limit = max(self.config.per_source_limit, page_limit * results_per_page)
         for query in self.config.discovery_queries:
+            if self.should_stop():
+                LOGGER.info("Google Scholar discovery stopped before query '%s' due to a user stop request.", query)
+                break
             LOGGER.info("Google Scholar discovery starting for query '%s'.", query)
             for page_index in range(page_limit):
+                if self.should_stop():
+                    LOGGER.info(
+                        "Google Scholar discovery stopped before page %s for query '%s' due to a user stop request.",
+                        page_index + 1,
+                        query,
+                    )
+                    return papers[:source_limit]
                 if len(papers) >= source_limit:
                     return papers[:source_limit]
                 start_index = page_index * results_per_page
@@ -99,13 +110,14 @@ class GoogleScholarClient:
             paper = self._parse_result_block(block)
             if paper is None:
                 continue
-            if self.config.verbosity == "debug":
+            if self.config.verbosity == "ultra_verbose":
                 LOGGER.debug(
-                    "Google Scholar parsed result %s: title='%s', year=%s, doi=%s.",
+                    "Google Scholar parsed result %s: title='%s', year=%s, doi=%s, pdf=%s.",
                     block_index,
                     paper.title,
                     paper.year,
-                    paper.doi,
+                    paper.doi or "(missing)",
+                    paper.pdf_link or "(missing)",
                 )
             papers.append(paper)
         return papers
@@ -122,6 +134,15 @@ class GoogleScholarClient:
         raw_doi = self._extract_doi(block) or self._extract_doi(snippet)
         doi = canonical_doi(raw_doi) or None
         authors, venue, year = self._parse_meta(meta_text)
+        if self.config.verbosity == "ultra_verbose":
+            LOGGER.debug(
+                "Google Scholar metadata extracted for '%s': authors=%s venue=%s year=%s doi=%s.",
+                title,
+                len(authors),
+                venue or "(missing)",
+                year,
+                doi or "(missing)",
+            )
         return PaperMetadata(
             query_key=self.config.query_key,
             title=title,

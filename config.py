@@ -8,8 +8,9 @@ import os
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
+from utils.logging_utils import build_log_file_path, normalize_verbosity
 from utils.text_processing import build_query, ensure_parent_directory, make_query_key, parse_search_terms
 
 BIOMEDICAL_TERMS = {
@@ -35,6 +36,8 @@ DEFAULT_EXCLUDED_TITLE_TERMS = [
     "editorial",
     "retraction",
 ]
+GOOGLE_SCHOLAR_PAGE_MIN = 1
+GOOGLE_SCHOLAR_PAGE_MAX = 100
 
 
 class ApiSettings(BaseModel):
@@ -193,7 +196,7 @@ class ResearchConfig(BaseModel):
     decision_mode: Literal["strict", "triage"] = "strict"
     maybe_threshold_margin: float = 10.0
     run_mode: Literal["collect", "analyze"] = "analyze"
-    verbosity: Literal["quiet", "normal", "verbose", "debug"] = "normal"
+    verbosity: Literal["normal", "verbose", "ultra_verbose"] = "normal"
     output_csv: bool = True
     output_json: bool = True
     output_markdown: bool = True
@@ -256,6 +259,7 @@ class ResearchConfig(BaseModel):
     relevant_pdfs_dir: Path | None = None
     results_dir: Path = Path("results")
     database_path: Path = Path("data/literature_review.db")
+    log_file_path: Path | None = None
     api_settings: ApiSettings = Field(default_factory=ApiSettings)
     query_key: str | None = None
 
@@ -265,6 +269,16 @@ class ResearchConfig(BaseModel):
         """Normalize keyword input from comma-separated strings or iterables."""
 
         return parse_search_terms(value)
+
+    @field_validator("verbosity", mode="before")
+    @classmethod
+    def validate_verbosity(cls, value: Any) -> str:
+        """Normalize legacy verbosity aliases and user-facing labels."""
+
+        normalized = normalize_verbosity(str(value or "normal"))
+        if normalized not in {"normal", "verbose", "ultra_verbose"}:
+            raise ValueError("verbosity must be one of normal, verbose, or ultra_verbose")
+        return normalized
 
 
 
@@ -319,6 +333,19 @@ class ResearchConfig(BaseModel):
         """Clamp semantic-similarity thresholds to the supported 0-1 range."""
 
         return min(max(float(value), 0.0), 1.0)
+
+    @field_validator("google_scholar_pages")
+    @classmethod
+    def validate_google_scholar_page_depth(cls, value: int) -> int:
+        """Require bounded Google Scholar page traversal so runs stay explicit and predictable."""
+
+        normalized = int(value)
+        if not GOOGLE_SCHOLAR_PAGE_MIN <= normalized <= GOOGLE_SCHOLAR_PAGE_MAX:
+            raise ValueError(
+                f"google_scholar_pages must be between {GOOGLE_SCHOLAR_PAGE_MIN} and {GOOGLE_SCHOLAR_PAGE_MAX}"
+            )
+        return normalized
+
     @field_validator("relevance_threshold")
     @classmethod
     def validate_threshold(cls, value: float) -> float:
@@ -560,12 +587,15 @@ class ResearchConfig(BaseModel):
         )
         relevant_pdfs_dir = self.relevant_pdfs_dir or (self.papers_dir / "relevant")
         http_cache_dir = self.http_cache_dir or (self.data_dir / "http_cache")
+        log_file_path = build_log_file_path(results_dir=self.results_dir, explicit_path=self.log_file_path)
         updated = self.model_copy(
             update={
                 "include_pubmed": include_pubmed,
                 "query_key": query_key,
                 "relevant_pdfs_dir": relevant_pdfs_dir,
                 "http_cache_dir": http_cache_dir,
+                "log_file_path": log_file_path,
+                "verbosity": normalize_verbosity(self.verbosity),
             }
         )
         updated.ensure_directories()
@@ -582,6 +612,8 @@ class ResearchConfig(BaseModel):
         for path in paths:
             path.mkdir(parents=True, exist_ok=True)
         ensure_parent_directory(self.database_path)
+        if self.log_file_path is not None:
+            ensure_parent_directory(self.log_file_path)
 
     def save_snapshot(self) -> Path:
         """Persist a redacted copy of the active configuration alongside the run outputs."""
@@ -765,9 +797,12 @@ class ResearchConfig(BaseModel):
             include_pubmed = ask_bool("Include PubMed if the query is biomedical? (yes/no)", True)
 
         run_mode = value_for("run_mode", getattr(args, "run_mode", None), "analyze")
-        verbosity = value_for("verbosity", getattr(args, "verbosity", None), "normal")
+        verbosity = cast(
+            Literal["normal", "verbose", "ultra_verbose"],
+            normalize_verbosity(value_for("verbosity", getattr(args, "verbosity", None), "normal")),
+        )
         if getattr(args, "ultra_verbose", False):
-            verbosity = "debug"
+            verbosity = "ultra_verbose"
         elif getattr(args, "verbose_flag", False):
             verbosity = "verbose"
         analysis_passes = value_for("analysis_passes", getattr(args, "analysis_passes", None), [])
@@ -1007,6 +1042,7 @@ class ResearchConfig(BaseModel):
                 getattr(args, "database_path", None),
                 Path("data/literature_review.db"),
             ),
+            log_file_path=value_for("log_file_path", getattr(args, "log_file_path", None), None),
             api_settings=api_settings,
         ).finalize()
 
@@ -1148,7 +1184,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--google-scholar-pages",
         type=int,
         dest="google_scholar_pages",
-        help="Number of Google Scholar result pages to process when Scholar discovery is enabled",
+        help=(
+            f"Number of Google Scholar result pages to process when Scholar discovery is enabled "
+            f"({GOOGLE_SCHOLAR_PAGE_MIN}-{GOOGLE_SCHOLAR_PAGE_MAX})"
+        ),
     )
     parser.add_argument(
         "--google-scholar-results-per-page",
@@ -1202,11 +1241,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--verbosity",
-        choices=["quiet", "normal", "verbose", "debug"],
-        help="CLI logging verbosity",
+        choices=["normal", "verbose", "ultra_verbose", "debug", "quiet"],
+        help=(
+            "Logging mode. 'normal' shows major stages and outcomes, 'verbose' adds substeps and source activity, "
+            "and 'ultra_verbose' adds TRACE-style diagnostics such as parsed results, retries, and timing."
+        ),
     )
-    parser.add_argument("--verbose", action="store_true", dest="verbose_flag", help="Shortcut for --verbosity verbose")
-    parser.add_argument("--ultra-verbose", action="store_true", dest="ultra_verbose", help="Shortcut for --verbosity debug")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        dest="verbose_flag",
+        help="Shortcut for --verbosity verbose with detailed operational logging.",
+    )
+    parser.add_argument(
+        "--ultra-verbose",
+        action="store_true",
+        dest="ultra_verbose",
+        help="Shortcut for --verbosity ultra_verbose with TRACE-style diagnostics.",
+    )
     parser.add_argument(
         "--llm-provider",
         choices=["auto", "heuristic", "openai_compatible", "gemini", "ollama", "huggingface_local"],
@@ -1410,31 +1462,31 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--log-http-requests",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Log HTTP endpoints, methods, and response summaries in verbose/debug modes",
+        help="Log HTTP endpoints, methods, and response summaries in verbose and ultra-verbose modes",
     )
     parser.add_argument(
         "--log-http-payloads",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Log truncated HTTP request and response payloads in debug mode",
+        help="Log truncated HTTP request and response payloads in ultra-verbose mode",
     )
     parser.add_argument(
         "--log-llm-prompts",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Log truncated LLM prompt excerpts in debug mode",
+        help="Log truncated LLM prompt excerpts in ultra-verbose mode",
     )
     parser.add_argument(
         "--log-llm-responses",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Log truncated LLM response excerpts in debug mode",
+        help="Log truncated LLM response excerpts in ultra-verbose mode",
     )
     parser.add_argument(
         "--log-screening-decisions",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Log per-paper screening outcomes in verbose/debug modes",
+        help="Log per-paper screening outcomes in verbose and ultra-verbose modes",
     )
     parser.add_argument("--profile-name", help="Optional name used when saving or loading guided UI profiles")
     parser.add_argument(
@@ -1462,6 +1514,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--results-dir", help="Directory for CSV, JSON, Markdown, and SQLite result exports")
     parser.add_argument("--database-path", help="Path to the main SQLite database file")
+    parser.add_argument("--log-file-path", help="Path to the persistent run log file written alongside console and GUI logs")
     parser.add_argument(
         "--output-csv",
         action=argparse.BooleanOptionalAction,

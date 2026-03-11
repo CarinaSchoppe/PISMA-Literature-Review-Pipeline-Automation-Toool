@@ -18,9 +18,9 @@ class MainEntrypointTests(unittest.TestCase):
 
     def test_configure_logging_maps_known_levels(self) -> None:
         with patch("main.logging.basicConfig") as basic_config:
-            main.configure_logging("debug")
+            main.configure_logging("ultra_verbose")
             basic_config.assert_called_once()
-            self.assertEqual(basic_config.call_args.kwargs["level"], main.logging.DEBUG)
+            self.assertEqual(basic_config.call_args.kwargs["level"], 5)
 
     def test_run_headless_executes_pipeline_and_prints_outputs(self) -> None:
         config = ResearchConfig(
@@ -50,12 +50,13 @@ class MainEntrypointTests(unittest.TestCase):
             output = buffer.getvalue()
 
         self.assertEqual(exit_code, 0)
-        configure_logging.assert_called_once_with(config.verbosity)
+        configure_logging.assert_called_once_with(config.verbosity, log_file_path=str(config.log_file_path))
         configure_http_logging.assert_called_once_with(
             enabled=config.log_http_requests,
             log_payloads=config.log_http_payloads,
         )
         self.assertIn("Pipeline completed.", output)
+        self.assertIn("Persistent log file:", output)
         self.assertIn("CSV summary: results/papers.csv", output)
         self.assertIn("Review summary: results/review_summary.md", output)
 

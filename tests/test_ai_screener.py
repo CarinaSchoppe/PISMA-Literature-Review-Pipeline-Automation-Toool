@@ -214,7 +214,7 @@ class AIScreenerTests(unittest.TestCase):
 
     def test_chat_completion_returns_none_when_client_has_no_content(self) -> None:
         fake_client = _FakeEnabledLLMClient([None])
-        config = self._base_config(llm_provider="openai_compatible", verbosity="debug")
+        config = self._base_config(llm_provider="openai_compatible", verbosity="ultra_verbose")
 
         with patch("analysis.ai_screener.build_llm_client", return_value=fake_client):
             screener = AIScreener(config)

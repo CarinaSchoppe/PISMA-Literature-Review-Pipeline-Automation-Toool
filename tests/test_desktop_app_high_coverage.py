@@ -9,6 +9,7 @@ import tempfile
 import tkinter as tk
 import unittest
 from pathlib import Path
+from tkinter import ttk
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -79,7 +80,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         self.assertIn("Filesystem location", self.workbench._help_text_for_field("unknown_path"))
         self.assertIn("Credential used", self.workbench._help_text_for_field("custom_api_key"))
         self.assertIn("artifacts are written", self.workbench._help_text_for_field("output_demo"))
-        self.assertIn("verbose or debug", self.workbench._help_text_for_field("log_demo"))
+        self.assertIn("verbose or ultra-verbose", self.workbench._help_text_for_field("log_demo"))
         self.assertIn("on or off", self.workbench._help_text_for_field("custom_enabled"))
         self.assertIn("saved into profiles", self.workbench._help_text_for_field("some_misc_value"))
 
@@ -329,6 +330,103 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         handbook_tree.selection_set(next(iter(self.workbench.handbook_entries.keys())))
         self.workbench._handle_handbook_selection(None)
 
+    def test_entry_guidance_placeholder_validation_and_start_run_branches(self) -> None:
+        original_guidance = self.workbench.FIELD_INPUT_GUIDANCE.get("temporary_entry_field")
+        original_placeholder = self.workbench.FIELD_PLACEHOLDERS.get("temporary_entry_field")
+        try:
+            self.workbench.FIELD_INPUT_GUIDANCE["temporary_entry_field"] = (
+                "Use a comma, semicolon, or line break if you want to list multiple values."
+            )
+            self.workbench.FIELD_PLACEHOLDERS["temporary_entry_field"] = "Example: alpha, beta; gamma"
+            host = ttk.LabelFrame(self.workbench.quick_access_controls_frame, text="Temporary host")
+            host.grid(row=999, column=0, columnspan=2, sticky="ew")
+            self.workbench._render_entry_field(host, "temporary_entry_field", "Temporary help text", 0)
+
+            labels = [child for child in host.winfo_children() if isinstance(child, ttk.Frame)]
+            self.assertTrue(labels)
+            rendered_texts: list[str] = []
+            for widget in _walk_widgets(host):
+                if not hasattr(widget, "cget"):
+                    continue
+                try:
+                    text = widget.cget("text")
+                except tk.TclError:
+                    continue
+                if text:
+                    rendered_texts.append(str(text))
+            self.assertIn(
+                "Use a comma, semicolon, or line break if you want to list multiple values.",
+                rendered_texts,
+            )
+            self.assertIn("temporary_entry_field", self.workbench.placeholder_widgets)
+        finally:
+            if original_guidance is None:
+                self.workbench.FIELD_INPUT_GUIDANCE.pop("temporary_entry_field", None)
+            else:
+                self.workbench.FIELD_INPUT_GUIDANCE["temporary_entry_field"] = original_guidance
+            if original_placeholder is None:
+                self.workbench.FIELD_PLACEHOLDERS.pop("temporary_entry_field", None)
+            else:
+                self.workbench.FIELD_PLACEHOLDERS["temporary_entry_field"] = original_placeholder
+
+        self.workbench._apply_form_values({"settings_search": "sqlite"})
+        self.assertEqual(
+            self.workbench._get_widget_content(
+                self.workbench.placeholder_widgets["settings_search"],
+                self.workbench.placeholder_modes["settings_search"],
+            ),
+            "sqlite",
+        )
+        self.assertEqual(self.workbench._get_widget_content(ttk.Frame(self.workbench.root), "entry"), "")
+
+        broken_widget = Mock()
+        broken_widget.configure.side_effect = tk.TclError("broken")
+        self.workbench._set_placeholder_visual_state(broken_widget, active=True)
+
+        settings_placeholder = self.workbench.placeholder_texts["settings_search"]
+        settings_widget = self.workbench.placeholder_widgets["settings_search"]
+        settings_mode = self.workbench.placeholder_modes["settings_search"]
+        self.workbench._set_widget_content(settings_widget, settings_mode, settings_placeholder)
+        self.workbench.placeholder_active["settings_search"] = True
+        self.workbench._clear_placeholder("settings_search")
+        self.assertFalse(self.workbench.placeholder_active["settings_search"])
+        self.workbench._set_placeholder_text("settings_search", "semantic scholar")
+        self.workbench._restore_placeholder_if_empty("settings_search")
+        self.assertFalse(self.workbench.placeholder_active["settings_search"])
+        self.workbench._clear_placeholder("settings_search")
+        self.assertEqual(
+            self.workbench._get_widget_content(
+                self.workbench.placeholder_widgets["settings_search"],
+                self.workbench.placeholder_modes["settings_search"],
+            ),
+            "semantic scholar",
+        )
+        self.workbench._set_placeholder_text("missing-placeholder-key", "ignored")
+        self.workbench.placeholder_active["settings_search"] = False
+        self.assertEqual(self.workbench._placeholder_safe_value("settings_search", settings_placeholder), "")
+
+        messages = self.workbench._validate_guided_text_inputs(
+            {
+                "research_topic": "AI governance",
+                "search_keywords": "llm",
+                "inclusion_criteria": " , ; \n ",
+                "exclusion_criteria": "",
+                "banned_topics": "",
+                "excluded_title_terms": "",
+            }
+        )
+        self.assertEqual(len(messages), 1)
+        self.assertIn("does not contain any usable terms", messages[0])
+
+        self.workbench._set_text_widget_value(self.workbench.text_widgets["research_topic"], "")
+        self.workbench._set_text_widget_value(self.workbench.text_widgets["search_keywords"], " , ; \n ")
+        with patch("ui.desktop_app.messagebox.showerror") as showerror, patch(
+            "ui.desktop_app.threading.Thread"
+        ) as thread_cls:
+            self.workbench._start_run()
+        showerror.assert_called_once()
+        thread_cls.assert_not_called()
+
     def test_handbook_path_and_analysis_pass_guard_branches(self) -> None:
         handbook_tree = self.workbench.handbook_tree
         handbook_text = self.workbench.handbook_text
@@ -560,6 +658,69 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             self.workbench._handle_screening_audit_selection(None)
             self.workbench._render_screening_audit_row("missing")
 
+            dict_json = root / "summary.json"
+            dict_json.write_text(json.dumps({"top_papers": 3, "sources": ["OpenAlex"]}), encoding="utf-8")
+            list_json = root / "records.json"
+            list_json.write_text(json.dumps([{"title": "A"}, {"title": "B"}]), encoding="utf-8")
+            self.assertIn("Top-level keys: top_papers, sources", self.workbench._summarize_artifact_path("json", dict_json))
+            self.assertIn("Top-level items: 2", self.workbench._summarize_artifact_path("json", list_json))
+
+            if self.workbench.outputs_tree is None:
+                self.workbench.outputs_tree = next(
+                    widget for widget in _walk_widgets(self.workbench.outputs_tab) if widget.winfo_class() == "Treeview"
+                )
+            self.workbench._load_outputs({"summary_json": str(dict_json)})
+            output_item = self.workbench.outputs_tree.get_children()[0]
+            self.workbench.outputs_tree.selection_set(output_item)
+            with patch.object(self.workbench, "_render_output_summary") as render_summary:
+                self.workbench._handle_output_selection(None)
+            render_summary.assert_called_once_with(output_item)
+            self.workbench.artifact_details.clear()
+            self.workbench._open_selected_output_parent()
+
+            history_entry = {
+                "timestamp": "2026-03-11T10:15:00",
+                "run_status": "completed",
+                "run_mode": "analyze",
+                "topic": "AI governance",
+                "results_dir": str(root / "results"),
+            }
+            self.workbench.run_history_entries = [history_entry]
+            self.workbench.run_history_tree.insert("", tk.END, iid="history-0", values=("2026-03-11", "completed", "analyze", "AI governance"))
+            self.workbench.run_history_tree.selection_set("history-0")
+            with patch.object(self.workbench, "_render_run_history_entry") as render_history:
+                self.workbench._handle_run_history_selection(None)
+            render_history.assert_called_once_with("history-0")
+
+            sourced_csv = root / "sourced.csv"
+            pd.DataFrame(
+                [
+                    {"title": "A", "source": "OpenAlex", "inclusion_decision": "include"},
+                    {"title": "B", "source": "Crossref", "inclusion_decision": "exclude"},
+                ]
+            ).to_csv(sourced_csv, index=False)
+            self.workbench._refresh_chart_preview(sourced_csv)
+            chart_summary = self.workbench.charts_summary_text.get("1.0", tk.END)
+            self.assertIn("- OpenAlex: 1", chart_summary)
+            self.assertIn("- Crossref: 1", chart_summary)
+            self.assertNotEqual(str(self.workbench.chart_canvas.cget("scrollregion")), "")
+            self.assertNotEqual(str(self.workbench.chart_canvas.cget("scrollregion")), "0 0 0 0")
+
+            self.workbench._refresh_screening_audit(sourced_csv)
+            self.workbench.screening_audit_tree.insert("", tk.END, iid="stale", values=("old", "", "", ""))
+            self.workbench._refresh_screening_audit(sourced_csv)
+            self.assertNotIn("stale", self.workbench.screening_audit_tree.get_children())
+
+            original_audit_tree = self.workbench.screening_audit_tree
+            self.workbench.screening_audit_tree = None
+            self.workbench._handle_screening_audit_selection(None)
+            self.workbench.screening_audit_tree = original_audit_tree
+            audit_item = self.workbench.screening_audit_tree.get_children()[0]
+            self.workbench.screening_audit_tree.selection_set(audit_item)
+            with patch.object(self.workbench, "_render_screening_audit_row") as render_audit:
+                self.workbench._handle_screening_audit_selection(None)
+            render_audit.assert_called_once_with(audit_item)
+
     def test_collection_start_poll_tables_outputs_and_close_branches(self) -> None:
         self.workbench.profile_combo.set("combo-profile")
         self.workbench.scalar_vars["profile_name"].set("")
@@ -658,7 +819,14 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             "ui.desktop_app.threading.Thread", FakeThread
         ), patch.object(self.workbench.root, "after", return_value=None):
             self.workbench._start_run(skip_discovery_override=True, run_mode_override="analyze")
-        set_status.assert_any_call("Running analysis from stored records...")
+        self.assertTrue(
+            any(
+                call.args
+                and isinstance(call.args[0], str)
+                and call.args[0].startswith("Running analysis from stored records...")
+                for call in set_status.call_args_list
+            )
+        )
 
         self.workbench.current_controller = controller
         with patch.object(self.workbench.root_logger, "removeHandler") as remove_handler, patch.object(

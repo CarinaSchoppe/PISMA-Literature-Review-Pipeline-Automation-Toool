@@ -30,6 +30,8 @@ from ui.view_model import (
     form_values_to_config,
     load_config_file,
 )
+from utils.logging_utils import configure_application_logging
+from utils.text_processing import parse_search_terms
 
 LOGGER = logging.getLogger(__name__)
 
@@ -132,7 +134,7 @@ class DesktopWorkbench:
         "Discovery": "Control where papers come from, how broad the search is, and how many records are collected.",
         "AI Screening": "Choose the active AI provider, configure chained passes, and tune thresholds or full-text analysis.",
         "Connections and Keys": "Enter API keys, provider base URLs, and service-specific credentials in one place.",
-        "Storage and Output": "Choose whether to write CSV, JSON, Markdown, SQLite, and PDFs, and decide where they go.",
+        "Storage and Output": "Choose whether to write CSV, JSON, Markdown, SQLite, PDFs, and the persistent run log file, and decide where they go.",
         "Advanced Runtime": "Reveal rate limits, stage-specific worker counts, cache resets, and lower-level runtime tuning.",
     }
 
@@ -156,7 +158,14 @@ class DesktopWorkbench:
         "pdf_download_mode": ["all", "relevant_only"],
         "decision_mode": ["strict", "triage"],
         "run_mode": ["collect", "analyze"],
-        "verbosity": ["quiet", "normal", "verbose", "debug"],
+        "verbosity": ["normal", "verbose", "ultra_verbose"],
+    }
+    RADIO_LABELS = {
+        "verbosity": {
+            "normal": "Important only",
+            "verbose": "Verbose",
+            "ultra_verbose": "Ultra verbose",
+        }
     }
 
     COMBOBOX_FIELDS = {
@@ -361,6 +370,7 @@ class DesktopWorkbench:
                 "relevant_pdfs_dir",
                 "results_dir",
                 "database_path",
+                "log_file_path",
                 "profile_name",
             ],
         ),
@@ -375,6 +385,7 @@ class DesktopWorkbench:
                 "screening_workers",
                 "partial_rerun_mode",
                 "incremental_report_regeneration",
+                "log_file_path",
                 "enable_async_network_stages",
                 "pdf_batch_size",
                 "request_timeout_seconds",
@@ -476,9 +487,10 @@ class DesktopWorkbench:
         "relevant_pdfs_dir": "Relevant PDF directory",
         "results_dir": "Results directory",
         "database_path": "Main SQLite database path",
+        "log_file_path": "Persistent log file path",
         "profile_name": "Profile name",
         "run_mode": "Run mode",
-        "verbosity": "Verbosity level",
+        "verbosity": "Logging detail level",
         "max_workers": "Parallel workers",
         "discovery_workers": "Discovery workers",
         "io_workers": "PDF and IO workers",
@@ -520,6 +532,7 @@ class DesktopWorkbench:
         "papers_dir": "directory",
         "relevant_pdfs_dir": "directory",
         "results_dir": "directory",
+        "log_file_path": "save_file",
         "http_cache_dir": "directory",
         "huggingface_cache_dir": "directory",
     }
@@ -533,6 +546,7 @@ class DesktopWorkbench:
         "papers_dir": "directory",
         "relevant_pdfs_dir": "directory",
         "results_dir": "directory",
+        "log_file_path": "save_file",
         "http_cache_dir": "directory",
         "huggingface_cache_dir": "directory",
     }
@@ -576,9 +590,9 @@ class DesktopWorkbench:
         "guide:verbose": (
             "Guide",
             "How to make the run fully verbose",
-            "Use the 'Execution and Logging' section. Set 'Verbosity' to 'verbose' or 'debug', and keep the logging "
+            "Use the 'Execution and Logging' section. Set 'Logging detail level' to 'Verbose' or 'Ultra verbose', and keep the logging "
             "toggles enabled for HTTP requests, payloads, LLM prompts, LLM responses, and screening decisions. "
-            "Verbose is good for normal auditing. Debug adds truncated payload and prompt details.",
+            "Verbose is good for normal auditing. Ultra verbose adds truncated payload and prompt details and TRACE-style timing.",
         ),
         "guide:rate_limits": (
             "Guide",
@@ -630,7 +644,7 @@ class DesktopWorkbench:
         ),
         "Advanced Screening": (
             "Fine-tune local-model runtime behavior, full-text limits, temperature, and other screening options that "
-            "usually matter only when you are optimizing or debugging the review setup."
+            "usually matter only when you are optimizing or auditing the review setup."
         ),
         "PDFs and Outputs": (
             "Choose which artifacts are written to disk and where they go. Relevant PDFs can be "
@@ -638,7 +652,7 @@ class DesktopWorkbench:
         ),
         "Execution and Logging": (
             "Tune runtime behavior, concurrency, resumability, and how much internal detail is shown "
-            "in the log window. Verbose and debug expose more API and screening activity."
+            "in the log window. Verbose exposes useful substeps, while ultra verbose adds TRACE-style API, parsing, and timing details."
         ),
     }
 
@@ -652,24 +666,25 @@ class DesktopWorkbench:
             "or identifying methods for a thesis chapter."
         ),
         "search_keywords": (
-            "Comma-separated discovery terms. The pipeline combines these with the topic and boolean operators "
-            "to build source queries."
+            "Discovery terms used to build source queries. Enter them with commas, semicolons, or line breaks. "
+            "The pipeline trims whitespace, drops empty items, preserves phrases, and combines the cleaned terms "
+            "with the topic and boolean operators."
         ),
         "inclusion_criteria": (
-            "Semicolon-separated rules that make a paper eligible, for example specific methods, populations, "
-            "domains, or publication types."
+            "Rules that make a paper eligible, for example specific methods, populations, domains, or publication "
+            "types. Enter them with commas, semicolons, or line breaks."
         ),
         "exclusion_criteria": (
-            "Semicolon-separated rules for excluding papers, such as editorials, non-peer-reviewed work, "
-            "or unrelated domains."
+            "Rules for excluding papers, such as editorials, non-peer-reviewed work, or unrelated domains. Enter "
+            "them with commas, semicolons, or line breaks."
         ),
         "banned_topics": (
-            "Hard-stop topics that should never be retained even if keyword overlap is high. Matches are "
-            "logged as explicit exclusion reasons."
+            "Hard-stop topics that should never be retained even if keyword overlap is high. Enter them with commas, "
+            "semicolons, or line breaks. Matches are logged as explicit exclusion reasons."
         ),
         "excluded_title_terms": (
-            "Semicolon-separated title terms that should be filtered out early, such as correction, retraction, "
-            "editorial, or commentary."
+            "Title terms that should be filtered out early, such as correction, retraction, editorial, or "
+            "commentary. Enter them with commas, semicolons, or line breaks."
         ),
         "boolean_operators": (
             "Default boolean operator used when composing keyword queries. AND narrows recall, OR broadens it, "
@@ -736,6 +751,21 @@ class DesktopWorkbench:
             "Include CORE for repository and open-access search results. This is useful when you want broader recall "
             "from institutional repositories, preprint mirrors, and open full-text sources."
         ),
+        "google_scholar_enabled": (
+            "Enable bounded live Google Scholar discovery. Yes means the pipeline will fetch Scholar result pages for "
+            "each generated query, subject to the configured page count, results per page, rate limit, and stop "
+            "controls. No means the run will skip live Scholar traversal entirely."
+        ),
+        "google_scholar_pages": (
+            "Number of Google Scholar result pages to process for each generated query. Example: 5 means the client "
+            "will attempt up to five Scholar pages per query, while 50 can greatly increase recall, runtime, and "
+            "throttling risk. Higher values collect more records; lower values keep the run faster and gentler."
+        ),
+        "google_scholar_results_per_page": (
+            "Expected number of Scholar results per fetched page. Example: 10 usually matches the standard Scholar "
+            "page size, while lower values change the start-offset calculation if your workflow uses a different page "
+            "shape. This setting affects retrieval volume estimates and page traversal offsets."
+        ),
         "fixture_data_path": (
             "Optional offline fixture file for deterministic testing. Use this when you want to validate the pipeline "
             "without live API calls."
@@ -745,8 +775,9 @@ class DesktopWorkbench:
             "sources that do not provide a supported live API."
         ),
         "google_scholar_import_path": (
-            "Path to a manual Google Scholar export or prepared CSV/JSON import. The UI does not perform live Scholar "
-            "scraping; this setting lets you merge exported records safely."
+            "Path to a manual Google Scholar export or prepared CSV/JSON import. Use this when you already exported "
+            "Scholar results elsewhere and want to merge them with the live discovery sources. This import path is "
+            "separate from the live Google Scholar toggle and can be used with or without live Scholar traversal."
         ),
         "researchgate_import_path": (
             "Path to a manual ResearchGate export or prepared CSV/JSON import. This is intended for imported records, "
@@ -832,6 +863,9 @@ class DesktopWorkbench:
         "database_path": (
             "Path to the main SQLite database that stores the discovered papers, screening cache, and decision history."
         ),
+        "log_file_path": (
+            "Path to the persistent run log file. The same messages shown in the console and GUI log panel are also written here."
+        ),
         "results_dir": (
             "Folder where papers.csv, included_papers.csv, excluded_papers.csv, JSON outputs, Markdown summaries, and "
             "decision export databases are written."
@@ -855,8 +889,8 @@ class DesktopWorkbench:
             "Collect stops after discovery and persistence, while analyze continues through screening, ranking, and reporting."
         ),
         "verbosity": (
-            "Quiet shows only important problems, normal shows stage progress, verbose adds source and finding details, "
-            "and debug also includes truncated request and prompt diagnostics."
+            "Important only shows major stages and outcomes. Verbose adds meaningful source, scoring, and export substeps. "
+            "Ultra verbose adds TRACE-style diagnostics such as parsed results, retries, cache hits, prompt excerpts, and timing."
         ),
         "max_workers": "Maximum worker threads used for parallel API discovery and other concurrent tasks.",
         "request_timeout_seconds": "Network timeout applied to external API requests.",
@@ -933,13 +967,13 @@ class DesktopWorkbench:
             "Similarity cutoff used for title-based deduplication when DOI matches are missing."
         ),
         "log_http_requests": (
-            "Print request-level API activity in verbose/debug mode so you can see which sources and endpoints were called."
+            "Print request-level API activity in verbose and ultra-verbose mode so you can see which sources and endpoints were called."
         ),
         "log_http_payloads": (
-            "Include truncated request parameters and response snippets in debug mode. Secrets stay redacted."
+            "Include truncated request parameters and response snippets in ultra-verbose mode. Secrets stay redacted."
         ),
-        "log_llm_prompts": "Show truncated screening prompts in debug mode for audit and troubleshooting.",
-        "log_llm_responses": "Show truncated model responses in debug mode so you can inspect screening behavior.",
+        "log_llm_prompts": "Show truncated screening prompts in ultra-verbose mode for audit and troubleshooting.",
+        "log_llm_responses": "Show truncated model responses in ultra-verbose mode so you can inspect screening behavior.",
         "log_screening_decisions": (
             "Log per-paper decisions, scores, and reasons during screening. Useful when tuning thresholds and criteria."
         ),
@@ -983,6 +1017,7 @@ class DesktopWorkbench:
     FIELD_HELP_EXAMPLES = {
         "database_path": "C:/reviews/llm_review/review.db",
         "results_dir": "C:/reviews/llm_review/results",
+        "log_file_path": "C:/reviews/llm_review/results/pipeline.log",
         "papers_dir": "C:/reviews/llm_review/papers/all_pdfs",
         "relevant_pdfs_dir": "C:/reviews/llm_review/papers/relevant_only",
         "manual_source_path": "C:/imports/manual_records.csv",
@@ -1017,6 +1052,31 @@ class DesktopWorkbench:
         "exclusion_criteria": "Use commas, semicolons, or line breaks. Example: editorial; commentary; unrelated medical-only study",
         "banned_topics": "Use commas, semicolons, or line breaks. Example: crop irrigation; sports analytics",
         "excluded_title_terms": "Use commas, semicolons, or line breaks. Example: correction; erratum; editorial; retraction",
+    }
+
+    FIELD_PLACEHOLDERS = {
+        "research_topic": "Describe the review topic. Example: Large language models and artificial intelligence in healthcare governance.",
+        "research_question": "Describe the exact review question. Example: How are large language models evaluated and deployed in healthcare decision support?",
+        "review_objective": "Describe the intended output. Example: Map benchmark methods, deployment patterns, and open risks for a systematic review.",
+        "search_keywords": "Enter keywords separated by commas, semicolons, or line breaks. Example: AI governance, generative AI, decision-making",
+        "inclusion_criteria": "Enter inclusion criteria separated by commas, semicolons, or line breaks. Example: empirical study; large language model; evaluation benchmark",
+        "exclusion_criteria": "Enter exclusion criteria separated by commas, semicolons, or line breaks. Example: editorial; commentary; unrelated medical-only study",
+        "banned_topics": "Enter banned topics separated by commas, semicolons, or line breaks. Example: crop irrigation; sports analytics",
+        "excluded_title_terms": "Enter excluded title markers separated by commas, semicolons, or line breaks. Example: correction; erratum; editorial; retraction",
+    }
+
+    SEARCH_WIDGET_PLACEHOLDERS = {
+        "settings_search": "Search settings by name, effect, or meaning. Example: threshold, pdf, sqlite, scholar",
+        "handbook_search": "Search handbook topics. Example: Google Scholar, threshold, outputs, logging",
+        "all_papers_search": "Filter loaded papers by title, authors, abstract, DOI, or venue",
+    }
+
+    TERM_VALIDATION_FIELDS = {
+        "search_keywords": ("Search keywords", True),
+        "inclusion_criteria": ("Inclusion criteria", False),
+        "exclusion_criteria": ("Exclusion criteria", False),
+        "banned_topics": ("Banned topics", False),
+        "excluded_title_terms": ("Excluded title terms", False),
     }
 
     BOOLEAN_HELP_OVERRIDES = {
@@ -1077,7 +1137,7 @@ class DesktopWorkbench:
         ),
         "verbosity": (
             "Verbosity controls how much operational detail appears in the console and GUI log window.",
-            "Debug is the most detailed setting and is best when you are auditing API traffic or model behavior.",
+            "Ultra verbose is the most detailed setting and is best when you are auditing API traffic, parsing, retries, or model behavior.",
         ),
         "decision_mode": (
             "Decision mode changes how strict the keep versus maybe boundary is during screening.",
@@ -1140,15 +1200,22 @@ class DesktopWorkbench:
         self.field_focus_widgets: dict[str, tk.Widget] = {}
         self.field_input_widgets: dict[str, tk.Widget] = {}
         self.field_widget_types: dict[str, str] = {}
+        self.placeholder_widgets: dict[str, tk.Widget] = {}
+        self.placeholder_modes: dict[str, str] = {}
+        self.placeholder_texts: dict[str, str] = {}
+        self.placeholder_active: dict[str, bool] = {}
         self.section_frames: dict[str, ttk.LabelFrame] = {}
         self.field_to_settings_page: dict[str, str] = {}
         self.treeviews: dict[str, ttk.Treeview] = {}
+        self.tree_scrollbars: dict[str, dict[str, ttk.Scrollbar]] = {}
+        self.text_scrollbars: dict[str, dict[str, ttk.Scrollbar]] = {}
+        self.canvas_scrollbars: dict[str, dict[str, ttk.Scrollbar]] = {}
         self.table_frames: dict[str, ttk.Frame] = {}
         self.toolbar_buttons: dict[str, ttk.Button] = {}
         self.status_label: ttk.Label | None = None
         self.outputs_tree: ttk.Treeview | None = None
         self.handbook_tree: ttk.Treeview | None = None
-        self.handbook_text: scrolledtext.ScrolledText | None = None
+        self.handbook_text: tk.Text | None = None
         self.settings_pages_notebook: ttk.Notebook | None = None
         self.settings_tools_notebook: ttk.Notebook | None = None
         self.settings_panedwindow: ttk.Panedwindow | None = None
@@ -1165,14 +1232,14 @@ class DesktopWorkbench:
         self.settings_search_combo: ttk.Combobox | None = None
         self.quick_destination_combo: ttk.Combobox | None = None
         self.guide_choice_combo: ttk.Combobox | None = None
-        self.model_summary_text: scrolledtext.ScrolledText | None = None
-        self.output_summary_text: scrolledtext.ScrolledText | None = None
-        self.export_preview_text: scrolledtext.ScrolledText | None = None
-        self.outputs_preview_text: scrolledtext.ScrolledText | None = None
-        self.artifact_summary_text: scrolledtext.ScrolledText | None = None
-        self.charts_summary_text: scrolledtext.ScrolledText | None = None
-        self.run_history_text: scrolledtext.ScrolledText | None = None
-        self.screening_audit_text: scrolledtext.ScrolledText | None = None
+        self.model_summary_text: tk.Text | None = None
+        self.output_summary_text: tk.Text | None = None
+        self.export_preview_text: tk.Text | None = None
+        self.outputs_preview_text: tk.Text | None = None
+        self.artifact_summary_text: tk.Text | None = None
+        self.charts_summary_text: tk.Text | None = None
+        self.run_history_text: tk.Text | None = None
+        self.screening_audit_text: tk.Text | None = None
         self.provider_health_tree: ttk.Treeview | None = None
         self.run_history_tree: ttk.Treeview | None = None
         self.screening_audit_tree: ttk.Treeview | None = None
@@ -2141,6 +2208,9 @@ class DesktopWorkbench:
                 guidance_label.grid(row=1, column=0, sticky="w", pady=(6, 0))
                 self._bind_hover_help(guidance_label, help_text)
             self.field_widget_types[field_name] = "multiline"
+            placeholder = self.FIELD_PLACEHOLDERS.get(field_name)
+            if placeholder:
+                self._register_placeholder(field_name, widget, placeholder, mode="text")
 
         self.text_widgets[field_name] = widget
         self.field_input_widgets[field_name] = widget
@@ -2153,7 +2223,8 @@ class DesktopWorkbench:
         container = ttk.Frame(frame)
         container.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
         for index, option in enumerate(self.RADIO_FIELDS[field_name]):
-            button = ttk.Radiobutton(container, text=option, value=option, variable=variable)
+            option_label = self.RADIO_LABELS.get(field_name, {}).get(option, option.replace("_", " ").title())
+            button = ttk.Radiobutton(container, text=option_label, value=option, variable=variable)
             button.grid(row=index // 3, column=index % 3, sticky="w", padx=(0, 10), pady=2)
             self._bind_hover_help(button, help_text)
         self.scalar_vars[field_name] = variable
@@ -2284,6 +2355,9 @@ class DesktopWorkbench:
         self.field_focus_widgets[field_name] = widget
         self.field_widget_types[field_name] = "entry"
         self._bind_hover_help(widget, help_text)
+        placeholder = self.FIELD_PLACEHOLDERS.get(field_name)
+        if placeholder:
+            self._register_placeholder(field_name, widget, placeholder, mode="entry")
     def _help_text_for_field(self, field_name: str) -> str:
         """Return the explanatory hover text for one settings field."""
 
@@ -2303,7 +2377,7 @@ class DesktopWorkbench:
         if field_name.startswith("log_"):
             return self._expand_help_text(
                 field_name,
-                f"Toggle whether {label.lower()} details are shown in verbose or debug logging.",
+                f"Toggle whether {label.lower()} details are shown in verbose or ultra-verbose logging.",
             )
         if field_name in BOOLEAN_FIELD_DEFAULTS or field_name.endswith("_enabled"):
             return self._expand_help_text(field_name, f"Turn {label.lower()} on or off for this run.")
@@ -2451,6 +2525,12 @@ class DesktopWorkbench:
         search_entry.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 6))
         search_entry.bind("<KeyRelease>", lambda _event: self._refresh_settings_search_results())
         search_entry.bind("<Return>", lambda _event: self._focus_selected_setting())
+        self._register_placeholder(
+            "settings_search",
+            search_entry,
+            self.SEARCH_WIDGET_PLACEHOLDERS["settings_search"],
+            mode="entry",
+        )
         self._bind_hover_help(
             search_entry,
             "Search by setting name or description. Hidden advanced settings can also be found here and will be shown automatically when you jump to them.",
@@ -2613,20 +2693,41 @@ class DesktopWorkbench:
             panel.columnconfigure(0, weight=1)
             panel.rowconfigure(0, weight=1)
 
-        self.model_summary_text = scrolledtext.ScrolledText(model_frame, height=9, wrap="word", state="disabled")
-        self.model_summary_text.grid(row=0, column=0, sticky="nsew")
-        self.provider_health_tree = ttk.Treeview(provider_frame, columns=("provider", "status", "note"), show="headings", height=6)
+        model_shell, self.model_summary_text = self._create_scrolled_text_widget(
+            model_frame,
+            key="model_summary",
+            height=9,
+            wrap="word",
+        )
+        model_shell.grid(row=0, column=0, sticky="nsew")
+        provider_tree_shell, self.provider_health_tree = self._create_scrolled_tree_widget(
+            provider_frame,
+            key="provider_health_tree",
+            columns=("provider", "status", "note"),
+            show="headings",
+            height=6,
+        )
         self.provider_health_tree.heading("provider", text="Provider")
         self.provider_health_tree.heading("status", text="Status")
         self.provider_health_tree.heading("note", text="Reason")
         self.provider_health_tree.column("provider", width=120, anchor="w")
         self.provider_health_tree.column("status", width=90, anchor="w")
         self.provider_health_tree.column("note", width=260, anchor="w")
-        self.provider_health_tree.grid(row=0, column=0, sticky="nsew")
-        self.output_summary_text = scrolledtext.ScrolledText(output_frame, height=11, wrap="word", state="disabled")
-        self.output_summary_text.grid(row=0, column=0, sticky="nsew")
-        self.export_preview_text = scrolledtext.ScrolledText(preview_frame, height=12, wrap="word", state="disabled")
-        self.export_preview_text.grid(row=0, column=0, sticky="nsew")
+        provider_tree_shell.grid(row=0, column=0, sticky="nsew")
+        output_shell, self.output_summary_text = self._create_scrolled_text_widget(
+            output_frame,
+            key="output_summary",
+            height=11,
+            wrap="word",
+        )
+        output_shell.grid(row=0, column=0, sticky="nsew")
+        export_shell, self.export_preview_text = self._create_scrolled_text_widget(
+            preview_frame,
+            key="export_preview",
+            height=12,
+            wrap="word",
+        )
+        export_shell.grid(row=0, column=0, sticky="nsew")
 
     def _populate_quick_access_controls(self) -> None:
         """Mirror the most-used settings at the top of the Settings tab for immediate editing."""
@@ -2781,8 +2882,69 @@ class DesktopWorkbench:
         full_text_widget.grid(row=3, column=2, columnspan=2, sticky="w", padx=4, pady=4)
         self._bind_hover_help(full_text_widget, self._help_text_for_field("analyze_full_text"))
 
+        discovery_card = ttk.LabelFrame(frame, text="Google Scholar paging", padding=8, style="Card.TLabelframe")
+        discovery_card.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        discovery_card.columnconfigure(1, weight=1)
+        discovery_card.columnconfigure(2, weight=0)
+        discovery_card.columnconfigure(3, weight=0)
+        ttk.Label(
+            discovery_card,
+            text=(
+                "Use the spinbox for precise page counts and the slider for fast tuning. Higher page counts increase "
+                "retrieval volume, runtime, and the chance of provider throttling."
+            ),
+            wraplength=300,
+            justify="left",
+            style="PageBody.TLabel",
+        ).grid(row=0, column=0, columnspan=4, sticky="ew", padx=4, pady=(0, 6))
+
+        scholar_enabled_widget = ttk.Checkbutton(
+            discovery_card,
+            text=self.LABELS["google_scholar_enabled"],
+            variable=self.scalar_vars["google_scholar_enabled"],
+        )
+        scholar_enabled_widget.grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        self._bind_hover_help(scholar_enabled_widget, self._help_text_for_field("google_scholar_enabled"))
+
+        add_label(discovery_card, 2, 0, "google_scholar_pages")
+        scholar_slider = ttk.Scale(
+            discovery_card,
+            from_=1,
+            to=100,
+            variable=self.scalar_vars["google_scholar_pages"],
+            command=lambda _value: self._sync_slider_label("google_scholar_pages"),
+        )
+        scholar_slider.grid(row=2, column=1, sticky="ew", padx=4, pady=4)
+        scholar_pages_spinbox = ttk.Spinbox(
+            discovery_card,
+            from_=1,
+            to=100,
+            increment=1,
+            textvariable=self.scalar_vars["google_scholar_pages"],
+            width=8,
+        )
+        scholar_pages_spinbox.grid(row=2, column=2, sticky="ew", padx=4, pady=4)
+        scholar_pages_value = ttk.Label(discovery_card, width=8, anchor="e")
+        scholar_pages_value.grid(row=2, column=3, sticky="e", padx=4, pady=4)
+        self.slider_value_label_groups.setdefault("google_scholar_pages", []).append(scholar_pages_value)
+        self._bind_hover_help(scholar_slider, self._help_text_for_field("google_scholar_pages"))
+        self._bind_hover_help(scholar_pages_spinbox, self._help_text_for_field("google_scholar_pages"))
+        self._sync_slider_label("google_scholar_pages")
+
+        add_label(discovery_card, 3, 0, "google_scholar_results_per_page")
+        scholar_results_spinbox = ttk.Spinbox(
+            discovery_card,
+            from_=1,
+            to=50,
+            increment=1,
+            textvariable=self.scalar_vars["google_scholar_results_per_page"],
+            width=8,
+        )
+        scholar_results_spinbox.grid(row=3, column=1, sticky="w", padx=4, pady=4)
+        self._bind_hover_help(scholar_results_spinbox, self._help_text_for_field("google_scholar_results_per_page"))
+
         outputs_card = ttk.LabelFrame(frame, text="Outputs and storage", padding=8, style="Card.TLabelframe")
-        outputs_card.grid(row=3, column=0, sticky="ew")
+        outputs_card.grid(row=4, column=0, sticky="ew")
         outputs_card.columnconfigure(1, weight=1)
         outputs_card.columnconfigure(2, weight=1)
         outputs_card.columnconfigure(3, weight=1)
@@ -2892,7 +3054,7 @@ class DesktopWorkbench:
 
         if self.settings_search_combo is None:
             return
-        query = self.settings_search_var.get().strip().lower()
+        query = self._placeholder_safe_value("settings_search", self.settings_search_var.get().strip()).lower()
         matches: list[str] = []
         for field_name, display in self._settings_index():
             haystack = " ".join([display, self._help_text_for_field(field_name)]).lower()
@@ -2998,7 +3160,7 @@ class DesktopWorkbench:
     def _format_slider_value(self, field_name: str, value: float) -> str:
         """Format slider-backed numeric values consistently for display labels."""
 
-        slider_config = self.SLIDER_FIELDS[field_name]
+        slider_config = self.SLIDER_FIELDS.get(field_name, {"resolution": 1.0, "digits": 0})
         rounded = round(value / slider_config["resolution"]) * slider_config["resolution"]
         digits = slider_config["digits"]
         if digits == 0:
@@ -3081,6 +3243,7 @@ class DesktopWorkbench:
             "Core storage:",
             f"  Results directory -> {results_dir}",
             f"  Main SQLite database -> {values.get('database_path')}",
+            f"  Persistent run log -> {values.get('log_file_path')}",
             "Paper file storage:",
             f"  Main paper PDFs -> {papers_dir}",
             f"  Relevant-only paper PDFs -> {relevant_dir}",
@@ -3091,6 +3254,7 @@ class DesktopWorkbench:
         ]
         output_lines = [
             f"Main SQLite DB: {values.get('database_path')}",
+            f"Persistent log file: {values.get('log_file_path')}",
             f"CSV exports: {'on' if values.get('output_csv') else 'off'} -> {results_dir / 'papers.csv'}",
             f"JSON exports: {'on' if values.get('output_json') else 'off'} -> {results_dir / 'top_papers.json'}",
             f"Markdown summary: {'on' if values.get('output_markdown') else 'off'} -> {results_dir / 'review_summary.md'}",
@@ -3135,6 +3299,7 @@ class DesktopWorkbench:
             ("excluded_papers.db", values.get("output_sqlite_exports"), results_dir / "excluded_papers.db", "Excluded-paper SQLite export."),
             ("prisma_flow.json", values.get("output_json"), results_dir / "prisma_flow.json", "Machine-readable PRISMA flow summary."),
             ("citation_graph.json", values.get("output_json"), results_dir / "citation_graph.json", "Citation graph export when available."),
+            ("pipeline.log", True, Path(str(values.get("log_file_path", "") or results_dir / "pipeline.log")), "Persistent structured run log."),
         ]
         lines = [
             "This preview is generated from the live UI settings before the run starts.",
@@ -3240,7 +3405,7 @@ class DesktopWorkbench:
                 reason = note
             self.provider_health_tree.insert("", tk.END, values=(provider, status, reason))
 
-    def _write_summary_widget(self, widget: scrolledtext.ScrolledText | None, text: str) -> None:
+    def _write_summary_widget(self, widget: tk.Text | None, text: str) -> None:
         """Render summary text into a read-only scrolled text widget."""
 
         if widget is None:
@@ -3249,6 +3414,99 @@ class DesktopWorkbench:
         widget.delete("1.0", tk.END)
         widget.insert("1.0", text)
         widget.configure(state="disabled")
+
+    def _create_scrolled_text_widget(
+        self,
+        parent: tk.Widget,
+        *,
+        key: str,
+        height: int,
+        wrap: str = "word",
+        horizontal: bool = False,
+    ) -> tuple[ttk.Frame, tk.Text]:
+        """Create one text widget with consistent scrollbar wiring and testable metadata."""
+
+        shell = ttk.Frame(parent, style="Surface.TFrame")
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(0, weight=1)
+        text_widget = tk.Text(shell, height=height, wrap=wrap, state="disabled")
+        vertical_scrollbar = ttk.Scrollbar(shell, orient="vertical", command=text_widget.yview)
+        text_widget.configure(yscrollcommand=vertical_scrollbar.set)
+        text_widget.grid(row=0, column=0, sticky="nsew")
+        vertical_scrollbar.grid(row=0, column=1, sticky="ns")
+
+        scrollbars: dict[str, ttk.Scrollbar] = {"vertical": vertical_scrollbar}
+        if horizontal or wrap == "none":
+            horizontal_scrollbar = ttk.Scrollbar(shell, orient="horizontal", command=text_widget.xview)
+            text_widget.configure(wrap="none", xscrollcommand=horizontal_scrollbar.set)
+            horizontal_scrollbar.grid(row=1, column=0, sticky="ew")
+            scrollbars["horizontal"] = horizontal_scrollbar
+        self.text_scrollbars[key] = scrollbars
+        return shell, text_widget
+
+    def _create_scrolled_tree_widget(
+        self,
+        parent: tk.Widget,
+        *,
+        key: str,
+        columns: tuple[str, ...] = (),
+        show: str = "headings",
+        height: int | None = None,
+    ) -> tuple[ttk.Frame, ttk.Treeview]:
+        """Create one tree view with vertical and horizontal scrollbars."""
+
+        shell = ttk.Frame(parent, style="Surface.TFrame")
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(0, weight=1)
+        tree_kwargs: dict[str, Any] = {"columns": columns, "show": show}
+        if height is not None:
+            tree_kwargs["height"] = height
+        tree_widget = ttk.Treeview(shell, **tree_kwargs)
+        vertical_scrollbar = ttk.Scrollbar(shell, orient="vertical", command=tree_widget.yview)
+        horizontal_scrollbar = ttk.Scrollbar(shell, orient="horizontal", command=tree_widget.xview)
+        tree_widget.configure(yscrollcommand=vertical_scrollbar.set, xscrollcommand=horizontal_scrollbar.set)
+        tree_widget.grid(row=0, column=0, sticky="nsew")
+        vertical_scrollbar.grid(row=0, column=1, sticky="ns")
+        horizontal_scrollbar.grid(row=1, column=0, sticky="ew")
+        self.tree_scrollbars[key] = {
+            "vertical": vertical_scrollbar,
+            "horizontal": horizontal_scrollbar,
+        }
+        return shell, tree_widget
+
+    def _create_scrolled_canvas_widget(
+        self,
+        parent: tk.Widget,
+        *,
+        key: str,
+        height: int,
+        background: str,
+        highlightthickness: int = 0,
+        highlightbackground: str = "",
+    ) -> tuple[ttk.Frame, tk.Canvas]:
+        """Create one canvas with two-axis scrolling for oversized visual content."""
+
+        shell = ttk.Frame(parent, style="Surface.TFrame")
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(0, weight=1)
+        canvas = tk.Canvas(
+            shell,
+            background=background,
+            height=height,
+            highlightthickness=highlightthickness,
+            highlightbackground=highlightbackground,
+        )
+        vertical_scrollbar = ttk.Scrollbar(shell, orient="vertical", command=canvas.yview)
+        horizontal_scrollbar = ttk.Scrollbar(shell, orient="horizontal", command=canvas.xview)
+        canvas.configure(yscrollcommand=vertical_scrollbar.set, xscrollcommand=horizontal_scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vertical_scrollbar.grid(row=0, column=1, sticky="ns")
+        horizontal_scrollbar.grid(row=1, column=0, sticky="ew")
+        self.canvas_scrollbars[key] = {
+            "vertical": vertical_scrollbar,
+            "horizontal": horizontal_scrollbar,
+        }
+        return shell, canvas
 
     def _bind_hover_help(self, widget: tk.Widget, help_text: str) -> None:
         """Attach hover and keyboard-focus help handlers to a settings widget."""
@@ -3325,24 +3583,41 @@ class DesktopWorkbench:
         search_entry = ttk.Entry(filter_bar, textvariable=self.handbook_search_var)
         search_entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
         search_entry.bind("<KeyRelease>", lambda _event: self._refresh_handbook_tree())
+        self._register_placeholder(
+            "handbook_search",
+            search_entry,
+            self.SEARCH_WIDGET_PLACEHOLDERS["handbook_search"],
+            mode="entry",
+        )
 
         body = ttk.Frame(container)
         body.pack(fill="both", expand=True)
         left = ttk.Frame(body)
-        left.pack(side="left", fill="y")
+        left.pack(side="left", fill="both")
         right = ttk.Frame(body)
         right.pack(side="left", fill="both", expand=True, padx=(8, 0))
 
-        self.handbook_tree = ttk.Treeview(left, columns=("group", "setting"), show="headings", height=24)
+        handbook_tree_shell, self.handbook_tree = self._create_scrolled_tree_widget(
+            left,
+            key="handbook_tree",
+            columns=("group", "setting"),
+            show="headings",
+            height=24,
+        )
         self.handbook_tree.heading("group", text="Group")
         self.handbook_tree.heading("setting", text="Setting / Guide")
         self.handbook_tree.column("group", width=170, anchor="w")
         self.handbook_tree.column("setting", width=260, anchor="w")
-        self.handbook_tree.pack(fill="y", expand=False)
+        handbook_tree_shell.pack(fill="both", expand=True)
         self.handbook_tree.bind("<<TreeviewSelect>>", self._handle_handbook_selection)
 
-        self.handbook_text = scrolledtext.ScrolledText(right, wrap="word", state="disabled")
-        self.handbook_text.pack(fill="both", expand=True)
+        handbook_text_shell, self.handbook_text = self._create_scrolled_text_widget(
+            right,
+            key="handbook_text",
+            height=20,
+            wrap="word",
+        )
+        handbook_text_shell.pack(fill="both", expand=True)
 
         self._refresh_handbook_tree()
 
@@ -3351,7 +3626,7 @@ class DesktopWorkbench:
 
         if self.handbook_tree is None:
             return
-        search_text = self.handbook_search_var.get().strip().lower()
+        search_text = self._placeholder_safe_value("handbook_search", self.handbook_search_var.get().strip()).lower()
         for item in self.handbook_tree.get_children():
             self.handbook_tree.delete(item)
 
@@ -3422,10 +3697,16 @@ class DesktopWorkbench:
         if mode == "directory":
             selected = filedialog.askdirectory()
         elif mode == "save_file":
-            selected = filedialog.asksaveasfilename(
-                defaultextension=".db",
-                filetypes=[("SQLite database", "*.db"), ("All files", "*.*")],
-            )
+            if field_name == "log_file_path":
+                selected = filedialog.asksaveasfilename(
+                    defaultextension=".log",
+                    filetypes=[("Log file", "*.log"), ("Text file", "*.txt"), ("All files", "*.*")],
+                )
+            else:
+                selected = filedialog.asksaveasfilename(
+                    defaultextension=".db",
+                    filetypes=[("SQLite database", "*.db"), ("All files", "*.*")],
+                )
         elif mode == "file":
             selected = filedialog.askopenfilename(
                 filetypes=[
@@ -3861,17 +4142,25 @@ class DesktopWorkbench:
     def _build_log_tab(self) -> None:
         """Create the read-only live log panel."""
 
-        self.log_widget = scrolledtext.ScrolledText(self.log_tab, wrap="word", state="disabled")
-        self.log_widget.pack(fill="both", expand=True, padx=8, pady=8)
+        shell, self.log_widget = self._create_scrolled_text_widget(
+            self.log_tab,
+            key="run_log",
+            height=18,
+            wrap="none",
+            horizontal=True,
+        )
+        shell.pack(fill="both", expand=True, padx=8, pady=8)
 
     def _build_table_tab(self, parent: ttk.Frame, key: str, *, include_filters: bool = False) -> None:
         """Create a generic results table tab, optionally with filters for the full paper list."""
 
         container = ttk.Frame(parent, padding=8)
         container.pack(fill="both", expand=True)
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(1, weight=1)
         if include_filters:
             filter_bar = ttk.Frame(container)
-            filter_bar.pack(fill="x", pady=(0, 8))
+            filter_bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
             ttk.Label(filter_bar, text="Filter:").pack(side="left")
             filter_combo = ttk.Combobox(
                 filter_bar,
@@ -3886,9 +4175,15 @@ class DesktopWorkbench:
             search_entry = ttk.Entry(filter_bar, textvariable=self.all_search_var)
             search_entry.pack(side="left", fill="x", expand=True)
             search_entry.bind("<KeyRelease>", lambda _event: self._refresh_all_table())
+            self._register_placeholder(
+                "all_papers_search",
+                search_entry,
+                self.SEARCH_WIDGET_PLACEHOLDERS["all_papers_search"],
+                mode="entry",
+            )
 
-        tree = ttk.Treeview(container, show="headings")
-        tree.pack(fill="both", expand=True)
+        tree_shell, tree = self._create_scrolled_tree_widget(container, key=key, show="headings")
+        tree_shell.grid(row=1, column=0, sticky="nsew")
         self.treeviews[key] = tree
         self.table_frames[key] = container
 
@@ -3910,8 +4205,13 @@ class DesktopWorkbench:
             justify="left",
             style="PageBody.TLabel",
         ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        self.outputs_preview_text = scrolledtext.ScrolledText(preview_frame, height=8, wrap="word", state="disabled")
-        self.outputs_preview_text.grid(row=1, column=0, sticky="nsew")
+        preview_shell, self.outputs_preview_text = self._create_scrolled_text_widget(
+            preview_frame,
+            key="outputs_preview",
+            height=8,
+            wrap="word",
+        )
+        preview_shell.grid(row=1, column=0, sticky="nsew")
 
         browser_shell = ttk.Panedwindow(container, orient="horizontal")
         browser_shell.grid(row=1, column=0, sticky="nsew")
@@ -3930,12 +4230,17 @@ class DesktopWorkbench:
             text="Artifact browser",
             style="PageTitle.TLabel",
         ).grid(row=0, column=0, sticky="w", pady=(0, 6))
-        self.outputs_tree = ttk.Treeview(left, columns=("label", "path"), show="headings")
+        outputs_tree_shell, self.outputs_tree = self._create_scrolled_tree_widget(
+            left,
+            key="outputs_tree",
+            columns=("label", "path"),
+            show="headings",
+        )
         self.outputs_tree.heading("label", text="Artifact")
         self.outputs_tree.heading("path", text="Path")
         self.outputs_tree.column("label", width=220, anchor="w")
         self.outputs_tree.column("path", width=760, anchor="w")
-        self.outputs_tree.grid(row=1, column=0, sticky="nsew")
+        outputs_tree_shell.grid(row=1, column=0, sticky="nsew")
         self.outputs_tree.bind("<<TreeviewSelect>>", self._handle_output_selection)
 
         button_bar = ttk.Frame(left, style="Surface.TFrame")
@@ -3961,8 +4266,13 @@ class DesktopWorkbench:
             text="Artifact summary",
             style="PageTitle.TLabel",
         ).grid(row=0, column=0, sticky="w", pady=(0, 6))
-        self.artifact_summary_text = scrolledtext.ScrolledText(right, height=18, wrap="word", state="disabled")
-        self.artifact_summary_text.grid(row=1, column=0, sticky="nsew")
+        artifact_shell, self.artifact_summary_text = self._create_scrolled_text_widget(
+            right,
+            key="artifact_summary",
+            height=18,
+            wrap="word",
+        )
+        artifact_shell.grid(row=1, column=0, sticky="nsew")
 
     def _build_charts_tab(self) -> None:
         """Create a lightweight chart preview for post-run counts and distributions."""
@@ -3977,19 +4287,25 @@ class DesktopWorkbench:
             text="Chart preview",
             style="PageTitle.TLabel",
         ).grid(row=0, column=0, sticky="w", pady=(0, 8))
-        self.chart_canvas = tk.Canvas(
+        chart_shell, self.chart_canvas = self._create_scrolled_canvas_widget(
             container,
+            key="chart_preview",
+            height=320,
             background=self.PALETTE["surface_bg"],
             highlightthickness=1,
             highlightbackground=self.PALETTE["border_strong"],
-            height=320,
         )
-        self.chart_canvas.grid(row=1, column=0, sticky="nsew")
+        chart_shell.grid(row=1, column=0, sticky="nsew")
         summary_frame = ttk.LabelFrame(container, text="Chart notes", padding=8, style="Card.TLabelframe")
         summary_frame.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         summary_frame.columnconfigure(0, weight=1)
-        self.charts_summary_text = scrolledtext.ScrolledText(summary_frame, height=8, wrap="word", state="disabled")
-        self.charts_summary_text.grid(row=0, column=0, sticky="nsew")
+        chart_text_shell, self.charts_summary_text = self._create_scrolled_text_widget(
+            summary_frame,
+            key="charts_summary",
+            height=8,
+            wrap="word",
+        )
+        chart_text_shell.grid(row=0, column=0, sticky="nsew")
         self._write_summary_widget(self.charts_summary_text, "No chart data is available yet. Start a run or refresh a results directory.")
 
     def _build_run_history_tab(self) -> None:
@@ -4010,18 +4326,28 @@ class DesktopWorkbench:
         shell.add(left, weight=2)
         shell.add(right, weight=3)
         ttk.Label(left, text="Run history", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
-        self.run_history_tree = ttk.Treeview(left, columns=("time", "status", "topic"), show="headings")
+        run_history_tree_shell, self.run_history_tree = self._create_scrolled_tree_widget(
+            left,
+            key="run_history_tree",
+            columns=("time", "status", "topic"),
+            show="headings",
+        )
         self.run_history_tree.heading("time", text="Timestamp")
         self.run_history_tree.heading("status", text="Status")
         self.run_history_tree.heading("topic", text="Topic")
         self.run_history_tree.column("time", width=170, anchor="w")
         self.run_history_tree.column("status", width=120, anchor="w")
         self.run_history_tree.column("topic", width=360, anchor="w")
-        self.run_history_tree.grid(row=1, column=0, sticky="nsew")
+        run_history_tree_shell.grid(row=1, column=0, sticky="nsew")
         self.run_history_tree.bind("<<TreeviewSelect>>", self._handle_run_history_selection)
         ttk.Label(right, text="Run details", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
-        self.run_history_text = scrolledtext.ScrolledText(right, height=18, wrap="word", state="disabled")
-        self.run_history_text.grid(row=1, column=0, sticky="nsew")
+        run_history_text_shell, self.run_history_text = self._create_scrolled_text_widget(
+            right,
+            key="run_history_text",
+            height=18,
+            wrap="word",
+        )
+        run_history_text_shell.grid(row=1, column=0, sticky="nsew")
 
     def _build_screening_audit_tab(self) -> None:
         """Create a tab that exposes screening decisions, reasons, and extracted passages."""
@@ -4041,8 +4367,9 @@ class DesktopWorkbench:
         shell.add(left, weight=3)
         shell.add(right, weight=2)
         ttk.Label(left, text="Screening audit", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
-        self.screening_audit_tree = ttk.Treeview(
+        screening_tree_shell, self.screening_audit_tree = self._create_scrolled_tree_widget(
             left,
+            key="screening_audit_tree",
             columns=("title", "decision", "score", "source"),
             show="headings",
         )
@@ -4054,11 +4381,16 @@ class DesktopWorkbench:
         self.screening_audit_tree.column("decision", width=110, anchor="w")
         self.screening_audit_tree.column("score", width=70, anchor="e")
         self.screening_audit_tree.column("source", width=120, anchor="w")
-        self.screening_audit_tree.grid(row=1, column=0, sticky="nsew")
+        screening_tree_shell.grid(row=1, column=0, sticky="nsew")
         self.screening_audit_tree.bind("<<TreeviewSelect>>", self._handle_screening_audit_selection)
         ttk.Label(right, text="Decision details", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
-        self.screening_audit_text = scrolledtext.ScrolledText(right, height=18, wrap="word", state="disabled")
-        self.screening_audit_text.grid(row=1, column=0, sticky="nsew")
+        screening_text_shell, self.screening_audit_text = self._create_scrolled_text_widget(
+            right,
+            key="screening_audit_text",
+            height=18,
+            wrap="word",
+        )
+        screening_text_shell.grid(row=1, column=0, sticky="nsew")
         self._write_summary_widget(
             self.screening_audit_text,
             "No screening audit is available yet. Start a run or refresh a results directory to inspect keep/exclude reasons.",
@@ -4068,9 +4400,21 @@ class DesktopWorkbench:
         """Populate the visible form controls from a flat dictionary of values."""
 
         for field_name, widget in self.text_widgets.items():
-            self._set_text_widget_value(widget, str(values.get(field_name, "")))
+            text_value = str(values.get(field_name, ""))
+            if field_name in self.placeholder_widgets:
+                self._set_placeholder_text(field_name, text_value)
+            else:
+                self._set_text_widget_value(widget, text_value)
         for field_name, variable in self.scalar_vars.items():
             variable.set(values.get(field_name, variable.get()))
+        for field_name in self.placeholder_widgets:
+            if field_name in self.text_widgets:
+                continue
+            text_value = str(values.get(field_name, "") or "")
+            if text_value.strip():
+                self._set_placeholder_text(field_name, text_value)
+            else:
+                self._restore_placeholder_if_empty(field_name)
         for field_name in self.slider_value_label_groups:
             self._sync_slider_label(field_name)
         self._refresh_settings_overview()
@@ -4080,13 +4424,43 @@ class DesktopWorkbench:
 
         values = default_form_values()
         for field_name, widget in self.text_widgets.items():
-            values[field_name] = widget.get("1.0", tk.END).strip()
+            raw_value = widget.get("1.0", tk.END).strip()
+            values[field_name] = self._placeholder_safe_value(field_name, raw_value)
         for field_name, variable in self.scalar_vars.items():
             values[field_name] = variable.get()
+        for field_name in self.placeholder_widgets:
+            if field_name in self.text_widgets:
+                continue
+            widget = self.placeholder_widgets[field_name]
+            mode = self.placeholder_modes[field_name]
+            values[field_name] = self._placeholder_safe_value(field_name, self._get_widget_content(widget, mode))
         profile_name = self.profile_combo.get().strip()
         if profile_name and not values.get("profile_name"):
             values["profile_name"] = profile_name
         return values
+
+    def _validate_guided_text_inputs(self, values: dict[str, Any]) -> list[str]:
+        """Return human-readable validation messages for guided text-entry fields."""
+
+        messages: list[str] = []
+        if not str(values.get("research_topic", "") or "").strip():
+            messages.append(
+                "Research topic is required. Describe the topic in plain English, for example 'Large language models in healthcare governance'."
+            )
+        for field_name, (label, required) in self.TERM_VALIDATION_FIELDS.items():
+            raw_value = str(values.get(field_name, "") or "")
+            parsed_terms = parse_search_terms(raw_value)
+            if required and not parsed_terms:
+                messages.append(
+                    f"{label} must contain at least one meaningful term. Use commas, semicolons, or line breaks, for example "
+                    f"'AI governance, generative AI, decision-making'."
+                )
+                continue
+            if raw_value.strip() and not parsed_terms:
+                messages.append(
+                    f"{label} does not contain any usable terms after parsing. Remove empty separators and enter at least one real phrase."
+                )
+        return messages
 
     def _set_text_widget_value(self, widget: tk.Text, text: str) -> None:
         """Write text into a Tk text widget, temporarily unlocking read-only widgets when needed."""
@@ -4098,6 +4472,102 @@ class DesktopWorkbench:
         widget.insert("1.0", text)
         if previous_state == "disabled":
             widget.configure(state="disabled")
+
+    def _register_placeholder(self, key: str, widget: tk.Widget, placeholder: str, *, mode: str) -> None:
+        """Attach placeholder behavior to editable entry-like widgets."""
+
+        self.placeholder_widgets[key] = widget
+        self.placeholder_modes[key] = mode
+        self.placeholder_texts[key] = placeholder
+        self.placeholder_active[key] = False
+        widget.bind("<FocusIn>", lambda _event, name=key: self._clear_placeholder(name), add="+")
+        widget.bind("<FocusOut>", lambda _event, name=key: self._restore_placeholder_if_empty(name), add="+")
+        self._restore_placeholder_if_empty(key)
+
+    def _set_widget_content(self, widget: tk.Widget, mode: str, text: str) -> None:
+        """Write text into either an entry-like widget or a Tk text widget."""
+
+        if mode == "text":
+            self._set_text_widget_value(widget, text)  # type: ignore[arg-type]
+            return
+        if isinstance(widget, ttk.Entry):
+            widget.delete(0, tk.END)
+            widget.insert(0, text)
+
+    def _get_widget_content(self, widget: tk.Widget, mode: str) -> str:
+        """Read text from a placeholder-aware widget."""
+
+        if mode == "text":
+            return widget.get("1.0", tk.END).strip()  # type: ignore[call-arg]
+        if isinstance(widget, ttk.Entry):
+            return widget.get().strip()
+        return ""
+
+    def _set_placeholder_visual_state(self, widget: tk.Widget, *, active: bool) -> None:
+        """Apply a lightweight visual cue when a placeholder is currently displayed."""
+
+        foreground = self.PALETTE["muted_text"] if active else self.PALETTE["text"]
+        try:
+            widget.configure(foreground=foreground)
+        except tk.TclError:
+            pass
+
+    def _clear_placeholder(self, key: str) -> None:
+        """Remove a placeholder when the user focuses the bound widget."""
+
+        widget = self.placeholder_widgets[key]
+        mode = self.placeholder_modes[key]
+        current = self._get_widget_content(widget, mode)
+        placeholder = self.placeholder_texts.get(key, "").strip()
+        if not self.placeholder_active.get(key) and current != placeholder:
+            return
+        self._set_widget_content(widget, mode, "")
+        self.placeholder_active[key] = False
+        self._set_placeholder_visual_state(widget, active=False)
+
+    def _restore_placeholder_if_empty(self, key: str) -> None:
+        """Reapply a placeholder when the user leaves a widget empty."""
+
+        widget = self.placeholder_widgets[key]
+        mode = self.placeholder_modes[key]
+        current = self._get_widget_content(widget, mode)
+        placeholder = self.placeholder_texts[key].strip()
+        if current == placeholder:
+            self.placeholder_active[key] = True
+            self._set_placeholder_visual_state(widget, active=True)
+            return
+        if current:
+            self.placeholder_active[key] = False
+            self._set_placeholder_visual_state(widget, active=False)
+            return
+        self._set_widget_content(widget, mode, self.placeholder_texts[key])
+        self.placeholder_active[key] = True
+        self._set_placeholder_visual_state(widget, active=True)
+
+    def _set_placeholder_text(self, key: str, text: str) -> None:
+        """Set a real value into a placeholder-aware widget without leaving placeholder state behind."""
+
+        if key not in self.placeholder_widgets:
+            return
+        widget = self.placeholder_widgets[key]
+        mode = self.placeholder_modes[key]
+        if text.strip():
+            self._set_widget_content(widget, mode, text)
+            self.placeholder_active[key] = False
+            self._set_placeholder_visual_state(widget, active=False)
+            return
+        self._restore_placeholder_if_empty(key)
+
+    def _placeholder_safe_value(self, key: str, raw_value: str) -> str:
+        """Return an empty string instead of the current placeholder text."""
+
+        placeholder = self.placeholder_texts.get(key, "").strip()
+        current = raw_value.strip()
+        if self.placeholder_active.get(key) and current == placeholder:
+            return ""
+        if placeholder and current == placeholder:
+            return ""
+        return raw_value
 
     def _load_config_file(self) -> None:
         """Open a JSON config file and hydrate the form with its validated values."""
@@ -4156,18 +4626,19 @@ class DesktopWorkbench:
             values["skip_discovery"] = skip_discovery_override
         if run_mode_override is not None:
             values["run_mode"] = run_mode_override
+        validation_messages = self._validate_guided_text_inputs(values)
+        if validation_messages:
+            messagebox.showerror("Invalid text input", "\n\n".join(validation_messages))
+            return
         try:
             config = form_values_to_config(values)
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("Invalid configuration", str(exc))
             return
-        logging.getLogger().setLevel(
-            {
-                "quiet": logging.WARNING,
-                "normal": logging.INFO,
-                "verbose": logging.INFO,
-                "debug": logging.DEBUG,
-            }.get(config.verbosity, logging.INFO)
+        configure_application_logging(
+            config.verbosity,
+            log_file_path=config.log_file_path or (config.results_dir / "pipeline.log"),
+            extra_handlers=[self.log_handler],
         )
 
         self.log_widget.configure(state="normal")
@@ -4178,6 +4649,7 @@ class DesktopWorkbench:
             run_description = "Running analysis from stored records..."
         elif config.skip_discovery:
             run_description = "Loading stored records without new discovery..."
+        run_description += f" Persistent log file: {config.log_file_path}"
         self._set_status(run_description)
 
         def worker() -> None:
@@ -4317,7 +4789,7 @@ class DesktopWorkbench:
         filtered = dataframe
         if self.all_filter_var.get() == "screened_only" and "inclusion_decision" in filtered.columns:
             filtered = filtered[filtered["inclusion_decision"].fillna("").astype(str) != ""]
-        search_text = self.all_search_var.get().strip().lower()
+        search_text = self._placeholder_safe_value("all_papers_search", self.all_search_var.get().strip()).lower()
         if search_text:
             search_columns = [column for column in ("title", "authors", "abstract", "doi", "venue") if column in filtered.columns]
             if search_columns:
@@ -4592,6 +5064,7 @@ class DesktopWorkbench:
             return
         self.chart_canvas.delete("all")
         if not papers_path.exists():
+            self.chart_canvas.configure(scrollregion=(0, 0, 0, 0))
             self._write_summary_widget(
                 self.charts_summary_text,
                 "No papers.csv file is available yet, so the chart preview is empty.",
@@ -4613,6 +5086,12 @@ class DesktopWorkbench:
         bar_width = 110
         gap = 40
         max_count = max(max(decision_counts.values()), 1)
+        chart_width = max(
+            chart_left + len(decision_counts) * (bar_width + gap) + 220,
+            int(self.chart_canvas.winfo_width() or 0),
+            720,
+        )
+        self.chart_canvas.configure(scrollregion=(0, 0, chart_width, chart_bottom + 60))
         self.chart_canvas.create_text(chart_left, 18, text="Screening decision preview", anchor="w", font=("Segoe UI Semibold", 12), fill=self.PALETTE["text"])
         for index, (label, count) in enumerate(decision_counts.items()):
             x0 = chart_left + index * (bar_width + gap)

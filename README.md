@@ -79,6 +79,10 @@ input -> discovery -> deduplication -> database storage -> citation expansion ->
 * Europe PMC
 * CORE
 
+### Live HTML sources
+
+* Google Scholar result pages with configurable page-depth traversal and bounded throttling
+
 ### Manual import sources
 
 * Google Scholar export files
@@ -88,7 +92,7 @@ input -> discovery -> deduplication -> database storage -> citation expansion ->
 
 ### Boundary
 
-The project is API-first. Google Scholar and ResearchGate are handled through manual imports rather than live scraping. This keeps the workflow more stable, testable, and maintainable.
+The project is still API-first. Official scholarly APIs remain the preferred path. Google Scholar is available as a bounded HTML discovery source with explicit page-depth controls, while ResearchGate remains import-based. This keeps discovery broad without turning the main architecture into an unrestricted browser crawler.
 
 ---
 
@@ -108,6 +112,24 @@ This supports:
 * Google Gemini
 * Ollama-hosted local models
 * local Hugging Face models, including open-weight models such as `Qwen/Qwen3-14B` and `openai/gpt-oss-20b`
+
+### Local semantic topic prefilter
+
+The pipeline can also run a local CPU-friendly semantic relevance prefilter before deeper screening.
+
+Default local embedding model:
+
+* `sentence-transformers/all-MiniLM-L6-v2`
+
+The prefilter:
+
+* builds one review brief from the topic, research question, objective, keywords, and inclusion criteria
+* embeds the review brief and each paper locally on the machine
+* compares them with cosine similarity
+* classifies each paper as `HIGH_RELEVANCE`, `REVIEW`, or `LOW_RELEVANCE`
+* can automatically filter `LOW_RELEVANCE` papers before more expensive screening
+
+This path is designed for CPU-only execution on normal desktop hardware and remains usable offline after the initial model download.
 
 Multi-pass screening is supported. Each pass can define:
 
@@ -145,6 +167,7 @@ The guided workbench includes:
 - a right-hand inspector with dedicated `Find`, `Quick Edit`, `Guides`, and `Summary` tabs
 - compact and advanced settings modes so you can collapse or reveal explanatory section text depending on how dense you want the workspace to be
 - scrollable settings pages, a scrollable quick-edit panel, and a scrollable summary inspector so the window stays usable on smaller screens
+- scrollable logs, result tables, handbook content, artifact browser tables, chart previews, run history, and screening audit views so no important content is trapped off-screen on smaller windows
 - `Show advanced settings` toggle so lower-level runtime options stay out of the way until needed
 - quick-edit controls for the most-used model, threshold, and output settings, without forcing every option onto the main form at once
 - a richer visual pass-chain builder with provider-specific model suggestions, per-pass previews, duplication, ordering, and entry-score gates
@@ -152,6 +175,7 @@ The guided workbench includes:
 - provider health indicators so you can see which sources or AI backends are ready, disabled, or missing credentials before a run
 - searchable `Handbook` tab
 - hover help and keyboard-focus help for settings, with detailed English explanations that describe the purpose of each flag, what changes when a switch is on or off, and concrete examples for common workflows
+- placeholder text and nearby input guidance for review-topic, keyword, criteria, and filter fields, including explicit separator examples for commas, semicolons, and line breaks
 - live `Run Log` tab
 - result tabs for:
   - `All Papers`
@@ -210,12 +234,71 @@ The HTTP layer now:
 * respects `Retry-After` when a provider returns `429 Too Many Requests`
 * falls back to bounded exponential backoff when `Retry-After` is missing
 * keeps transport retries for `5xx` failures separate from rate-limit retries
+* proactively slows down Semantic Scholar requests with a rolling requests-per-minute window and an optional extra delay between calls
+* logs proactive throttle sleeps, 429 backoff waits, and exhausted retry paths so rate-limit behavior is visible in both CLI and GUI logs
 
 Relevant settings:
 
 * `--http-retry-max-attempts`
 * `--http-retry-base-delay-seconds`
 * `--http-retry-max-delay-seconds`
+* `--semantic-scholar-max-requests-per-minute`
+* `--semantic-scholar-request-delay-seconds`
+* `--semantic-scholar-retry-attempts`
+* `--semantic-scholar-retry-backoff-strategy`
+* `--semantic-scholar-retry-backoff-base-seconds`
+
+Semantic Scholar guidance:
+
+* lower `semantic_scholar_max_requests_per_minute` if the public quota is unstable
+* increase `semantic_scholar_request_delay_seconds` when you want a safety gap between requests even before a `429`
+* keep `semantic_scholar_retry_backoff_strategy=exponential` unless you have a strong reason to prefer `fixed` or `linear`
+* if retries are exhausted, the affected Semantic Scholar page is skipped cleanly and the rest of the run continues where possible
+
+### Local MiniLM topic prefilter
+
+The local topic prefilter is a lightweight semantic relevance gate that runs before or alongside deeper screening.
+
+Important settings:
+
+* `--topic-prefilter-enabled`
+* `--topic-prefilter-filter-low-relevance`
+* `--topic-prefilter-high-threshold`
+* `--topic-prefilter-review-threshold`
+* `--topic-prefilter-text-mode`
+* `--topic-prefilter-max-chars`
+* `--topic-prefilter-model`
+
+Practical defaults:
+
+* `HIGH_RELEVANCE` when similarity is at least `0.75`
+* `REVIEW` when similarity is between `0.55` and `0.75`
+* `LOW_RELEVANCE` below `0.55`
+
+The generated explanation includes the similarity score, thresholds used, selected paper sections, keyword overlap, and the resulting classification.
+
+### Google Scholar page depth
+
+Google Scholar discovery can now be bounded explicitly instead of relying only on the general source limit.
+
+Important settings:
+
+* `--google-scholar-enabled`
+* `--google-scholar-pages`
+* `--google-scholar-results-per-page`
+* `--google-scholar-calls-per-second`
+
+Behavior:
+
+* each configured page is fetched in order
+* the GUI exposes both a slider and a numeric control for page depth so you can tune breadth precisely
+* the run stops early if the configured per-source limit is reached
+* retrieval volume is roughly `page_count x configured results_per_page x number_of_generated_queries`, subject to deduplication and stop conditions
+* partial page failures are logged and skipped instead of crashing the whole run
+* a force-stop request is checked between query and page boundaries so long Scholar traversals can stop cleanly
+* metadata is deduplicated afterward through the normal DOI and title-based pipeline
+
+Large page counts can increase run time and raise the chance of rate-limits or HTML-structure drift, so the default path remains intentionally conservative.
 
 ### Persistent source-response cache
 
@@ -566,8 +649,9 @@ The main SQLite database stores:
 
 ### Discovery
 
-* source toggles for OpenAlex, Semantic Scholar, Crossref, Springer, arXiv, PubMed, Europe PMC, and CORE
+* source toggles for OpenAlex, Semantic Scholar, Crossref, Springer, arXiv, PubMed, Europe PMC, CORE, and Google Scholar
 * per-source rate limits
+* dedicated Google Scholar page-depth controls
 * `pages_to_retrieve`
 * `results_per_page`
 * `max_discovered_records`
@@ -641,9 +725,9 @@ The GUI surfaces operational issues through:
 
 Current tested baseline:
 
-* `220` passing tests
-* `99.18%` app-code coverage excluding `tests/*`
-* `99.18%` full-repository coverage including `tests/*`
+* `242` passing tests
+* `99.58%` total coverage across the full measured repository run
+* `99.58%` coverage in the generated full coverage report
 * clean `ruff` lint
 * clean `mypy` type-checking for the configured backend/tooling scope
 * clean `compileall`
@@ -739,7 +823,7 @@ The default thresholds live in `configs/benchmark_baselines.json`.
 ## Known Boundaries
 
 * Semantic Scholar may return `429` rate-limit responses on public quotas
-* Google Scholar and ResearchGate are import-based, not live-query integrations
+* Google Scholar is available through bounded HTML result traversal, while ResearchGate remains import-based
 * Springer live discovery requires a valid API key
 * local Hugging Face inference depends on installed runtime and available hardware
 * full-text extraction depends on PDF availability and optional `pypdf`
@@ -771,3 +855,8 @@ The default thresholds live in `configs/benchmark_baselines.json`.
 
 * [HANDBOOK.md](HANDBOOK.md) — full operator reference
 * [ROADMAP.md](ROADMAP.md) — planned feature roadmap
+
+
+
+
+

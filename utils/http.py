@@ -16,6 +16,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from utils.logging_utils import TRACE_LEVEL
+
 LOGGER = logging.getLogger(__name__)
 HTTP_LOG_ENABLED = True
 HTTP_LOG_PAYLOADS = True
@@ -43,6 +45,13 @@ def configure_http_logging(*, enabled: bool, log_payloads: bool) -> None:
     global HTTP_LOG_ENABLED, HTTP_LOG_PAYLOADS
     HTTP_LOG_ENABLED = enabled
     HTTP_LOG_PAYLOADS = log_payloads
+
+
+def _log_http_trace(message: str, *args: Any) -> None:
+    """Emit one TRACE-level HTTP message when payload logging is enabled."""
+
+    if HTTP_LOG_ENABLED and HTTP_LOG_PAYLOADS:
+        LOGGER.log(TRACE_LEVEL, message, *args)
 
 
 def configure_http_runtime(
@@ -98,7 +107,9 @@ class RateLimiter:
         *,
         max_requests_per_minute: int | None = None,
         request_delay_seconds: float = 0.0,
+        name: str = "HTTP source",
     ) -> None:
+        self.name = name
         self.min_interval = 1.0 / calls_per_second if calls_per_second > 0 else 0.0
         self.max_requests_per_minute = max(int(max_requests_per_minute), 1) if max_requests_per_minute else None
         self.request_delay_seconds = max(float(request_delay_seconds), 0.0)
@@ -114,21 +125,37 @@ class RateLimiter:
         with self._lock:
             now = time.monotonic()
             self._prune_history(now)
-            wait_seconds = 0.0
-            if self.min_interval > 0:
-                wait_seconds = max(wait_seconds, self.min_interval - (now - self._last_call))
-            if self.request_delay_seconds > 0:
-                wait_seconds = max(wait_seconds, self.request_delay_seconds - (now - self._last_call))
-            if self.max_requests_per_minute is not None and len(self._request_history) >= self.max_requests_per_minute:
-                oldest = self._request_history[0]
-                wait_seconds = max(wait_seconds, 60.0 - (now - oldest))
+            wait_seconds, reasons = self._calculate_wait_seconds(now)
             if wait_seconds > 0:
+                if HTTP_LOG_ENABLED:
+                    LOGGER.info(
+                        "%s proactive throttle sleeping for %.2f seconds (%s).",
+                        self.name,
+                        wait_seconds,
+                        ", ".join(reasons),
+                    )
                 time.sleep(wait_seconds)
                 now = time.monotonic()
                 self._prune_history(now)
             self._last_call = now
             if self.max_requests_per_minute is not None:
                 self._request_history.append(now)
+
+    def _calculate_wait_seconds(self, now: float) -> tuple[float, list[str]]:
+        """Return the next proactive wait time and the reasons that produced it."""
+
+        wait_candidates: list[tuple[float, str]] = []
+        since_last_call = now - self._last_call
+        if self.min_interval > 0:
+            wait_candidates.append((max(self.min_interval - since_last_call, 0.0), "calls-per-second limit"))
+        if self.request_delay_seconds > 0:
+            wait_candidates.append((max(self.request_delay_seconds - since_last_call, 0.0), "configured request delay"))
+        if self.max_requests_per_minute is not None and len(self._request_history) >= self.max_requests_per_minute:
+            oldest = self._request_history[0]
+            wait_candidates.append((max(60.0 - (now - oldest), 0.0), "requests-per-minute window"))
+        wait_seconds = max((candidate for candidate, _reason in wait_candidates), default=0.0)
+        reasons = [reason for candidate, reason in wait_candidates if candidate > 0]
+        return wait_seconds, reasons
 
     def _prune_history(self, now: float) -> None:
         """Drop request timestamps that are older than the rolling one-minute window."""
@@ -212,10 +239,12 @@ def request_json(
     retry_max_attempts: int | None = None,
     retry_backoff_strategy: BackoffStrategy = "exponential",
     retry_base_delay_seconds: float | None = None,
+    request_label: str | None = None,
     **kwargs: Any,
 ) -> Any:
     """Perform an HTTP request and parse the response body as JSON when successful."""
 
+    request_started = time.perf_counter()
     if HTTP_LOG_ENABLED:
         LOGGER.info(
             "HTTP %s %s params=%s",
@@ -224,7 +253,7 @@ def request_json(
             _sanitize_for_log(kwargs.get("params")),
         )
         if HTTP_LOG_PAYLOADS and "json" in kwargs:
-            LOGGER.debug("HTTP %s payload=%s", url, _sanitize_for_log(kwargs.get("json")))
+            _log_http_trace("HTTP %s payload=%s", url, _sanitize_for_log(kwargs.get("json")))
 
     cached_payload = _load_cached_payload(method, url, expected_kind="json", use_cache=use_cache, kwargs=kwargs)
     if cached_payload is not None:
@@ -240,17 +269,24 @@ def request_json(
             retry_max_attempts=retry_max_attempts,
             retry_backoff_strategy=retry_backoff_strategy,
             retry_base_delay_seconds=retry_base_delay_seconds,
+            request_label=request_label,
             **kwargs,
         )
         if response is None:
             return None
         if HTTP_LOG_ENABLED:
-            LOGGER.info("HTTP %s %s -> %s", method, url, response.status_code)
+            LOGGER.info(
+                "HTTP %s %s -> %s in %.2f seconds",
+                method,
+                url,
+                response.status_code,
+                time.perf_counter() - request_started,
+            )
         if not response.content:
             return None
         payload = response.json()
         if HTTP_LOG_PAYLOADS:
-            LOGGER.debug("HTTP %s response=%s", url, _sanitize_for_log(payload))
+            _log_http_trace("HTTP %s response=%s", url, _sanitize_for_log(payload))
         _store_cached_payload(method, url, kind="json", payload=payload, use_cache=use_cache, kwargs=kwargs)
         return payload
     except requests.RequestException as exc:
@@ -268,10 +304,12 @@ def request_content(
     retry_max_attempts: int | None = None,
     retry_backoff_strategy: BackoffStrategy = "exponential",
     retry_base_delay_seconds: float | None = None,
+    request_label: str | None = None,
     **kwargs: Any,
 ) -> requests.Response | None:
     """Perform an HTTP GET request intended for binary content such as PDFs."""
 
+    request_started = time.perf_counter()
     if HTTP_LOG_ENABLED:
         LOGGER.info("HTTP GET %s", url)
     try:
@@ -285,12 +323,13 @@ def request_content(
             retry_max_attempts=retry_max_attempts,
             retry_backoff_strategy=retry_backoff_strategy,
             retry_base_delay_seconds=retry_base_delay_seconds,
+            request_label=request_label,
             **kwargs,
         )
         if response is None:
             return None
         if HTTP_LOG_ENABLED:
-            LOGGER.info("HTTP GET %s -> %s", url, response.status_code)
+            LOGGER.info("HTTP GET %s -> %s in %.2f seconds", url, response.status_code, time.perf_counter() - request_started)
         return response
     except requests.RequestException as exc:
         LOGGER.warning("Content download failed for %s: %s", url, exc)
@@ -308,10 +347,12 @@ def request_text(
     retry_max_attempts: int | None = None,
     retry_backoff_strategy: BackoffStrategy = "exponential",
     retry_base_delay_seconds: float | None = None,
+    request_label: str | None = None,
     **kwargs: Any,
 ) -> str | None:
     """Perform an HTTP request and return the raw text body on success."""
 
+    request_started = time.perf_counter()
     if HTTP_LOG_ENABLED:
         LOGGER.info("HTTP %s %s params=%s", method, url, _sanitize_for_log(kwargs.get("params")))
 
@@ -329,15 +370,22 @@ def request_text(
             retry_max_attempts=retry_max_attempts,
             retry_backoff_strategy=retry_backoff_strategy,
             retry_base_delay_seconds=retry_base_delay_seconds,
+            request_label=request_label,
             **kwargs,
         )
         if response is None:
             return None
         if HTTP_LOG_ENABLED:
-            LOGGER.info("HTTP %s %s -> %s", method, url, response.status_code)
+            LOGGER.info(
+                "HTTP %s %s -> %s in %.2f seconds",
+                method,
+                url,
+                response.status_code,
+                time.perf_counter() - request_started,
+            )
         text = response.text
         if HTTP_LOG_PAYLOADS and text:
-            LOGGER.debug("HTTP %s response=%s", url, _sanitize_for_log(text))
+            _log_http_trace("HTTP %s response=%s", url, _sanitize_for_log(text))
         _store_cached_payload(method, url, kind="text", payload=text, use_cache=use_cache, kwargs=kwargs)
         return text
     except requests.RequestException as exc:
@@ -355,11 +403,13 @@ def _request_with_backoff(
     retry_max_attempts: int | None = None,
     retry_backoff_strategy: BackoffStrategy = "exponential",
     retry_base_delay_seconds: float | None = None,
+    request_label: str | None = None,
     **kwargs: Any,
 ) -> requests.Response | None:
     """Perform one request with explicit 429-aware backoff that respects `Retry-After`."""
 
     attempts = max(int(retry_max_attempts or HTTP_RUNTIME_CONFIG.retry_max_attempts), 1)
+    label = request_label or "HTTP request"
     for attempt in range(1, attempts + 1):
         if limiter:
             limiter.wait()
@@ -368,6 +418,13 @@ def _request_with_backoff(
             response.raise_for_status()
             return response
         if attempt >= attempts:
+            LOGGER.error(
+                "%s exhausted %s attempt(s) after repeated 429 responses for %s %s.",
+                label,
+                attempts,
+                method,
+                url,
+            )
             response.raise_for_status()
             return None
         delay_seconds = _calculate_backoff_delay(
@@ -377,7 +434,8 @@ def _request_with_backoff(
             base_delay_seconds=retry_base_delay_seconds,
         )
         LOGGER.warning(
-            "HTTP %s %s returned 429. Backing off for %.2f seconds before retry %s/%s using %s strategy.",
+            "%s received 429 for %s %s. Backing off for %.2f seconds before retry %s/%s using %s strategy.",
+            label,
             method,
             url,
             delay_seconds,
@@ -433,6 +491,7 @@ def _load_cached_payload(
     cached_payload = cache.load(cache_key, expected_kind=expected_kind)
     if cached_payload is not None and HTTP_LOG_ENABLED:
         LOGGER.info("HTTP cache hit for %s %s", method, url)
+        _log_http_trace("HTTP cache payload restored for %s %s.", method, url)
     return cached_payload
 
 

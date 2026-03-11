@@ -279,6 +279,17 @@ class DiscoveryClientsExtendedTests(unittest.TestCase):
 
         self.assertEqual(client.session.headers["x-api-key"], "sem-key")
         self.assertEqual(len(results), config.per_source_limit)
+        self.assertEqual(client.limiter.max_requests_per_minute, config.api_settings.semantic_scholar_max_requests_per_minute)
+        self.assertEqual(client.limiter.request_delay_seconds, config.api_settings.semantic_scholar_request_delay_seconds)
+        self.assertEqual(client.limiter.name, "Semantic Scholar")
+
+    def test_semantic_scholar_search_stops_cleanly_after_exhausted_rate_limit_retries(self) -> None:
+        config = self.config.model_copy(update={"discovery_strategy": "precise", "pages_to_retrieve": 2, "results_per_page": 1})
+
+        with patch("discovery.semantic_scholar_client.request_json", return_value=None):
+            results = SemanticScholarClient(config).search()
+
+        self.assertEqual(results, [])
 
     def test_clients_pick_up_configured_rate_limits(self) -> None:
         tuned = self.config.model_copy(

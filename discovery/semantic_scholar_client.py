@@ -44,6 +44,7 @@ class SemanticScholarClient:
             calls_per_second=self.config.api_settings.semantic_scholar_calls_per_second,
             max_requests_per_minute=self.config.api_settings.semantic_scholar_max_requests_per_minute,
             request_delay_seconds=self.config.api_settings.semantic_scholar_request_delay_seconds,
+            name="Semantic Scholar",
         )
 
     def search(self) -> list[PaperMetadata]:
@@ -72,6 +73,7 @@ class SemanticScholarClient:
                     retry_max_attempts=self.config.api_settings.semantic_scholar_retry_attempts,
                     retry_backoff_strategy=self.config.api_settings.semantic_scholar_retry_backoff_strategy,
                     retry_base_delay_seconds=self.config.api_settings.semantic_scholar_retry_backoff_base_seconds,
+                    request_label="Semantic Scholar",
                     params={
                         "query": query,
                         "limit": limit,

@@ -9,28 +9,26 @@ from config import ResearchConfig, build_arg_parser
 from pipeline.pipeline_controller import PipelineController
 from ui.launcher import LaunchMode, has_explicit_run_arguments, prompt_for_launch_mode
 from utils.http import configure_http_logging
+from utils.logging_utils import configure_application_logging, verbosity_to_logging_level
 
 
-def configure_logging(level_name: str) -> None:
+def configure_logging(level_name: str, *, log_file_path: str | None = None) -> str | None:
     """Configure process-wide logging to match the selected verbosity level."""
 
-    level_map = {
-        "quiet": logging.WARNING,
-        "normal": logging.INFO,
-        "verbose": logging.INFO,
-        "debug": logging.DEBUG,
-    }
-    logging.basicConfig(
-        level=level_map.get(level_name, logging.INFO),
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    )
+    if log_file_path is None:
+        logging.basicConfig(
+            level=verbosity_to_logging_level(level_name),
+            format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        )
+        return None
+    return str(configure_application_logging(level_name, log_file_path=log_file_path))
 
 
 def _run_headless(args) -> int:
     """Execute the pipeline without the guided desktop workbench."""
 
     config = ResearchConfig.from_cli(args)
-    configure_logging(config.verbosity)
+    resolved_log_path = configure_logging(config.verbosity, log_file_path=str(config.log_file_path))
     configure_http_logging(
         enabled=config.log_http_requests,
         log_payloads=config.log_http_payloads,
@@ -41,6 +39,8 @@ def _run_headless(args) -> int:
     print("\nPipeline completed.")
     print(f"Run mode: {config.run_mode}")
     print(f"Verbosity: {config.verbosity}")
+    if resolved_log_path:
+        print(f"Persistent log file: {resolved_log_path}")
     print(f"Discovered records: {result['discovered_count']}")
     print(f"Deduplicated records: {result['deduplicated_count']}")
     print(f"Database records for this query: {result['database_count']}")

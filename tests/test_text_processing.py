@@ -47,8 +47,24 @@ class TextProcessingTests(unittest.TestCase):
             ["AI governance", "generative AI", "decision-making", "policy"],
         )
         self.assertEqual(
+            text_processing.parse_search_terms("AI governance, generative AI, decision-making"),
+            ["AI governance", "generative AI", "decision-making"],
+        )
+        self.assertEqual(
+            text_processing.parse_search_terms("AI governance; generative AI; decision-making"),
+            ["AI governance", "generative AI", "decision-making"],
+        )
+        self.assertEqual(
+            text_processing.parse_search_terms("AI governance\ngenerative AI\ndecision-making"),
+            ["AI governance", "generative AI", "decision-making"],
+        )
+        self.assertEqual(
             text_processing.parse_search_terms([" AI governance ", "", "generative AI"]),
             ["AI governance", "generative AI"],
+        )
+        self.assertEqual(
+            text_processing.parse_search_terms(" AI governance , ;\n generative AI \n\n ; decision-making "),
+            ["AI governance", "generative AI", "decision-making"],
         )
         self.assertEqual(text_processing.parse_search_terms(None), [])
 
