@@ -11,6 +11,7 @@ from models.paper import DecisionLabel, PaperMetadata, ScreeningResult
 from config import ResearchConfig
 from .llm_clients import build_llm_client
 from .relevance_scoring import RelevanceScorer
+from .topic_prefilter import build_topic_matcher
 
 LOGGER = logging.getLogger(__name__)
 
@@ -20,33 +21,46 @@ class AIScreener:
 
     def __init__(self, config: ResearchConfig) -> None:
         self.config = config
-        self.scorer = RelevanceScorer(config)
+        self.topic_matcher = build_topic_matcher(config)
+        self.scorer = RelevanceScorer(config, topic_matcher=self.topic_matcher)
         self.llm_client = build_llm_client(config)
         self.llm_enabled = self.llm_client.enabled
 
     def screen(self, paper: PaperMetadata) -> ScreeningResult:
-        """Screen one paper using hard exclusions, stage-one triage, and deep scoring."""
+        """Screen one paper using hard exclusions, local topic matching, and optional LLM passes."""
 
         if self.scorer.has_hard_exclusion(paper):
             LOGGER.info("Hard exclusion triggered for '%s'.", paper.title)
             return self.scorer.deep_score(paper, stage_one_decision="exclude")
 
+        topic_match = self.scorer.evaluate_topic_match(paper)
+        if topic_match and self.config.log_screening_decisions and self.config.verbosity in {"verbose", "debug"}:
+            LOGGER.info(
+                "Local topic prefilter for '%s': %s (%.2f / %s).",
+                paper.title,
+                topic_match.classification,
+                topic_match.similarity,
+                topic_match.model_name,
+            )
+        if topic_match and topic_match.should_exclude:
+            return self.scorer.deep_score(paper, stage_one_decision="exclude", topic_match=topic_match)
+
         if not self.llm_enabled:
-            stage_one = self.scorer.quick_screen(paper)
+            stage_one = self.scorer.quick_screen(paper, topic_match=topic_match)
             if self.config.log_screening_decisions and self.config.verbosity in {"verbose", "debug"}:
                 LOGGER.info("Heuristic Stage 1 for '%s': %s", paper.title, stage_one)
-            return self.scorer.deep_score(paper, stage_one_decision=stage_one)
+            return self.scorer.deep_score(paper, stage_one_decision=stage_one, topic_match=topic_match)
 
-        stage_one = self._llm_stage_one(paper) or self.scorer.quick_screen(paper)
+        stage_one = self._llm_stage_one(paper) or self.scorer.quick_screen(paper, topic_match=topic_match)
         if self.config.log_screening_decisions and self.config.verbosity in {"verbose", "debug"}:
             LOGGER.info("LLM Stage 1 for '%s': %s", paper.title, stage_one)
         if stage_one == "exclude":
-            return self.scorer.deep_score(paper, stage_one_decision=stage_one)
+            return self.scorer.deep_score(paper, stage_one_decision=stage_one, topic_match=topic_match)
 
         llm_result = self._llm_stage_two(paper, stage_one)
-        if llm_result:
-            return llm_result
-        return self.scorer.deep_score(paper, stage_one_decision=stage_one)
+        if llm_result is not None:
+            return self._enrich_with_topic_match(llm_result, topic_match)
+        return self.scorer.deep_score(paper, stage_one_decision=stage_one, topic_match=topic_match)
 
     def summarize_review(self, papers: list[PaperMetadata]) -> str | None:
         """Summarize a shortlist into narrative review text when an LLM is available."""
@@ -167,6 +181,32 @@ class AIScreener:
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("Could not parse LLM screening response for '%s': %s", paper.title, exc)
             return None
+
+    def _enrich_with_topic_match(
+        self,
+        result: ScreeningResult,
+        topic_match: Any | None,
+    ) -> ScreeningResult:
+        """Attach local semantic topic-match details to an LLM-produced screening result."""
+
+        if topic_match is None:
+            return result
+        explanation = result.explanation or ""
+        if topic_match.explanation and topic_match.explanation not in explanation:
+            explanation = f"{explanation} {topic_match.explanation}".strip()
+        payload = result.model_dump()
+        payload.update(
+            {
+                "topic_prefilter_score": topic_match.score,
+                "topic_prefilter_similarity": topic_match.similarity,
+                "topic_prefilter_model": topic_match.model_name,
+                "topic_prefilter_threshold": topic_match.threshold,
+                "topic_prefilter_label": topic_match.classification,
+                "topic_prefilter_keyword_overlap": topic_match.keyword_overlap_score,
+                "explanation": explanation,
+            }
+        )
+        return ScreeningResult(**payload)
 
     def _chat_completion(self, *, system_prompt: str, user_prompt: str) -> str | None:
         """Send a chat-style prompt to the configured LLM client."""

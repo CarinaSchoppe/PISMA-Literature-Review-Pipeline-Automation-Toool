@@ -358,6 +358,12 @@ class ReportGenerator:
             "open_access",
             "relevance_score",
             "relevance_explanation",
+            "topic_prefilter_score",
+            "topic_prefilter_similarity",
+            "topic_prefilter_model",
+            "topic_prefilter_threshold",
+            "topic_prefilter_label",
+            "topic_prefilter_keyword_overlap",
             "inclusion_decision",
             "retain_reason",
             "exclusion_reason",
@@ -385,7 +391,6 @@ class ReportGenerator:
                 ]
             )
         return keys
-
     def _heuristic_summary(self, ranked: list[PaperMetadata], shortlisted: list[PaperMetadata]) -> str:
         """Create a compact summary when no external LLM summary is available."""
 
@@ -449,6 +454,12 @@ class ReportGenerator:
             "open_access": paper.open_access,
             "relevance_score": paper.relevance_score,
             "relevance_explanation": paper.relevance_explanation,
+            "topic_prefilter_score": paper.screening_details.get("topic_prefilter_score"),
+            "topic_prefilter_similarity": paper.screening_details.get("topic_prefilter_similarity"),
+            "topic_prefilter_model": paper.screening_details.get("topic_prefilter_model"),
+            "topic_prefilter_threshold": paper.screening_details.get("topic_prefilter_threshold"),
+            "topic_prefilter_label": paper.screening_details.get("topic_prefilter_label"),
+            "topic_prefilter_keyword_overlap": paper.screening_details.get("topic_prefilter_keyword_overlap"),
             "inclusion_decision": paper.inclusion_decision,
             "retain_reason": paper.screening_details.get("retain_reason", ""),
             "exclusion_reason": paper.screening_details.get("exclusion_reason", ""),
@@ -481,8 +492,7 @@ class ReportGenerator:
             payload[f"pass_{pass_name}_decision"] = pass_payload.get("decision")
             payload[f"pass_{pass_name}_reason"] = (
                 pass_payload.get("skip_reason")
-                or
-                pass_payload.get("retain_reason")
+                or pass_payload.get("retain_reason")
                 or pass_payload.get("exclusion_reason")
                 or pass_payload.get("explanation")
                 or ""
@@ -493,7 +503,6 @@ class ReportGenerator:
             payload[f"pass_{pass_name}_min_input_score"] = pass_payload.get("min_input_score")
             payload[f"pass_{pass_name}_skipped"] = pass_payload.get("skipped", False)
         return payload
-
     def _collect_pass_names(self, papers: list[PaperMetadata]) -> list[str]:
         pass_names: set[str] = set()
         for paper in papers:
@@ -514,3 +523,4 @@ class ReportGenerator:
 
     def _format_counts(self, counts: dict[str, int]) -> str:
         return ", ".join(f"{label} ({count})" for label, count in list(counts.items())[:5]) or "none"
+

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from models.paper import PaperMetadata
 
 from config import ResearchConfig
 from utils.http import RateLimiter, build_session, request_json
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SemanticScholarClient:
@@ -37,7 +40,11 @@ class SemanticScholarClient:
             headers["x-api-key"] = config.api_settings.semantic_scholar_api_key
         self.config = config
         self.session = build_session("PRISMA-Literature-Review/1.0", extra_headers=headers)
-        self.limiter = RateLimiter(calls_per_second=self.config.api_settings.semantic_scholar_calls_per_second)
+        self.limiter = RateLimiter(
+            calls_per_second=self.config.api_settings.semantic_scholar_calls_per_second,
+            max_requests_per_minute=self.config.api_settings.semantic_scholar_max_requests_per_minute,
+            request_delay_seconds=self.config.api_settings.semantic_scholar_request_delay_seconds,
+        )
 
     def search(self) -> list[PaperMetadata]:
         """Search Semantic Scholar across configured query variants."""
@@ -45,14 +52,26 @@ class SemanticScholarClient:
         papers: list[PaperMetadata] = []
         limit = self.config.results_per_page
         for query in self.config.discovery_queries:
+            LOGGER.info("Semantic Scholar discovery starting for query '%s'.", query)
             for page in range(self.config.pages_to_retrieve):
                 offset = page * limit
+                LOGGER.info(
+                    "Semantic Scholar fetching page %s/%s for query '%s' (offset=%s, limit=%s).",
+                    page + 1,
+                    self.config.pages_to_retrieve,
+                    query,
+                    offset,
+                    limit,
+                )
                 payload = request_json(
                     self.session,
                     "GET",
                     self.BASE_URL,
                     limiter=self.limiter,
                     timeout=self.config.request_timeout_seconds,
+                    retry_max_attempts=self.config.api_settings.semantic_scholar_retry_attempts,
+                    retry_backoff_strategy=self.config.api_settings.semantic_scholar_retry_backoff_strategy,
+                    retry_base_delay_seconds=self.config.api_settings.semantic_scholar_retry_backoff_base_seconds,
                     params={
                         "query": query,
                         "limit": limit,
@@ -62,9 +81,12 @@ class SemanticScholarClient:
                     },
                 )
                 if not payload:
+                    LOGGER.warning("Semantic Scholar page %s returned no payload for query '%s'.", page + 1, query)
                     break
                 items = payload.get("data", [])
-                papers.extend(self._parse_paper(item) for item in items if item.get("title"))
+                page_results = [self._parse_paper(item) for item in items if item.get("title")]
+                LOGGER.info("Semantic Scholar page %s produced %s parsed results.", page + 1, len(page_results))
+                papers.extend(page_results)
                 if len(papers) >= self.config.per_source_limit or len(items) < limit:
                     break
             if len(papers) >= self.config.per_source_limit:

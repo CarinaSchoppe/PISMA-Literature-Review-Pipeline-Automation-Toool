@@ -3,25 +3,35 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from threading import Lock
+from typing import Any, ClassVar, Literal
 
 from config import ResearchConfig
 from models.paper import PaperMetadata
+from utils.text_processing import keyword_overlap_score, normalize_title
 
 LOGGER = logging.getLogger(__name__)
+TopicPrefilterLabel = Literal["HIGH_RELEVANCE", "REVIEW", "LOW_RELEVANCE"]
 
 
 @dataclass
 class TopicMatchResult:
     """Structured semantic topic-match result used before deeper screening."""
 
+    similarity: float
     score: float
     threshold: float
+    review_threshold: float
+    high_threshold: float
     model_name: str
     enabled: bool
+    classification: TopicPrefilterLabel
     should_exclude: bool
-    explanation: str
+    keyword_overlap_score: float
+    matched_keywords: list[str] = field(default_factory=list)
+    source_sections: list[str] = field(default_factory=list)
+    explanation: str = ""
 
 
 class BaseTopicMatcher:
@@ -56,10 +66,14 @@ class LocalTopicMatcher(BaseTopicMatcher):
     """Semantic topic matcher built on a small local sentence-embedding model."""
 
     enabled = False
+    _MODEL_CACHE: ClassVar[dict[tuple[str, str | None, bool], tuple[Any, Any]]] = {}
+    _CACHE_LOCK: ClassVar[Lock] = Lock()
 
     def __init__(self, config: ResearchConfig) -> None:
         super().__init__(config)
-        self.threshold = config.topic_prefilter_threshold
+        self.review_threshold = config.topic_prefilter_review_threshold
+        self.high_threshold = config.topic_prefilter_high_threshold
+        self.threshold = self.review_threshold * 100.0
         self.model_name = config.api_settings.topic_prefilter_model
         self._torch: Any | None = None
         self._tokenizer: Any | None = None
@@ -70,16 +84,7 @@ class LocalTopicMatcher(BaseTopicMatcher):
             torch, auto_tokenizer, auto_model = load_embedding_runtime()
             self._torch = torch
             self._device = self._resolve_device(torch, config.api_settings.huggingface_device)
-            self._tokenizer = auto_tokenizer.from_pretrained(
-                self.model_name,
-                cache_dir=config.api_settings.huggingface_cache_dir,
-                trust_remote_code=config.api_settings.huggingface_trust_remote_code,
-            )
-            self._model = auto_model.from_pretrained(
-                self.model_name,
-                cache_dir=config.api_settings.huggingface_cache_dir,
-                trust_remote_code=config.api_settings.huggingface_trust_remote_code,
-            )
+            self._tokenizer, self._model = self._load_cached_model(auto_tokenizer, auto_model)
             self._model.to(self._device)
             self._model.eval()
             self.enabled = True
@@ -91,31 +96,79 @@ class LocalTopicMatcher(BaseTopicMatcher):
 
         if not self.enabled or self._tokenizer is None or self._model is None or self._torch is None:
             return None
-        paper_text = self._build_paper_text(paper)
+        paper_text, sections = self._build_paper_text(paper)
         if not paper_text:
             return None
         try:
             review_embedding, paper_embedding = self._embed_texts([self._review_text, paper_text])
             cosine_similarity = float((review_embedding * paper_embedding).sum().item())
-            score = max(0.0, min(100.0, cosine_similarity * 100.0))
+            similarity = max(0.0, min(1.0, cosine_similarity))
+            score = similarity * 100.0
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("Local topic prefiltering failed for '%s': %s", paper.title, exc)
             return None
 
-        should_exclude = score < self.threshold
-        explanation = (
-            f"Local semantic topic prefilter using {self.model_name} scored this paper at {score:.1f}/100 "
-            f"against the review brief. The configured threshold is {self.threshold:.1f}. "
-            f"This paper {'failed' if should_exclude else 'passed'} the topic gate."
+        classification = self._classify_similarity(similarity)
+        keyword_overlap = keyword_overlap_score(
+            paper_text,
+            [
+                self.config.research_topic,
+                self.config.research_question,
+                self.config.review_objective,
+                *self.config.search_keywords,
+                *self.config.inclusion_criteria,
+            ],
         )
+        matched_keywords = self._matched_keywords(paper_text)
+        should_exclude = self.config.topic_prefilter_filter_low_relevance and classification == "LOW_RELEVANCE"
+        explanation = (
+            f"Local semantic topic prefilter using {self.model_name} measured cosine similarity {similarity:.2f} "
+            f"({score:.1f}/100) against the review brief. The configured REVIEW threshold is "
+            f"{self.review_threshold:.2f} and the HIGH_RELEVANCE threshold is {self.high_threshold:.2f}. "
+            f"The paper was classified as {classification}. Source text sections used: {', '.join(sections)}."
+        )
+        if matched_keywords:
+            explanation += f" Matched review keywords: {', '.join(matched_keywords)}."
+        if should_exclude:
+            explanation += " Automatic filtering is enabled for LOW_RELEVANCE papers, so this paper will be excluded."
         return TopicMatchResult(
+            similarity=round(similarity, 4),
             score=round(score, 2),
-            threshold=self.threshold,
+            threshold=round(self.threshold, 2),
+            review_threshold=round(self.review_threshold, 4),
+            high_threshold=round(self.high_threshold, 4),
             model_name=self.model_name,
             enabled=True,
+            classification=classification,
             should_exclude=should_exclude,
+            keyword_overlap_score=round(keyword_overlap, 4),
+            matched_keywords=matched_keywords,
+            source_sections=sections,
             explanation=explanation,
         )
+
+    def _load_cached_model(self, auto_tokenizer: Any, auto_model: Any) -> tuple[Any, Any]:
+        """Load or reuse one local embedding model instance for the current config."""
+
+        cache_key = (
+            self.model_name,
+            self.config.api_settings.huggingface_cache_dir,
+            self.config.api_settings.huggingface_trust_remote_code,
+        )
+        with self._CACHE_LOCK:
+            if cache_key not in self._MODEL_CACHE:
+                tokenizer = auto_tokenizer.from_pretrained(
+                    self.model_name,
+                    cache_dir=self.config.api_settings.huggingface_cache_dir,
+                    trust_remote_code=self.config.api_settings.huggingface_trust_remote_code,
+                )
+                model = auto_model.from_pretrained(
+                    self.model_name,
+                    cache_dir=self.config.api_settings.huggingface_cache_dir,
+                    trust_remote_code=self.config.api_settings.huggingface_trust_remote_code,
+                )
+                self._MODEL_CACHE[cache_key] = (tokenizer, model)
+            return self._MODEL_CACHE[cache_key]
 
     def _build_review_text(self) -> str:
         """Assemble the semantic query text from the review brief fields."""
@@ -129,15 +182,61 @@ class LocalTopicMatcher(BaseTopicMatcher):
         ]
         return " ".join(part.strip() for part in parts if part and part.strip())
 
-    def _build_paper_text(self, paper: PaperMetadata) -> str:
+    def _build_paper_text(self, paper: PaperMetadata) -> tuple[str, list[str]]:
         """Select the paper text window used for semantic topic comparison."""
 
-        parts = [paper.title]
-        if self.config.topic_prefilter_text_mode != "title_only":
+        parts: list[str] = []
+        sections: list[str] = []
+        if paper.title:
+            parts.append(paper.title)
+            sections.append("title")
+        if self.config.topic_prefilter_text_mode != "title_only" and paper.abstract:
             parts.append(paper.abstract)
+            sections.append("abstract")
+        keywords = self._paper_keywords(paper)
+        if keywords:
+            parts.append(" ".join(keywords))
+            sections.append("keywords")
         if self.config.topic_prefilter_text_mode == "title_abstract_full_text":
-            parts.append(str(paper.raw_payload.get("full_text_excerpt", "") or ""))
-        return " ".join(part.strip() for part in parts if part and part.strip())[: self.config.topic_prefilter_max_chars]
+            full_text_excerpt = str(paper.raw_payload.get("full_text_excerpt", "") or "")
+            if full_text_excerpt.strip():
+                parts.append(full_text_excerpt)
+                sections.append("full_text_excerpt")
+        combined = " ".join(part.strip() for part in parts if part and part.strip())
+        return combined[: self.config.topic_prefilter_max_chars], sections
+
+    def _paper_keywords(self, paper: PaperMetadata) -> list[str]:
+        """Extract keyword-like metadata from the normalized paper payload."""
+
+        for key in ("keywords", "keyword", "index_terms", "subject_terms"):
+            raw_value = paper.raw_payload.get(key)
+            if not raw_value:
+                continue
+            if isinstance(raw_value, str):
+                return [item.strip() for item in raw_value.replace("|", ";").replace(",", ";").split(";") if item.strip()]
+            if isinstance(raw_value, list):
+                return [str(item).strip() for item in raw_value if str(item).strip()]
+        return []
+
+    def _matched_keywords(self, paper_text: str) -> list[str]:
+        """Return review keywords that are visibly present in the paper text window."""
+
+        normalized = normalize_title(paper_text)
+        matched: list[str] = []
+        for keyword in [*self.config.search_keywords, *self.config.inclusion_criteria]:
+            normalized_keyword = normalize_title(keyword)
+            if normalized_keyword and normalized_keyword in normalized and keyword not in matched:
+                matched.append(keyword)
+        return matched
+
+    def _classify_similarity(self, similarity: float) -> TopicPrefilterLabel:
+        """Map cosine similarity to the configured topic-prefilter classification label."""
+
+        if similarity >= self.high_threshold:
+            return "HIGH_RELEVANCE"
+        if similarity >= self.review_threshold:
+            return "REVIEW"
+        return "LOW_RELEVANCE"
 
     def _resolve_device(self, torch: Any, configured_device: str) -> Any:
         """Resolve the configured runtime device into a concrete torch device."""

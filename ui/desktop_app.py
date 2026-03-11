@@ -161,6 +161,13 @@ class DesktopWorkbench:
 
     COMBOBOX_FIELDS = {
         "llm_provider": ["auto", "heuristic", "openai_compatible", "gemini", "ollama", "huggingface_local"],
+        "topic_prefilter_text_mode": ["title_only", "title_abstract", "title_abstract_full_text"],
+        "topic_prefilter_model": [
+            "sentence-transformers/all-MiniLM-L6-v2",
+            "sentence-transformers/all-MiniLM-L12-v2",
+            "BAAI/bge-small-en-v1.5",
+        ],
+        "semantic_scholar_retry_backoff_strategy": ["fixed", "linear", "exponential"],
         "partial_rerun_mode": ["off", "reporting_only", "screening_and_reporting", "pdfs_screening_reporting"],
         "openai_model": ["gpt-5.4"],
         "gemini_model": ["gemini-2.5-flash", "gemini-2.5-pro"],
@@ -170,15 +177,17 @@ class DesktopWorkbench:
         "huggingface_device": ["auto", "cpu", "cuda"],
         "huggingface_dtype": ["auto", "float16", "bfloat16", "float32"],
     }
-
     SPINBOX_FIELDS = {
         "pages_to_retrieve": {"from_": 1, "to": 50, "increment": 1},
         "results_per_page": {"from_": 1, "to": 200, "increment": 1},
+        "google_scholar_pages": {"from_": 1, "to": 100, "increment": 1},
+        "google_scholar_results_per_page": {"from_": 1, "to": 50, "increment": 1},
         "year_range_start": {"from_": 1900, "to": 2100, "increment": 1},
         "year_range_end": {"from_": 1900, "to": 2100, "increment": 1},
         "min_discovered_records": {"from_": 0, "to": 10000, "increment": 1},
         "max_papers_to_analyze": {"from_": 1, "to": 10000, "increment": 1},
         "full_text_max_chars": {"from_": 500, "to": 200000, "increment": 500},
+        "topic_prefilter_max_chars": {"from_": 250, "to": 20000, "increment": 250},
         "max_workers": {"from_": 1, "to": 64, "increment": 1},
         "discovery_workers": {"from_": 0, "to": 64, "increment": 1},
         "io_workers": {"from_": 0, "to": 64, "increment": 1},
@@ -186,22 +195,27 @@ class DesktopWorkbench:
         "request_timeout_seconds": {"from_": 1, "to": 600, "increment": 1},
         "http_cache_ttl_seconds": {"from_": 60, "to": 604800, "increment": 60},
         "http_retry_max_attempts": {"from_": 1, "to": 20, "increment": 1},
+        "semantic_scholar_max_requests_per_minute": {"from_": 1, "to": 1000, "increment": 1},
+        "semantic_scholar_retry_attempts": {"from_": 1, "to": 20, "increment": 1},
         "pdf_batch_size": {"from_": 1, "to": 500, "increment": 1},
         "huggingface_max_new_tokens": {"from_": 16, "to": 4096, "increment": 16},
     }
-
     FLOAT_SPINBOX_FIELDS = {
         "openalex_calls_per_second": {"from_": 0.0, "to": 20.0, "increment": 0.1},
         "semantic_scholar_calls_per_second": {"from_": 0.0, "to": 20.0, "increment": 0.1},
         "crossref_calls_per_second": {"from_": 0.0, "to": 20.0, "increment": 0.1},
+        "google_scholar_calls_per_second": {"from_": 0.0, "to": 5.0, "increment": 0.05},
         "springer_calls_per_second": {"from_": 0.0, "to": 10.0, "increment": 0.1},
         "arxiv_calls_per_second": {"from_": 0.0, "to": 5.0, "increment": 0.01},
         "pubmed_calls_per_second": {"from_": 0.0, "to": 20.0, "increment": 0.1},
+        "europe_pmc_calls_per_second": {"from_": 0.0, "to": 20.0, "increment": 0.1},
+        "core_calls_per_second": {"from_": 0.0, "to": 10.0, "increment": 0.1},
         "unpaywall_calls_per_second": {"from_": 0.0, "to": 10.0, "increment": 0.1},
         "http_retry_base_delay_seconds": {"from_": 0.0, "to": 120.0, "increment": 0.1},
         "http_retry_max_delay_seconds": {"from_": 0.0, "to": 600.0, "increment": 1.0},
+        "semantic_scholar_request_delay_seconds": {"from_": 0.0, "to": 60.0, "increment": 0.1},
+        "semantic_scholar_retry_backoff_base_seconds": {"from_": 0.0, "to": 120.0, "increment": 0.1},
     }
-
     SECRET_FIELDS = {
         "openai_api_key",
         "gemini_api_key",
@@ -231,6 +245,8 @@ class DesktopWorkbench:
                 "discovery_strategy",
                 "pages_to_retrieve",
                 "results_per_page",
+                "google_scholar_pages",
+                "google_scholar_results_per_page",
                 "max_discovered_records",
                 "min_discovered_records",
                 "year_range_start",
@@ -238,6 +254,7 @@ class DesktopWorkbench:
                 "max_papers_to_analyze",
                 "skip_discovery",
                 "citation_snowballing_enabled",
+                "google_scholar_enabled",
                 "openalex_enabled",
                 "semantic_scholar_enabled",
                 "crossref_enabled",
@@ -256,6 +273,11 @@ class DesktopWorkbench:
                 "google_scholar_import_path",
                 "researchgate_import_path",
                 "http_cache_enabled",
+                "semantic_scholar_max_requests_per_minute",
+                "semantic_scholar_request_delay_seconds",
+                "semantic_scholar_retry_attempts",
+                "semantic_scholar_retry_backoff_strategy",
+                "semantic_scholar_retry_backoff_base_seconds",
                 "http_cache_dir",
                 "http_cache_ttl_seconds",
                 "http_retry_max_attempts",
@@ -263,6 +285,7 @@ class DesktopWorkbench:
                 "http_retry_max_delay_seconds",
                 "openalex_calls_per_second",
                 "semantic_scholar_calls_per_second",
+                "google_scholar_calls_per_second",
                 "crossref_calls_per_second",
                 "springer_calls_per_second",
                 "arxiv_calls_per_second",
@@ -280,6 +303,11 @@ class DesktopWorkbench:
                 "relevance_threshold",
                 "decision_mode",
                 "maybe_threshold_margin",
+                "topic_prefilter_enabled",
+                "topic_prefilter_filter_low_relevance",
+                "topic_prefilter_model",
+                "topic_prefilter_high_threshold",
+                "topic_prefilter_review_threshold",
                 "analyze_full_text",
                 "openai_model",
                 "gemini_model",
@@ -308,6 +336,8 @@ class DesktopWorkbench:
             "Advanced Screening",
             [
                 "full_text_max_chars",
+                "topic_prefilter_text_mode",
+                "topic_prefilter_max_chars",
                 "llm_temperature",
                 "huggingface_task",
                 "huggingface_device",
@@ -366,6 +396,9 @@ class DesktopWorkbench:
         "boolean_operators": "Boolean operators",
         "discovery_strategy": "Discovery strategy",
         "citation_snowballing_enabled": "Enable citation snowballing",
+        "google_scholar_enabled": "Use Google Scholar",
+        "google_scholar_pages": "Google Scholar pages",
+        "google_scholar_results_per_page": "Google Scholar results / page",
         "openalex_enabled": "Use OpenAlex",
         "semantic_scholar_enabled": "Use Semantic Scholar",
         "crossref_enabled": "Use Crossref",
@@ -387,6 +420,13 @@ class DesktopWorkbench:
         "max_papers_to_analyze": "Max papers to analyze",
         "skip_discovery": "Skip discovery",
         "relevance_threshold": "Relevance threshold",
+        "topic_prefilter_enabled": "Enable local semantic topic prefilter",
+        "topic_prefilter_filter_low_relevance": "Auto-filter low semantic relevance",
+        "topic_prefilter_model": "Topic prefilter model",
+        "topic_prefilter_high_threshold": "Topic HIGH threshold",
+        "topic_prefilter_review_threshold": "Topic REVIEW threshold",
+        "topic_prefilter_text_mode": "Topic prefilter text mode",
+        "topic_prefilter_max_chars": "Topic prefilter max chars",
         "llm_provider": "LLM provider",
         "decision_mode": "Decision mode",
         "maybe_threshold_margin": "Maybe margin",
@@ -455,6 +495,12 @@ class DesktopWorkbench:
         "openalex_calls_per_second": "OpenAlex calls / second",
         "semantic_scholar_calls_per_second": "Semantic Scholar calls / second",
         "crossref_calls_per_second": "Crossref calls / second",
+        "google_scholar_calls_per_second": "Google Scholar calls / second",
+        "semantic_scholar_max_requests_per_minute": "Semantic Scholar max requests / minute",
+        "semantic_scholar_request_delay_seconds": "Semantic Scholar extra delay (s)",
+        "semantic_scholar_retry_attempts": "Semantic Scholar retry attempts",
+        "semantic_scholar_retry_backoff_strategy": "Semantic Scholar backoff strategy",
+        "semantic_scholar_retry_backoff_base_seconds": "Semantic Scholar backoff base (s)",
         "springer_calls_per_second": "Springer calls / second",
         "arxiv_calls_per_second": "arXiv calls / second",
         "pubmed_calls_per_second": "PubMed calls / second",
@@ -477,14 +523,28 @@ class DesktopWorkbench:
         "http_cache_dir": "directory",
         "huggingface_cache_dir": "directory",
     }
+    PATH_FIELD_MODES = {
+        "fixture_data_path": "file",
+        "manual_source_path": "file",
+        "google_scholar_import_path": "file",
+        "researchgate_import_path": "file",
+        "database_path": "save_file",
+        "data_dir": "directory",
+        "papers_dir": "directory",
+        "relevant_pdfs_dir": "directory",
+        "results_dir": "directory",
+        "http_cache_dir": "directory",
+        "huggingface_cache_dir": "directory",
+    }
 
     SLIDER_FIELDS = {
         "relevance_threshold": {"from_": 0.0, "to": 100.0, "resolution": 1.0, "digits": 0},
         "maybe_threshold_margin": {"from_": 0.0, "to": 100.0, "resolution": 1.0, "digits": 0},
         "llm_temperature": {"from_": 0.0, "to": 1.5, "resolution": 0.05, "digits": 2},
+        "topic_prefilter_high_threshold": {"from_": 0.0, "to": 1.0, "resolution": 0.01, "digits": 2},
+        "topic_prefilter_review_threshold": {"from_": 0.0, "to": 1.0, "resolution": 0.01, "digits": 2},
         "title_similarity_threshold": {"from_": 0.0, "to": 1.0, "resolution": 0.01, "digits": 2},
     }
-
     HANDBOOK_GUIDES = {
         "guide:outputs": (
             "Guide",
@@ -928,6 +988,9 @@ class DesktopWorkbench:
         "manual_source_path": "C:/imports/manual_records.csv",
         "google_scholar_import_path": "C:/imports/google_scholar_export.csv",
         "researchgate_import_path": "C:/imports/researchgate_export.json",
+        "google_scholar_pages": "50 pages means the client will attempt up to 50 Scholar result pages per generated query.",
+        "topic_prefilter_model": "sentence-transformers/all-MiniLM-L6-v2",
+        "topic_prefilter_text_mode": "Use title_abstract for the normal CPU-friendly mode.",
         "core_api_key": "Paste your CORE API key here if your account or deployment requires one.",
         "openai_model": "gpt-5.4",
         "gemini_model": "gemini-2.5-flash",
@@ -943,6 +1006,17 @@ class DesktopWorkbench:
         "semantic_scholar_api_key": "Paste the authenticated key when you want higher limits than anonymous access.",
         "europe_pmc_enabled": "Turn this on for biomedical or life-science reviews that need Europe PMC in addition to PubMed.",
         "core_enabled": "Turn this on when you want open-access and repository-heavy discovery from CORE.",
+    }
+
+    FIELD_INPUT_GUIDANCE = {
+        "research_topic": "Example: Large language models and artificial intelligence in healthcare governance.",
+        "research_question": "Example: How are large language models evaluated and deployed in healthcare decision support?",
+        "review_objective": "Example: Map benchmark methods, deployment patterns, and open risks for a systematic review.",
+        "search_keywords": "Use commas, semicolons, or line breaks. Example: AI governance, generative AI, decision-making",
+        "inclusion_criteria": "Use commas, semicolons, or line breaks. Example: empirical study; large language model; evaluation benchmark",
+        "exclusion_criteria": "Use commas, semicolons, or line breaks. Example: editorial; commentary; unrelated medical-only study",
+        "banned_topics": "Use commas, semicolons, or line breaks. Example: crop irrigation; sports analytics",
+        "excluded_title_terms": "Use commas, semicolons, or line breaks. Example: correction; erratum; editorial; retraction",
     }
 
     BOOLEAN_HELP_OVERRIDES = {
@@ -2061,13 +2135,17 @@ class DesktopWorkbench:
         else:
             widget = tk.Text(container, height=height, wrap="word")
             widget.grid(row=0, column=0, sticky="ew")
+            guidance = self.FIELD_INPUT_GUIDANCE.get(field_name)
+            if guidance:
+                guidance_label = ttk.Label(container, text=guidance, wraplength=760, justify="left", style="Muted.TLabel")
+                guidance_label.grid(row=1, column=0, sticky="w", pady=(6, 0))
+                self._bind_hover_help(guidance_label, help_text)
             self.field_widget_types[field_name] = "multiline"
 
         self.text_widgets[field_name] = widget
         self.field_input_widgets[field_name] = widget
         self.field_focus_widgets[field_name] = widget
         self._bind_hover_help(widget, help_text)
-
     def _render_radio_field(self, frame: ttk.LabelFrame, field_name: str, help_text: str, row: int) -> None:
         """Render an enumerated field as a compact radio-button group."""
 
@@ -2191,14 +2269,21 @@ class DesktopWorkbench:
         entry_kwargs: dict[str, Any] = {"textvariable": variable}
         if field_name in self.SECRET_FIELDS:
             entry_kwargs["show"] = "*"
-        widget = ttk.Entry(frame, **entry_kwargs)
-        widget.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        container = ttk.Frame(frame)
+        container.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        container.columnconfigure(0, weight=1)
+        widget = ttk.Entry(container, **entry_kwargs)
+        widget.grid(row=0, column=0, sticky="ew")
+        guidance = self.FIELD_INPUT_GUIDANCE.get(field_name)
+        if guidance:
+            guidance_label = ttk.Label(container, text=guidance, wraplength=760, justify="left", style="Muted.TLabel")
+            guidance_label.grid(row=1, column=0, sticky="w", pady=(6, 0))
+            self._bind_hover_help(guidance_label, help_text)
         self.scalar_vars[field_name] = variable
         self.field_input_widgets[field_name] = widget
         self.field_focus_widgets[field_name] = widget
         self.field_widget_types[field_name] = "entry"
         self._bind_hover_help(widget, help_text)
-
     def _help_text_for_field(self, field_name: str) -> str:
         """Return the explanatory hover text for one settings field."""
 
@@ -4653,3 +4738,9 @@ def launch_desktop_app(args: Any) -> int:
     """Start the guided Tkinter workbench."""
 
     return DesktopWorkbench(args).run()
+
+
+
+
+
+

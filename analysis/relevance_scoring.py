@@ -131,7 +131,7 @@ class RelevanceScorer:
             + 0.10 * recency_score
             + 0.15 * citation_score
                           ) - exclusion_penalty - banned_penalty - excluded_title_penalty
-        stage_one = cast(DecisionLabel, stage_one_decision or self.quick_screen(paper))
+        stage_one = cast(DecisionLabel, stage_one_decision or self.quick_screen(paper, topic_match=topic_match))
         extracted_passage = extract_salient_sentence(paper.abstract or paper.title, self.config.search_keywords)
         decision = cast(
             DecisionLabel,
@@ -160,8 +160,8 @@ class RelevanceScorer:
                 )
             elif topic_match and topic_match.should_exclude:
                 exclusion_reason = (
-                    f"Excluded because the local topic prefilter scored {topic_match.score:.1f}/100, below the "
-                    f"{topic_match.threshold:.1f} threshold using {topic_match.model_name}."
+                    f"Excluded because the local topic prefilter classified the paper as {topic_match.classification} "
+                    f"with similarity {topic_match.similarity:.2f} ({topic_match.score:.1f}/100) using {topic_match.model_name}."
                 )
             elif matched_exclusion:
                 exclusion_reason = (
@@ -183,13 +183,20 @@ class RelevanceScorer:
             f"Stage 1 decision: {stage_one}."
         )
         if topic_match:
-            explanation += f" {topic_match.explanation}"
+            explanation += (
+                f" Semantic classification: {topic_match.classification}. "
+                f"Keyword overlap within the topic gate: {topic_match.keyword_overlap_score:.2f}."
+                f" {topic_match.explanation}"
+            )
         return ScreeningResult(
             stage_one_decision=stage_one,
             relevance_score=round(relevance_score, 2),
             topic_prefilter_score=topic_match.score if topic_match else None,
+            topic_prefilter_similarity=topic_match.similarity if topic_match else None,
             topic_prefilter_model=topic_match.model_name if topic_match else None,
             topic_prefilter_threshold=topic_match.threshold if topic_match else None,
+            topic_prefilter_label=topic_match.classification if topic_match else None,
+            topic_prefilter_keyword_overlap=topic_match.keyword_overlap_score if topic_match else None,
             explanation=explanation,
             extracted_passage=extracted_passage,
             methodology_category=methodology_category,
@@ -213,7 +220,11 @@ class RelevanceScorer:
                 "banned_penalty": round(banned_penalty, 2),
                 "excluded_title_penalty": round(excluded_title_penalty, 2),
                 **(
-                    {"semantic_topic_match": round(semantic_topic_score, 2)}
+                    {
+                        "semantic_topic_match": round(semantic_topic_score, 2),
+                        "topic_prefilter_similarity": round(topic_match.similarity, 4) if topic_match else round(semantic_topic_score / 100.0, 4),
+                        "topic_prefilter_keyword_overlap": round(topic_match.keyword_overlap_score, 4) if topic_match else 0.0,
+                    }
                     if semantic_topic_score is not None
                     else {}
                 ),
@@ -281,3 +292,4 @@ class RelevanceScorer:
             if candidate and candidate in normalized:
                 matches.append(term)
         return matches
+

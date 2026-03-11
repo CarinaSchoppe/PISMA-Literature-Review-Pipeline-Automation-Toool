@@ -6,11 +6,11 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from utils.text_processing import build_query, ensure_parent_directory, make_query_key
+from utils.text_processing import build_query, ensure_parent_directory, make_query_key, parse_search_terms
 
 BIOMEDICAL_TERMS = {
     "biomedical",
@@ -79,6 +79,30 @@ class ApiSettings(BaseModel):
     )
     core_calls_per_second: float = Field(default_factory=lambda: float(os.getenv("CORE_CALLS_PER_SECOND", "1.5")))
     unpaywall_calls_per_second: float = Field(default_factory=lambda: float(os.getenv("UNPAYWALL_CALLS_PER_SECOND", "2.0")))
+    topic_prefilter_model: str = Field(
+        default_factory=lambda: os.getenv("HF_TOPIC_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+    )
+    google_scholar_calls_per_second: float = Field(
+        default_factory=lambda: float(os.getenv("GOOGLE_SCHOLAR_CALLS_PER_SECOND", "0.2"))
+    )
+    semantic_scholar_max_requests_per_minute: int = Field(
+        default_factory=lambda: int(os.getenv("SEMANTIC_SCHOLAR_MAX_REQUESTS_PER_MINUTE", "120"))
+    )
+    semantic_scholar_request_delay_seconds: float = Field(
+        default_factory=lambda: float(os.getenv("SEMANTIC_SCHOLAR_REQUEST_DELAY_SECONDS", "0.0"))
+    )
+    semantic_scholar_retry_attempts: int = Field(
+        default_factory=lambda: int(os.getenv("SEMANTIC_SCHOLAR_RETRY_ATTEMPTS", "4"))
+    )
+    semantic_scholar_retry_backoff_strategy: Literal["fixed", "linear", "exponential"] = Field(
+        default_factory=lambda: cast(
+            Literal["fixed", "linear", "exponential"],
+            os.getenv("SEMANTIC_SCHOLAR_RETRY_BACKOFF_STRATEGY", "exponential"),
+        )
+    )
+    semantic_scholar_retry_backoff_base_seconds: float = Field(
+        default_factory=lambda: float(os.getenv("SEMANTIC_SCHOLAR_RETRY_BACKOFF_BASE_SECONDS", "2.0"))
+    )
 
     @field_validator(
         "llm_temperature",
@@ -91,12 +115,22 @@ class ApiSettings(BaseModel):
         "europe_pmc_calls_per_second",
         "core_calls_per_second",
         "unpaywall_calls_per_second",
+        "google_scholar_calls_per_second",
+        "semantic_scholar_request_delay_seconds",
+        "semantic_scholar_retry_backoff_base_seconds",
     )
     @classmethod
     def validate_non_negative_float(cls, value: float) -> float:
         """Clamp float tuning parameters to non-negative values."""
 
         return max(float(value), 0.0)
+
+    @field_validator("semantic_scholar_max_requests_per_minute", "semantic_scholar_retry_attempts")
+    @classmethod
+    def validate_provider_positive_int(cls, value: int) -> int:
+        """Require positive integer values for provider-specific retry and throttling settings."""
+
+        return max(int(value), 1)
 
 
 class AnalysisPassConfig(BaseModel):
@@ -173,6 +207,15 @@ class ResearchConfig(BaseModel):
     include_pubmed: bool | None = None
     europe_pmc_enabled: bool = False
     core_enabled: bool = False
+    google_scholar_enabled: bool = False
+    google_scholar_pages: int = 1
+    google_scholar_results_per_page: int = 10
+    topic_prefilter_enabled: bool = False
+    topic_prefilter_filter_low_relevance: bool = False
+    topic_prefilter_high_threshold: float = 0.75
+    topic_prefilter_review_threshold: float = 0.55
+    topic_prefilter_text_mode: Literal["title_only", "title_abstract", "title_abstract_full_text"] = "title_abstract"
+    topic_prefilter_max_chars: int = 4000
     max_workers: int = 4
     discovery_workers: int = 0
     io_workers: int = 0
@@ -221,20 +264,19 @@ class ResearchConfig(BaseModel):
     def validate_keywords(cls, value: Any) -> list[str]:
         """Normalize keyword input from comma-separated strings or iterables."""
 
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return [str(item).strip() for item in value if str(item).strip()]
+        return parse_search_terms(value)
+
+
 
     @field_validator("inclusion_criteria", "exclusion_criteria", "banned_topics", "excluded_title_terms", mode="before")
     @classmethod
     def validate_criteria(cls, value: Any) -> list[str]:
         """Normalize criteria-like fields into compact lists of non-empty strings."""
 
-        if not value:
-            return []
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(";") if item.strip()]
-        return [str(item).strip() for item in value if str(item).strip()]
+        return parse_search_terms(value)
+
+
+
 
     @field_validator("analysis_passes", mode="before")
     @classmethod
@@ -270,6 +312,13 @@ class ResearchConfig(BaseModel):
             raise ValueError("year_range_end must be greater than or equal to year_range_start")
         return value
 
+
+    @field_validator("topic_prefilter_high_threshold", "topic_prefilter_review_threshold")
+    @classmethod
+    def validate_similarity_fraction(cls, value: float) -> float:
+        """Clamp semantic-similarity thresholds to the supported 0-1 range."""
+
+        return min(max(float(value), 0.0), 1.0)
     @field_validator("relevance_threshold")
     @classmethod
     def validate_threshold(cls, value: float) -> float:
@@ -294,6 +343,9 @@ class ResearchConfig(BaseModel):
         "http_cache_ttl_seconds",
         "http_retry_max_attempts",
         "pdf_batch_size",
+        "google_scholar_pages",
+        "google_scholar_results_per_page",
+        "topic_prefilter_max_chars",
     )
     @classmethod
     def validate_positive_ints(cls, value: int) -> int:
@@ -433,6 +485,14 @@ class ResearchConfig(BaseModel):
             lines.append(f"Maximum discovered records: {self.max_discovered_records}")
         if self.min_discovered_records:
             lines.append(f"Minimum discovered records: {self.min_discovered_records}")
+        if self.google_scholar_enabled:
+            lines.append(f"Google Scholar pages: {self.google_scholar_pages}")
+        if self.topic_prefilter_enabled:
+            lines.append(
+                "Local topic prefilter: "
+                f"{self.api_settings.topic_prefilter_model} with review threshold {self.topic_prefilter_review_threshold:.2f} "
+                f"and high threshold {self.topic_prefilter_high_threshold:.2f}"
+            )
         return "\n".join(lines)
 
     @property
@@ -456,6 +516,16 @@ class ResearchConfig(BaseModel):
             str(self.analyze_full_text),
             self.llm_provider,
             self.run_mode,
+            str(self.google_scholar_enabled),
+            str(self.google_scholar_pages),
+            str(self.google_scholar_results_per_page),
+            str(self.topic_prefilter_enabled),
+            str(self.topic_prefilter_filter_low_relevance),
+            str(self.topic_prefilter_high_threshold),
+            str(self.topic_prefilter_review_threshold),
+            self.topic_prefilter_text_mode,
+            str(self.topic_prefilter_max_chars),
+            self.api_settings.topic_prefilter_model,
             json.dumps([analysis_pass.model_dump(mode="json") for analysis_pass in self.resolved_analysis_passes]),
         ]
         return make_query_key("|".join(components), [], self.year_range_start, self.year_range_end)
@@ -606,7 +676,7 @@ class ResearchConfig(BaseModel):
             and "inclusion_criteria" not in file_config
         ):
             raw_inclusion = ask("Optional inclusion criteria separated by semicolon", "")
-            inclusion_criteria = [item.strip() for item in raw_inclusion.split(";") if item.strip()]
+            inclusion_criteria = parse_search_terms(raw_inclusion)
 
         exclusion_criteria = value_for("exclusion_criteria", getattr(args, "exclusion_criteria", None), [])
         if (
@@ -615,12 +685,12 @@ class ResearchConfig(BaseModel):
             and "exclusion_criteria" not in file_config
         ):
             raw_exclusion = ask("Optional exclusion criteria separated by semicolon", "")
-            exclusion_criteria = [item.strip() for item in raw_exclusion.split(";") if item.strip()]
+            exclusion_criteria = parse_search_terms(raw_exclusion)
 
         banned_topics = value_for("banned_topics", getattr(args, "banned_topics", None), [])
         if not args.config_file and getattr(args, "banned_topics", None) is None and "banned_topics" not in file_config:
             raw_banned = ask("Optional banned topics separated by semicolon", "")
-            banned_topics = [item.strip() for item in raw_banned.split(";") if item.strip()]
+            banned_topics = parse_search_terms(raw_banned)
 
         excluded_title_terms = value_for(
             "excluded_title_terms",
@@ -636,7 +706,7 @@ class ResearchConfig(BaseModel):
                 "Optional excluded title terms separated by semicolon",
                 "; ".join(DEFAULT_EXCLUDED_TITLE_TERMS),
             )
-            excluded_title_terms = [item.strip() for item in raw_excluded_titles.split(";") if item.strip()]
+            excluded_title_terms = parse_search_terms(raw_excluded_titles)
 
         boolean_operators = value_for("boolean_operators", getattr(args, "boolean_operators", None), "AND")
         if getattr(args, "boolean_operators", None) is None and "boolean_operators" not in file_config:
@@ -696,6 +766,10 @@ class ResearchConfig(BaseModel):
 
         run_mode = value_for("run_mode", getattr(args, "run_mode", None), "analyze")
         verbosity = value_for("verbosity", getattr(args, "verbosity", None), "normal")
+        if getattr(args, "ultra_verbose", False):
+            verbosity = "debug"
+        elif getattr(args, "verbose_flag", False):
+            verbosity = "verbose"
         analysis_passes = value_for("analysis_passes", getattr(args, "analysis_passes", None), [])
         file_api_settings = file_config.get("api_settings", {}) or {}
         api_overrides = {
@@ -732,6 +806,13 @@ class ResearchConfig(BaseModel):
                 "europe_pmc_calls_per_second": getattr(args, "europe_pmc_calls_per_second", None),
                 "core_calls_per_second": getattr(args, "core_calls_per_second", None),
                 "unpaywall_calls_per_second": getattr(args, "unpaywall_calls_per_second", None),
+                "topic_prefilter_model": getattr(args, "topic_prefilter_model", None),
+                "google_scholar_calls_per_second": getattr(args, "google_scholar_calls_per_second", None),
+                "semantic_scholar_max_requests_per_minute": getattr(args, "semantic_scholar_max_requests_per_minute", None),
+                "semantic_scholar_request_delay_seconds": getattr(args, "semantic_scholar_request_delay_seconds", None),
+                "semantic_scholar_retry_attempts": getattr(args, "semantic_scholar_retry_attempts", None),
+                "semantic_scholar_retry_backoff_strategy": getattr(args, "semantic_scholar_retry_backoff_strategy", None),
+                "semantic_scholar_retry_backoff_base_seconds": getattr(args, "semantic_scholar_retry_backoff_base_seconds", None),
             }.items()
             if value is not None
         }
@@ -800,6 +881,15 @@ class ResearchConfig(BaseModel):
             include_pubmed=include_pubmed,
             europe_pmc_enabled=value_for("europe_pmc_enabled", getattr(args, "europe_pmc_enabled", None), False),
             core_enabled=value_for("core_enabled", getattr(args, "core_enabled", None), False),
+            google_scholar_enabled=value_for("google_scholar_enabled", getattr(args, "google_scholar_enabled", None), False),
+            google_scholar_pages=value_for("google_scholar_pages", getattr(args, "google_scholar_pages", None), 1),
+            google_scholar_results_per_page=value_for("google_scholar_results_per_page", getattr(args, "google_scholar_results_per_page", None), 10),
+            topic_prefilter_enabled=value_for("topic_prefilter_enabled", getattr(args, "topic_prefilter_enabled", None), False),
+            topic_prefilter_filter_low_relevance=value_for("topic_prefilter_filter_low_relevance", getattr(args, "topic_prefilter_filter_low_relevance", None), False),
+            topic_prefilter_high_threshold=value_for("topic_prefilter_high_threshold", getattr(args, "topic_prefilter_high_threshold", None), 0.75),
+            topic_prefilter_review_threshold=value_for("topic_prefilter_review_threshold", getattr(args, "topic_prefilter_review_threshold", None), 0.55),
+            topic_prefilter_text_mode=value_for("topic_prefilter_text_mode", getattr(args, "topic_prefilter_text_mode", None), "title_abstract"),
+            topic_prefilter_max_chars=value_for("topic_prefilter_max_chars", getattr(args, "topic_prefilter_max_chars", None), 4000),
             max_workers=value_for("max_workers", args.max_workers, 4),
             discovery_workers=value_for("discovery_workers", getattr(args, "discovery_workers", None), 0),
             io_workers=value_for("io_workers", getattr(args, "io_workers", None), 0),
@@ -1049,6 +1139,63 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--threshold", type=float, dest="relevance_threshold", help="Relevance score threshold from 0 to 100")
     parser.add_argument(
+        "--google-scholar-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable experimental Google Scholar HTML discovery",
+    )
+    parser.add_argument(
+        "--google-scholar-pages",
+        type=int,
+        dest="google_scholar_pages",
+        help="Number of Google Scholar result pages to process when Scholar discovery is enabled",
+    )
+    parser.add_argument(
+        "--google-scholar-results-per-page",
+        type=int,
+        dest="google_scholar_results_per_page",
+        help="Expected Google Scholar result count per page when calculating offsets",
+    )
+    parser.add_argument(
+        "--topic-prefilter-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable the local MiniLM semantic topic gate before deeper screening",
+    )
+    parser.add_argument(
+        "--topic-prefilter-filter-low-relevance",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Automatically exclude papers whose local semantic topic label is LOW_RELEVANCE",
+    )
+    parser.add_argument(
+        "--topic-prefilter-high-threshold",
+        type=float,
+        dest="topic_prefilter_high_threshold",
+        help="Semantic similarity threshold for HIGH_RELEVANCE in the local MiniLM topic gate",
+    )
+    parser.add_argument(
+        "--topic-prefilter-review-threshold",
+        type=float,
+        dest="topic_prefilter_review_threshold",
+        help="Semantic similarity threshold for REVIEW in the local MiniLM topic gate",
+    )
+    parser.add_argument(
+        "--topic-prefilter-text-mode",
+        choices=["title_only", "title_abstract", "title_abstract_full_text"],
+        help="Paper text window used by the local MiniLM topic gate",
+    )
+    parser.add_argument(
+        "--topic-prefilter-max-chars",
+        type=int,
+        dest="topic_prefilter_max_chars",
+        help="Maximum number of paper characters passed into the local MiniLM topic gate",
+    )
+    parser.add_argument(
+        "--topic-prefilter-model",
+        help="Local Hugging Face sentence-embedding model used for the MiniLM-style topic gate",
+    )
+    parser.add_argument(
         "--run-mode",
         choices=["collect", "analyze"],
         help="Collect metadata only or run full analysis",
@@ -1058,6 +1205,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=["quiet", "normal", "verbose", "debug"],
         help="CLI logging verbosity",
     )
+    parser.add_argument("--verbose", action="store_true", dest="verbose_flag", help="Shortcut for --verbosity verbose")
+    parser.add_argument("--ultra-verbose", action="store_true", dest="ultra_verbose", help="Shortcut for --verbosity debug")
     parser.add_argument(
         "--llm-provider",
         choices=["auto", "heuristic", "openai_compatible", "gemini", "ollama", "huggingface_local"],
@@ -1096,6 +1245,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--core-calls-per-second", type=float, dest="core_calls_per_second", help="Rate limit for CORE requests")
     parser.add_argument("--unpaywall-calls-per-second", type=float, dest="unpaywall_calls_per_second", help="Rate limit for Unpaywall requests")
+    parser.add_argument("--google-scholar-calls-per-second", type=float, dest="google_scholar_calls_per_second", help="Rate limit for Google Scholar page requests")
+    parser.add_argument("--semantic-scholar-max-requests-per-minute", type=int, dest="semantic_scholar_max_requests_per_minute", help="Proactive Semantic Scholar request ceiling per minute")
+    parser.add_argument("--semantic-scholar-request-delay-seconds", type=float, dest="semantic_scholar_request_delay_seconds", help="Minimum extra delay between Semantic Scholar requests")
+    parser.add_argument("--semantic-scholar-retry-attempts", type=int, dest="semantic_scholar_retry_attempts", help="Semantic Scholar retry attempts after 429 responses")
+    parser.add_argument("--semantic-scholar-retry-backoff-strategy", choices=["fixed", "linear", "exponential"], dest="semantic_scholar_retry_backoff_strategy", help="Backoff strategy used for Semantic Scholar retries")
+    parser.add_argument("--semantic-scholar-retry-backoff-base-seconds", type=float, dest="semantic_scholar_retry_backoff_base_seconds", help="Base backoff delay for Semantic Scholar retries")
     parser.add_argument("--gemini-api-key", help="Google Gemini API key")
     parser.add_argument("--gemini-base-url", help="Gemini Generative Language API base URL")
     parser.add_argument("--gemini-model", help="Gemini model name, default gemini-2.5-flash")
@@ -1380,3 +1535,6 @@ def parse_analysis_pass(value: str) -> AnalysisPassConfig:
         decision_mode=decision_mode,  # type: ignore[arg-type]
         maybe_threshold_margin=margin_value,
     )
+
+
+

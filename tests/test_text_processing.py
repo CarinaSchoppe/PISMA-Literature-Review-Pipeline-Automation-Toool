@@ -41,6 +41,17 @@ class TextProcessingTests(unittest.TestCase):
         )
         self.assertIn("screening", sentence.lower())
 
+    def test_parse_search_terms_supports_multiple_separators_and_sequence_input(self) -> None:
+        self.assertEqual(
+            text_processing.parse_search_terms("AI governance, generative AI; decision-making\n policy"),
+            ["AI governance", "generative AI", "decision-making", "policy"],
+        )
+        self.assertEqual(
+            text_processing.parse_search_terms([" AI governance ", "", "generative AI"]),
+            ["AI governance", "generative AI"],
+        )
+        self.assertEqual(text_processing.parse_search_terms(None), [])
+
     def test_safe_year_chunking_hashing_slug_and_terms(self) -> None:
         self.assertEqual(text_processing.safe_year("2024"), 2024)
         self.assertIsNone(text_processing.safe_year("1799"))
@@ -64,3 +75,4 @@ class TextProcessingTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()
+

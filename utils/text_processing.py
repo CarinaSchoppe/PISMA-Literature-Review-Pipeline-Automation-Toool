@@ -1,4 +1,4 @@
-"""Shared text normalization, hashing, and lightweight NLP helpers."""
+"""Shared text normalization, query parsing, hashing, and lightweight NLP helpers."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Iterable, Iterator, Sequence
 WHITESPACE_RE = re.compile(r"\s+")
 TAG_RE = re.compile(r"<[^>]+>")
 NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+TERM_SEPARATOR_RE = re.compile(r"[;,\n\r]+")
 STOPWORDS = {
     "about",
     "after",
@@ -85,6 +86,23 @@ def build_query(topic: str, keywords: Sequence[str], boolean_expression: str | N
     if cleaned_keywords:
         return f"{topic.strip()} AND " + " AND ".join(cleaned_keywords)
     return topic.strip()
+
+
+def parse_search_terms(value: str | Sequence[str] | None) -> list[str]:
+    """Normalize keyword-like input from strings, text areas, or pre-split sequences.
+
+    Supported separators for string input are commas, semicolons, and newlines.
+    Whitespace-only items are dropped and non-string sequence members are coerced.
+    """
+
+    if value is None:
+        return []
+    if isinstance(value, str):
+        normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+        parts = TERM_SEPARATOR_RE.split(normalized)
+        return [item.strip() for item in parts if item and item.strip()]
+    return [str(item).strip() for item in value if str(item).strip()]
+
 
 
 def keyword_overlap_score(text: str, keywords: Sequence[str]) -> float:

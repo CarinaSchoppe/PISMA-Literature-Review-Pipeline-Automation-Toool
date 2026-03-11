@@ -94,7 +94,7 @@ class ConfigTests(unittest.TestCase):
 
         parser = build_arg_parser()
         form_fields = set(default_form_values())
-        allowed_non_runtime = {"help", "config_file", "ui", "wizard"}
+        allowed_non_runtime = {"help", "config_file", "ui", "wizard", "verbose_flag", "ultra_verbose"}
         parser_dests = {
             action.dest
             for action in parser._actions
@@ -425,3 +425,4 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(config.download_pdfs)
         self.assertFalse(config.analyze_full_text)
         self.assertEqual(config.verbosity, "normal")
+

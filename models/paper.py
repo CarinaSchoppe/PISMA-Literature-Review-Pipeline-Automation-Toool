@@ -17,8 +17,11 @@ class ScreeningResult(BaseModel):
     stage_one_decision: DecisionLabel = "maybe"
     relevance_score: float = 0.0
     topic_prefilter_score: float | None = None
+    topic_prefilter_similarity: float | None = None
     topic_prefilter_model: str | None = None
     topic_prefilter_threshold: float | None = None
+    topic_prefilter_label: str | None = None
+    topic_prefilter_keyword_overlap: float | None = None
     explanation: str = ""
     extracted_passage: str = ""
     methodology_category: str = "unspecified"
@@ -149,3 +152,4 @@ class PaperMetadata(BaseModel):
                 "screening_details": self.screening_details or other.screening_details,
             }
         )
+

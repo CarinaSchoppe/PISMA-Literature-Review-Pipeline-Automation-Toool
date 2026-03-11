@@ -165,6 +165,10 @@ class PipelineControllerHelperTests(unittest.TestCase):
                 self.assertEqual(len(controller._apply_discovery_limits([PaperMetadata(title="A"), PaperMetadata(title="B"), PaperMetadata(title="C")])), 2)
                 self.assertTrue(controller._below_minimum_discovery_threshold(0))
                 self.assertIs(controller._summary_screener(), controller.pass_screeners["deep"])
+                topic_prefilter_controller = PipelineController(self._config(root, topic_prefilter_enabled=True))
+                self.assertTrue(topic_prefilter_controller._requires_local_llm_serial_execution())
+                self.assertEqual(topic_prefilter_controller._screening_worker_count(), 1)
+                topic_prefilter_controller.close()
             finally:
                 controller.close()
 
@@ -703,3 +707,4 @@ class PipelineControllerHelperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -89,7 +89,7 @@ class HTTPUtilsTests(unittest.TestCase):
             limiter.wait()
 
         sleep_mock.assert_called_once()
-        self.assertAlmostEqual(sleep_mock.call_args.args[0], 0.1, places=2)
+        self.assertAlmostEqual(sleep_mock.call_args.args[0], 0.4, places=2)
 
     def test_rate_limiter_wait_returns_immediately_when_interval_is_disabled(self) -> None:
         limiter = http.RateLimiter(calls_per_second=0.0)
@@ -380,3 +380,4 @@ class HTTPUtilsTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()
+

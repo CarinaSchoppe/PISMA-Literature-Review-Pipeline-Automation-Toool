@@ -24,6 +24,7 @@ from discovery.core_client import COREClient
 from discovery.crossref_client import CrossrefClient
 from discovery.europe_pmc_client import EuropePMCClient
 from discovery.fixture_client import FixtureDiscoveryClient
+from discovery.google_scholar_client import GoogleScholarClient
 from discovery.manual_import_client import ManualImportClient
 from discovery.null_citation_provider import NullCitationProvider
 from discovery.openalex_client import OpenAlexClient
@@ -80,6 +81,7 @@ class PipelineController:
         self.pubmed_client = PubMedClient(self.config)
         self.europe_pmc_client = EuropePMCClient(self.config)
         self.core_client = COREClient(self.config)
+        self.google_scholar_client = GoogleScholarClient(self.config)
         self.pdf_fetcher = PDFFetcher(self.config)
         self.full_text_extractor = FullTextExtractor(max_chars=self.config.full_text_max_chars)
         self.pass_screeners = self._build_pass_screeners()
@@ -497,6 +499,8 @@ class PipelineController:
             clients["europe_pmc"] = self.europe_pmc_client.search
         if self.config.core_enabled:
             clients["core"] = self.core_client.search
+        if self.config.google_scholar_enabled:
+            clients["google_scholar"] = self.google_scholar_client.search
         if not clients and not allow_empty:
             raise ValueError("At least one discovery source must be enabled")
         return clients
@@ -823,7 +827,7 @@ class PipelineController:
         return self.pass_screeners[resolved_passes[-1].name]
 
     def _requires_local_llm_serial_execution(self) -> bool:
-        return any(
+        return self.config.topic_prefilter_enabled or any(
             analysis_pass.llm_provider == "huggingface_local"
             for analysis_pass in self.config.resolved_analysis_passes
         )
@@ -1059,3 +1063,6 @@ class PipelineController:
 
         if self.stop_event.is_set():
             raise PipelineStoppedError("Stopped by user request")
+
+
+

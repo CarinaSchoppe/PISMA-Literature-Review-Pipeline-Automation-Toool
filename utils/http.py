@@ -6,10 +6,11 @@ import hashlib
 import json
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from typing import Any
+from typing import Any, Literal
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -18,6 +19,7 @@ from urllib3.util.retry import Retry
 LOGGER = logging.getLogger(__name__)
 HTTP_LOG_ENABLED = True
 HTTP_LOG_PAYLOADS = True
+BackoffStrategy = Literal["fixed", "linear", "exponential"]
 
 
 @dataclass
@@ -90,22 +92,51 @@ def _sanitize_for_log(value: Any) -> Any:
 class RateLimiter:
     """Simple per-process rate limiter shared by API clients."""
 
-    def __init__(self, calls_per_second: float = 1.0) -> None:
+    def __init__(
+        self,
+        calls_per_second: float = 1.0,
+        *,
+        max_requests_per_minute: int | None = None,
+        request_delay_seconds: float = 0.0,
+    ) -> None:
         self.min_interval = 1.0 / calls_per_second if calls_per_second > 0 else 0.0
+        self.max_requests_per_minute = max(int(max_requests_per_minute), 1) if max_requests_per_minute else None
+        self.request_delay_seconds = max(float(request_delay_seconds), 0.0)
         self._lock = Lock()
         self._last_call = 0.0
+        self._request_history: deque[float] = deque()
 
     def wait(self) -> None:
         """Sleep just long enough to respect the configured minimum call interval."""
 
-        if self.min_interval <= 0:
+        if self.min_interval <= 0 and self.request_delay_seconds <= 0 and self.max_requests_per_minute is None:
             return
         with self._lock:
             now = time.monotonic()
-            elapsed = now - self._last_call
-            if elapsed < self.min_interval:
-                time.sleep(self.min_interval - elapsed)
-            self._last_call = time.monotonic()
+            self._prune_history(now)
+            wait_seconds = 0.0
+            if self.min_interval > 0:
+                wait_seconds = max(wait_seconds, self.min_interval - (now - self._last_call))
+            if self.request_delay_seconds > 0:
+                wait_seconds = max(wait_seconds, self.request_delay_seconds - (now - self._last_call))
+            if self.max_requests_per_minute is not None and len(self._request_history) >= self.max_requests_per_minute:
+                oldest = self._request_history[0]
+                wait_seconds = max(wait_seconds, 60.0 - (now - oldest))
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+                now = time.monotonic()
+                self._prune_history(now)
+            self._last_call = now
+            if self.max_requests_per_minute is not None:
+                self._request_history.append(now)
+
+    def _prune_history(self, now: float) -> None:
+        """Drop request timestamps that are older than the rolling one-minute window."""
+
+        if self.max_requests_per_minute is None:
+            return
+        while self._request_history and (now - self._request_history[0]) >= 60.0:
+            self._request_history.popleft()
 
 
 class PersistentResponseCache:
@@ -178,6 +209,9 @@ def request_json(
     limiter: RateLimiter | None = None,
     timeout: int = 30,
     use_cache: bool | None = None,
+    retry_max_attempts: int | None = None,
+    retry_backoff_strategy: BackoffStrategy = "exponential",
+    retry_base_delay_seconds: float | None = None,
     **kwargs: Any,
 ) -> Any:
     """Perform an HTTP request and parse the response body as JSON when successful."""
@@ -203,6 +237,9 @@ def request_json(
             url,
             limiter=limiter,
             timeout=timeout,
+            retry_max_attempts=retry_max_attempts,
+            retry_backoff_strategy=retry_backoff_strategy,
+            retry_base_delay_seconds=retry_base_delay_seconds,
             **kwargs,
         )
         if response is None:
@@ -228,6 +265,9 @@ def request_content(
     limiter: RateLimiter | None = None,
     timeout: int = 60,
     stream: bool = False,
+    retry_max_attempts: int | None = None,
+    retry_backoff_strategy: BackoffStrategy = "exponential",
+    retry_base_delay_seconds: float | None = None,
     **kwargs: Any,
 ) -> requests.Response | None:
     """Perform an HTTP GET request intended for binary content such as PDFs."""
@@ -242,6 +282,9 @@ def request_content(
             limiter=limiter,
             timeout=timeout,
             stream=stream,
+            retry_max_attempts=retry_max_attempts,
+            retry_backoff_strategy=retry_backoff_strategy,
+            retry_base_delay_seconds=retry_base_delay_seconds,
             **kwargs,
         )
         if response is None:
@@ -262,6 +305,9 @@ def request_text(
     limiter: RateLimiter | None = None,
     timeout: int = 30,
     use_cache: bool | None = None,
+    retry_max_attempts: int | None = None,
+    retry_backoff_strategy: BackoffStrategy = "exponential",
+    retry_base_delay_seconds: float | None = None,
     **kwargs: Any,
 ) -> str | None:
     """Perform an HTTP request and return the raw text body on success."""
@@ -280,6 +326,9 @@ def request_text(
             url,
             limiter=limiter,
             timeout=timeout,
+            retry_max_attempts=retry_max_attempts,
+            retry_backoff_strategy=retry_backoff_strategy,
+            retry_base_delay_seconds=retry_base_delay_seconds,
             **kwargs,
         )
         if response is None:
@@ -303,11 +352,14 @@ def _request_with_backoff(
     *,
     limiter: RateLimiter | None = None,
     timeout: int,
+    retry_max_attempts: int | None = None,
+    retry_backoff_strategy: BackoffStrategy = "exponential",
+    retry_base_delay_seconds: float | None = None,
     **kwargs: Any,
 ) -> requests.Response | None:
     """Perform one request with explicit 429-aware backoff that respects `Retry-After`."""
 
-    attempts = max(HTTP_RUNTIME_CONFIG.retry_max_attempts, 1)
+    attempts = max(int(retry_max_attempts or HTTP_RUNTIME_CONFIG.retry_max_attempts), 1)
     for attempt in range(1, attempts + 1):
         if limiter:
             limiter.wait()
@@ -317,21 +369,34 @@ def _request_with_backoff(
             return response
         if attempt >= attempts:
             response.raise_for_status()
-        delay_seconds = _calculate_backoff_delay(response, attempt)
+            return None
+        delay_seconds = _calculate_backoff_delay(
+            response,
+            attempt,
+            strategy=retry_backoff_strategy,
+            base_delay_seconds=retry_base_delay_seconds,
+        )
         LOGGER.warning(
-            "HTTP %s %s returned 429. Backing off for %.2f seconds before retry %s/%s.",
+            "HTTP %s %s returned 429. Backing off for %.2f seconds before retry %s/%s using %s strategy.",
             method,
             url,
             delay_seconds,
             attempt + 1,
             attempts,
+            retry_backoff_strategy,
         )
         time.sleep(delay_seconds)
     return None
 
 
-def _calculate_backoff_delay(response: requests.Response, attempt: int) -> float:
-    """Calculate the next delay using `Retry-After` when present, otherwise exponential backoff."""
+def _calculate_backoff_delay(
+    response: requests.Response,
+    attempt: int,
+    *,
+    strategy: BackoffStrategy = "exponential",
+    base_delay_seconds: float | None = None,
+) -> float:
+    """Calculate the next delay using `Retry-After` when present, otherwise the chosen backoff strategy."""
 
     retry_after = response.headers.get("Retry-After")
     if retry_after:
@@ -339,10 +404,16 @@ def _calculate_backoff_delay(response: requests.Response, attempt: int) -> float
             return min(float(retry_after), HTTP_RUNTIME_CONFIG.retry_max_delay_seconds)
         except ValueError:
             pass
-    if HTTP_RUNTIME_CONFIG.retry_base_delay_seconds <= 0:
+    resolved_base = HTTP_RUNTIME_CONFIG.retry_base_delay_seconds if base_delay_seconds is None else max(float(base_delay_seconds), 0.0)
+    if resolved_base <= 0:
         return 0.0
-    exponential_delay = HTTP_RUNTIME_CONFIG.retry_base_delay_seconds * (2 ** max(attempt - 1, 0))
-    return min(exponential_delay, HTTP_RUNTIME_CONFIG.retry_max_delay_seconds)
+    if strategy == "fixed":
+        delay = resolved_base
+    elif strategy == "linear":
+        delay = resolved_base * attempt
+    else:
+        delay = resolved_base * (2 ** max(attempt - 1, 0))
+    return min(delay, HTTP_RUNTIME_CONFIG.retry_max_delay_seconds)
 
 
 def _load_cached_payload(
