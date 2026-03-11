@@ -287,6 +287,12 @@ def run_coverage_report(argv: Sequence[str] | None = None) -> int:
         print("Generated artifacts")
         print("===================")
         print(f"Pytest terminal log: {pytest_output_path}")
+        if "--cov=." in pytest_output and "unrecognized arguments" in pytest_output:
+            print(
+                "Pytest-cov does not appear to be installed in the active environment. "
+                "Install the development dependencies or explicitly install pytest-cov before running coverage_report.py.",
+                file=sys.stderr,
+            )
         print("Coverage report generation failed before coverage artifacts were written.", file=sys.stderr)
         return int(getattr(report_result, "returncode", 1))
 
