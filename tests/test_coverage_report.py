@@ -260,6 +260,29 @@ class CoverageReportTests(unittest.TestCase):
         error_messages = [str(call.args[0]) for call in print_mock.call_args_list if call.kwargs.get("file") is sys.stderr]
         self.assertIn("Coverage report generation failed before coverage artifacts were written.", error_messages)
 
+    @patch("builtins.print")
+    @patch("coverage_report.subprocess.run")
+    def test_run_coverage_report_surfaces_missing_pytest_cov_plugin_hint(self, run_mock, print_mock) -> None:
+        run_mock.return_value = type(
+            "Result",
+            (),
+            {
+                "stdout": "",
+                "stderr": "ERROR: usage: __main__.py [options]\\n__main__.py: error: unrecognized arguments: --cov=. --cov-report=json:file",
+                "returncode": 4,
+            },
+        )()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = coverage_report.run_coverage_report(["--results-dir", tmpdir])
+
+        self.assertEqual(exit_code, 4)
+        error_messages = [str(call.args[0]) for call in print_mock.call_args_list if call.kwargs.get("file") is sys.stderr]
+        self.assertIn(
+            "Pytest-cov does not appear to be installed in the active environment. Install the development dependencies or explicitly install pytest-cov before running coverage_report.py.",
+            error_messages,
+        )
+
     @patch("coverage_report.run_coverage_report", return_value=0)
     def test_main_exits_with_report_status(self, run_mock) -> None:
         with self.assertRaises(SystemExit) as caught:
