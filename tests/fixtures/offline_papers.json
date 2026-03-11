@@ -1,7 +1,10 @@
 [
   {
     "title": "Large language models for systematic review screening",
-    "authors": ["Alice Example", "Bob Example"],
+    "authors": [
+      "Alice Example",
+      "Bob Example"
+    ],
     "abstract": "This systematic review studies large language models for abstract screening, evidence synthesis, and PRISMA-aligned workflows in systematic literature reviews.",
     "year": 2024,
     "venue": "Journal of Evidence Engineering",
@@ -10,12 +13,19 @@
     "citation_count": 120,
     "reference_count": 2,
     "open_access": true,
-    "references": ["10.1000/prisma-methods-1", "10.1000/ir-ranking-1"],
-    "citations": ["10.1000/llm-clinical-1"]
+    "references": [
+      "10.1000/prisma-methods-1",
+      "10.1000/ir-ranking-1"
+    ],
+    "citations": [
+      "10.1000/llm-clinical-1"
+    ]
   },
   {
     "title": "PRISMA methods for reproducible review automation",
-    "authors": ["Clara Methods"],
+    "authors": [
+      "Clara Methods"
+    ],
     "abstract": "This paper proposes reproducible pipelines, modular code, and structured metadata storage for systematic review automation.",
     "year": 2023,
     "venue": "Systematic Reviews",
@@ -24,12 +34,18 @@
     "citation_count": 80,
     "reference_count": 1,
     "open_access": true,
-    "references": ["10.1000/ir-ranking-1"],
-    "citations": ["10.1000/llm-screening-1"]
+    "references": [
+      "10.1000/ir-ranking-1"
+    ],
+    "citations": [
+      "10.1000/llm-screening-1"
+    ]
   },
   {
     "title": "Information retrieval ranking for evidence discovery",
-    "authors": ["David Ranking"],
+    "authors": [
+      "David Ranking"
+    ],
     "abstract": "We benchmark retrieval and ranking methods for scholarly search, relevance scoring, and literature triage.",
     "year": 2022,
     "venue": "Information Processing Journal",
@@ -39,11 +55,15 @@
     "reference_count": 0,
     "open_access": false,
     "references": [],
-    "citations": ["10.1000/prisma-methods-1"]
+    "citations": [
+      "10.1000/prisma-methods-1"
+    ]
   },
   {
     "title": "Clinical evidence synthesis with LLM-assisted screening",
-    "authors": ["Elena Clinic"],
+    "authors": [
+      "Elena Clinic"
+    ],
     "abstract": "A case study on biomedical review screening with large language models, citation snowballing, and inclusion decisions.",
     "year": 2025,
     "venue": "Medical Informatics Review",
@@ -52,12 +72,16 @@
     "citation_count": 35,
     "reference_count": 1,
     "open_access": true,
-    "references": ["10.1000/llm-screening-1"],
+    "references": [
+      "10.1000/llm-screening-1"
+    ],
     "citations": []
   },
   {
     "title": "Unrelated crop irrigation optimization study",
-    "authors": ["Farah Agriculture"],
+    "authors": [
+      "Farah Agriculture"
+    ],
     "abstract": "This agricultural optimization paper studies irrigation decisions and plant growth prediction.",
     "year": 2024,
     "venue": "Agricultural Systems",

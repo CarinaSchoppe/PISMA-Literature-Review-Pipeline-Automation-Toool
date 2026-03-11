@@ -38,14 +38,14 @@ class OpenAICompatibleLLMClient(BaseLLMClient):
     """Client for OpenAI-compatible chat-completions endpoints, including Ollama."""
 
     def __init__(
-        self,
-        *,
-        base_url: str,
-        model: str,
-        api_key: str,
-        temperature: float,
-        timeout_seconds: int,
-        provider_name: str = "openai_compatible",
+            self,
+            *,
+            base_url: str,
+            model: str,
+            api_key: str,
+            temperature: float,
+            timeout_seconds: int,
+            provider_name: str = "openai_compatible",
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -96,13 +96,13 @@ class GeminiLLMClient(BaseLLMClient):
     """Client for Google's Gemini GenerateContent API."""
 
     def __init__(
-        self,
-        *,
-        base_url: str,
-        model: str,
-        api_key: str,
-        temperature: float,
-        timeout_seconds: int,
+            self,
+            *,
+            base_url: str,
+            model: str,
+            api_key: str,
+            temperature: float,
+            timeout_seconds: int,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -174,16 +174,16 @@ class HuggingFaceLocalLLMClient(BaseLLMClient):
     """Local text-generation client backed by `transformers.pipeline`."""
 
     def __init__(
-        self,
-        *,
-        model_id: str,
-        task: str,
-        temperature: float,
-        max_new_tokens: int,
-        device: str,
-        dtype: str,
-        cache_dir: str | None,
-        trust_remote_code: bool,
+            self,
+            *,
+            model_id: str,
+            task: str,
+            temperature: float,
+            max_new_tokens: int,
+            device: str,
+            dtype: str,
+            cache_dir: str | None,
+            trust_remote_code: bool,
     ) -> None:
         self.provider_name = "huggingface_local"
         self.enabled = False

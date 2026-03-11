@@ -15,15 +15,15 @@ class FakeResponse:
     """Small fake response object for exercising the HTTP utility wrappers."""
 
     def __init__(
-        self,
-        *,
-        status_code: int = 200,
-        payload=None,
-        text: str = "",
-        content: bytes = b'{"ok": true}',
-        headers: dict[str, str] | None = None,
-        raise_error: Exception | None = None,
-        chunks: list[bytes] | None = None,
+            self,
+            *,
+            status_code: int = 200,
+            payload=None,
+            text: str = "",
+            content: bytes = b'{"ok": true}',
+            headers: dict[str, str] | None = None,
+            raise_error: Exception | None = None,
+            chunks: list[bytes] | None = None,
     ) -> None:
         self.status_code = status_code
         self._payload = payload
@@ -83,7 +83,7 @@ class HTTPUtilsTests(unittest.TestCase):
         limiter = http.RateLimiter(calls_per_second=2.0)
         limiter._last_call = -1.0
         with patch("utils.http.time.monotonic", side_effect=[0.0, 0.1, 0.5, 0.6]), patch(
-            "utils.http.time.sleep"
+                "utils.http.time.sleep"
         ) as sleep_mock:
             limiter.wait()
             limiter.wait()
@@ -104,7 +104,7 @@ class HTTPUtilsTests(unittest.TestCase):
         limiter._request_history.append(0.0)
 
         with patch("utils.http.time.monotonic", side_effect=[30.0, 60.0]), patch(
-            "utils.http.time.sleep"
+                "utils.http.time.sleep"
         ) as sleep_mock, patch.object(http.LOGGER, "info") as info_log:
             limiter.wait()
 
@@ -117,7 +117,7 @@ class HTTPUtilsTests(unittest.TestCase):
         limiter._last_call = 10.0
 
         with patch("utils.http.time.monotonic", side_effect=[11.0, 13.0]), patch(
-            "utils.http.time.sleep"
+                "utils.http.time.sleep"
         ) as sleep_mock:
             limiter.wait()
 
@@ -463,4 +463,3 @@ class HTTPUtilsTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()
-

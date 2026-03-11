@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from collections import deque
-from contextlib import nullcontext
 import tempfile
 import unittest
+from collections import deque
+from contextlib import nullcontext
 from pathlib import Path
-import numpy as np
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import numpy as np
 import requests
 
 from analysis.ai_screener import AIScreener
@@ -195,8 +195,8 @@ class FeatureBranchCoverageTests(unittest.TestCase):
     def _matcher(self, **config_overrides: object) -> LocalTopicMatcher:
         config = self.config.model_copy(update=config_overrides)
         with patch(
-            "analysis.topic_prefilter.load_embedding_runtime",
-            return_value=(_PrefilterTorch, _PrefilterTokenizerLoader, _PrefilterModelLoader),
+                "analysis.topic_prefilter.load_embedding_runtime",
+                return_value=(_PrefilterTorch, _PrefilterTokenizerLoader, _PrefilterModelLoader),
         ):
             return LocalTopicMatcher(config)
 
@@ -260,8 +260,8 @@ class FeatureBranchCoverageTests(unittest.TestCase):
         with patch("analysis.ai_screener.build_llm_client", return_value=fake_client):
             screener = AIScreener(config)
             with patch.object(screener.scorer, "evaluate_topic_match", return_value=topic_match), \
-                 patch.object(screener.scorer, "quick_screen", return_value="maybe"), \
-                 patch.object(screener.scorer, "deep_score", return_value=result):
+                    patch.object(screener.scorer, "quick_screen", return_value="maybe"), \
+                    patch.object(screener.scorer, "deep_score", return_value=result):
                 with self.assertLogs("analysis.ai_screener", level="INFO") as info_logs:
                     screened = screener.screen(self._paper())
 
@@ -503,8 +503,6 @@ class FeatureBranchCoverageTests(unittest.TestCase):
         self.assertEqual(results[0].pdf_link, "https://example.org/core.pdf")
         self.assertEqual(results[0].external_ids["repo"], "abc")
 
-
-
     def test_relevance_scoring_covers_hard_exclusion_and_exclusion_reason_branch(self) -> None:
         scorer = RelevanceScorer(self.config.model_copy(update={"decision_mode": "triage"}), topic_matcher=None)
         banned_paper = self._paper(title="Crop irrigation planning", abstract="Crop irrigation and water management.")
@@ -591,7 +589,7 @@ class FeatureBranchCoverageTests(unittest.TestCase):
 
         papers = [self._paper(title="Alpha", doi=None), self._paper(title="Beta", doi=None)]
         with patch("utils.deduplication.cosine_similarity", return_value=np.array([[1.0, 0.5], [0.5, 1.0]])), \
-             patch("utils.deduplication.TfidfVectorizer.fit_transform", return_value=object()):
+                patch("utils.deduplication.TfidfVectorizer.fit_transform", return_value=object()):
             deduped = deduplicate_papers(papers, title_similarity_threshold=0.9)
         self.assertEqual(len(deduped), 2)
 
@@ -616,14 +614,3 @@ class FeatureBranchCoverageTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()
-
-
-
-
-
-
-
-
-
-
-

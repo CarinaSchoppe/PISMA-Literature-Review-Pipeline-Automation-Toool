@@ -7,19 +7,19 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from models.paper import PaperMetadata
 
 from config import ResearchConfig
+from models.paper import PaperMetadata
 
 
 class ManualImportClient:
     """Load manually exported literature records into the shared paper model."""
 
     def __init__(
-        self,
-        config: ResearchConfig,
-        path: Path | None = None,
-        source_name: str = "manual_import",
+            self,
+            config: ResearchConfig,
+            path: Path | None = None,
+            source_name: str = "manual_import",
     ) -> None:
         self.config = config
         source_path = path or config.manual_source_path

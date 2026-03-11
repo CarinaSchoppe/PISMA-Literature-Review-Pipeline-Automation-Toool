@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
 import unittest
+import xml.etree.ElementTree as ET
 from unittest.mock import Mock, patch
 
 from config import ResearchConfig
@@ -371,8 +371,8 @@ class DiscoveryClientsExtendedTests(unittest.TestCase):
         config = self.config.model_copy(update={"discovery_strategy": "balanced", "pages_to_retrieve": 1, "results_per_page": 2})
         client = PubMedClient(config)
         with patch(
-            "discovery.pubmed_client.request_json",
-            side_effect=[None, {"esearchresult": {"idlist": ["111", "222"]}}],
+                "discovery.pubmed_client.request_json",
+                side_effect=[None, {"esearchresult": {"idlist": ["111", "222"]}}],
         ), patch.object(client, "_fetch_batch", return_value=[PaperMetadata(title="A", source="pubmed"), PaperMetadata(title="B", source="pubmed")]):
             results = client.search()
 
@@ -409,8 +409,8 @@ class DiscoveryClientsExtendedTests(unittest.TestCase):
         invalid_config = config.model_copy(update={"boolean_operators": "weird"})
         self.assertEqual(ArxivClient(invalid_config)._build_search_query("llm benchmark"), 'all:"llm benchmark"')
         with patch(
-            "discovery.arxiv_client.request_text",
-            return_value="""
+                "discovery.arxiv_client.request_text",
+                return_value="""
             <feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
               <entry>
                 <id>http://arxiv.org/abs/1234.5678</id>
@@ -435,8 +435,8 @@ class DiscoveryClientsExtendedTests(unittest.TestCase):
         empty_config = self.config.model_copy(update={"discovery_strategy": "precise", "pages_to_retrieve": 1, "results_per_page": 1})
         empty_client = ArxivClient(empty_config)
         with patch(
-            "discovery.arxiv_client.request_text",
-            return_value='<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom"></feed>',
+                "discovery.arxiv_client.request_text",
+                return_value='<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom"></feed>',
         ):
             self.assertEqual(empty_client.search(), [])
 

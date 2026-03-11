@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
-
-from models.paper import PaperMetadata
 
 from analysis.ai_screener import AIScreener
 from config import ResearchConfig
+from models.paper import PaperMetadata
 
 
 class _FakeEnabledLLMClient:
@@ -86,8 +85,8 @@ class AIScreenerTests(unittest.TestCase):
         paper = self._paper()
 
         with patch(
-            "analysis.ai_screener.build_llm_client",
-            return_value=_FakeEnabledLLMClient("This is not strict JSON."),
+                "analysis.ai_screener.build_llm_client",
+                return_value=_FakeEnabledLLMClient("This is not strict JSON."),
         ):
             screener = AIScreener(config)
             result = screener.screen(paper)
@@ -165,9 +164,9 @@ class AIScreenerTests(unittest.TestCase):
         with patch("analysis.ai_screener.build_llm_client", return_value=fake_client):
             screener = AIScreener(config)
             with patch.object(
-                screener,
-                "_chat_completion",
-                return_value='{"decision":"include","relevance_score":88,"explanation":"ok"}',
+                    screener,
+                    "_chat_completion",
+                    return_value='{"decision":"include","relevance_score":88,"explanation":"ok"}',
             ), patch("analysis.ai_screener.ScreeningResult", side_effect=ValueError("bad payload")):
                 result = screener._llm_stage_two(paper, "include")
 

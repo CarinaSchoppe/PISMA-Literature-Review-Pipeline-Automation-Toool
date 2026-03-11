@@ -129,9 +129,9 @@ def build_default_cases(baselines: dict[str, dict[str, Any]]) -> list[BenchmarkC
 
 
 def _build_case(
-    baselines: dict[str, dict[str, Any]],
-    name: str,
-    runner: BenchmarkCallable,
+        baselines: dict[str, dict[str, Any]],
+        name: str,
+        runner: BenchmarkCallable,
 ) -> BenchmarkCase:
     """Construct a benchmark case from the shared baseline configuration."""
 
@@ -147,12 +147,12 @@ def _build_case(
 
 
 def run_benchmark_suite(
-    cases: Sequence[BenchmarkCase],
-    *,
-    project_root: Path,
-    repeat: int,
-    iterations: int,
-    warmup: int,
+        cases: Sequence[BenchmarkCase],
+        *,
+        project_root: Path,
+        repeat: int,
+        iterations: int,
+        warmup: int,
 ) -> list[BenchmarkResult]:
     """Execute each benchmark case and return stable summary measurements."""
 
@@ -246,9 +246,9 @@ def build_report_artifacts(results: Sequence[BenchmarkResult]) -> tuple[str, str
 
 
 def run_benchmark_report(
-    argv: Sequence[str] | None = None,
-    *,
-    cases: Sequence[BenchmarkCase] | None = None,
+        argv: Sequence[str] | None = None,
+        *,
+        cases: Sequence[BenchmarkCase] | None = None,
 ) -> int:
     """Execute benchmark fixtures, write report artifacts, and optionally fail on regressions."""
 

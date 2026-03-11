@@ -91,4 +91,3 @@ class TextProcessingTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()
-
