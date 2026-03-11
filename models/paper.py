@@ -16,6 +16,9 @@ class ScreeningResult(BaseModel):
 
     stage_one_decision: DecisionLabel = "maybe"
     relevance_score: float = 0.0
+    topic_prefilter_score: float | None = None
+    topic_prefilter_model: str | None = None
+    topic_prefilter_threshold: float | None = None
     explanation: str = ""
     extracted_passage: str = ""
     methodology_category: str = "unspecified"
