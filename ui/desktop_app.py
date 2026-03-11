@@ -784,6 +784,20 @@ class DesktopWorkbench:
             "Title terms that should be filtered out early, such as correction, retraction, editorial, or "
             "commentary. Enter them with commas, semicolons, or line breaks."
         ),
+        "topic_prefilter_weighted_keywords": (
+            "Weighted research keywords used for explicit paper-fit analysis. Use plain keywords or "
+            "'keyword|weight' pairs. The workbench extracts topics from each paper, compares them to these "
+            "keywords, and shows per-keyword percentages plus strong, near, or weak fit labels."
+        ),
+        "topic_prefilter_min_keyword_matches": (
+            "Minimum number of strongly matched weighted keywords required before a paper can count as a strong fit."
+        ),
+        "topic_prefilter_match_threshold": (
+            "Weighted research-fit score from 0 to 100 required for a strong fit. Strong-fit rows use green badges."
+        ),
+        "topic_prefilter_near_fit_threshold": (
+            "Weighted research-fit score from 0 to 100 for the near-fit warning band. Near-fit rows use amber badges."
+        ),
         "boolean_operators": (
             "Default boolean operator used when composing keyword queries. AND narrows recall, OR broadens it, "
             "and NOT should be used carefully because it can hide relevant studies."
@@ -1124,6 +1138,10 @@ class DesktopWorkbench:
         "google_scholar_pages": "50 pages means the client will attempt up to 50 Scholar result pages per generated query.",
         "topic_prefilter_model": "sentence-transformers/all-MiniLM-L6-v2",
         "topic_prefilter_text_mode": "Use title_abstract for the normal CPU-friendly mode.",
+        "topic_prefilter_weighted_keywords": "systematic review|1.6; large language models|1.5; screening automation|1.2",
+        "topic_prefilter_min_keyword_matches": "2",
+        "topic_prefilter_match_threshold": "55 means the weighted topic-fit score must reach 55/100 for a strong fit.",
+        "topic_prefilter_near_fit_threshold": "35 means papers from 35-54/100 are highlighted as near-fit instead of weak-fit.",
         "core_api_key": "Paste your CORE API key here if your account or deployment requires one.",
         "openai_model": "gpt-5.4",
         "gemini_model": "gemini-2.5-flash",
@@ -1150,6 +1168,9 @@ class DesktopWorkbench:
         "exclusion_criteria": "Use commas, semicolons, or line breaks. Example: editorial; commentary; unrelated medical-only study",
         "banned_topics": "Use commas, semicolons, or line breaks. Example: crop irrigation; sports analytics",
         "excluded_title_terms": "Use commas, semicolons, or line breaks. Example: correction; erratum; editorial; retraction",
+        "topic_prefilter_weighted_keywords": (
+            "Use commas, semicolons, or line breaks. Example: systematic review|1.6; large language models|1.5; screening automation|1.2"
+        ),
     }
 
     FIELD_PLACEHOLDERS = {
@@ -1161,6 +1182,9 @@ class DesktopWorkbench:
         "exclusion_criteria": "Enter exclusion criteria separated by commas, semicolons, or line breaks. Example: editorial; commentary; unrelated medical-only study",
         "banned_topics": "Enter banned topics separated by commas, semicolons, or line breaks. Example: crop irrigation; sports analytics",
         "excluded_title_terms": "Enter excluded title markers separated by commas, semicolons, or line breaks. Example: correction; erratum; editorial; retraction",
+        "topic_prefilter_weighted_keywords": (
+            "Enter weighted research keywords. Example: systematic review|1.6; large language models|1.5; screening automation|1.2"
+        ),
     }
 
     SEARCH_WIDGET_PLACEHOLDERS = {
