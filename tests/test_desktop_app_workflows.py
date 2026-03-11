@@ -267,7 +267,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
         self.assertTrue(direct_controller.stop_called)
 
         with patch("ui.desktop_app.PipelineController", FakeController), patch("ui.desktop_app.threading.Thread", FakeThread), patch.object(
-            self.workbench, "_load_dataframe_into_tree"
+                self.workbench, "_load_dataframe_into_tree"
         ) as load_table, patch.object(self.workbench, "_load_outputs") as load_outputs:
             self.workbench._start_run()
             with patch.object(self.workbench.root, "after", return_value=None):
@@ -276,7 +276,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
             load_outputs.assert_called_once()
 
         with patch("ui.desktop_app.form_values_to_config", side_effect=ValueError("bad config")), patch(
-            "ui.desktop_app.messagebox.showerror"
+                "ui.desktop_app.messagebox.showerror"
         ) as showerror:
             self.workbench._start_run()
         showerror.assert_called_once()
@@ -313,7 +313,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
         config = SimpleNamespace(results_dir=Path("results"))
 
         with patch.object(self.workbench, "_load_dataframe_into_tree"), patch.object(self.workbench, "_load_outputs"), patch(
-            "ui.desktop_app.messagebox.showerror"
+                "ui.desktop_app.messagebox.showerror"
         ) as showerror:
             self.workbench._handle_result(
                 {
@@ -324,7 +324,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
         showerror.assert_called_once()
 
         with patch.object(self.workbench, "_load_dataframe_into_tree"), patch.object(self.workbench, "_load_outputs"), patch(
-            "ui.desktop_app.messagebox.showwarning"
+                "ui.desktop_app.messagebox.showwarning"
         ) as showwarning:
             self.workbench._handle_result(
                 {

@@ -11,7 +11,6 @@ from pathlib import Path
 from threading import Event
 from typing import Any
 
-from models.paper import PaperMetadata, ScreeningResult
 from tqdm import tqdm
 
 from acquisition.full_text_extractor import FullTextExtractor
@@ -32,6 +31,7 @@ from discovery.openalex_client import OpenAlexClient
 from discovery.pubmed_client import PubMedClient
 from discovery.semantic_scholar_client import SemanticScholarClient
 from discovery.springer_client import SpringerClient
+from models.paper import PaperMetadata, ScreeningResult
 from reporting.report_generator import ReportGenerator
 from utils.deduplication import deduplicate_papers
 from utils.http import configure_http_logging, configure_http_runtime
@@ -48,11 +48,11 @@ class PipelineController:
     """Coordinate the end-to-end literature review workflow for one run configuration."""
 
     def __init__(
-        self,
-        config: ResearchConfig,
-        *,
-        event_sink: Callable[[dict[str, Any]], None] | None = None,
-        stop_event: Event | None = None,
+            self,
+            config: ResearchConfig,
+            *,
+            event_sink: Callable[[dict[str, Any]], None] | None = None,
+            stop_event: Event | None = None,
     ) -> None:
         self.config = config.finalize()
         self.event_sink = event_sink
@@ -213,12 +213,14 @@ class PipelineController:
             else:
                 screening_stats = self._screen_papers()
                 if self.config.download_pdfs and self.config.pdf_download_mode == "relevant_only":
+                    LOGGER.info("Downloading relevant PDFs for screened records.")
                     relevant_pdf_updates = self._download_relevant_pdfs(
                         self._apply_discovery_limits(
                             self.database.get_papers_for_query(self.config.query_key or "")
                         )
                     )
                     if relevant_pdf_updates:
+
                         self.database.upsert_papers(relevant_pdf_updates, self.config.query_key or "")
             final_papers = self._apply_discovery_limits(
                 self._normalize_papers_for_current_context(
@@ -320,17 +322,17 @@ class PipelineController:
         )
 
     def _finalize_run_result(
-        self,
-        *,
-        final_papers: list[PaperMetadata],
-        discovered_count: int,
-        deduplicated_count: int,
-        snowballing_added_count: int,
-        screening_stats: dict[str, int],
-        run_status: str,
-        run_error: str | None = None,
-        emit_completed_event: bool = True,
-        extra_result_fields: dict[str, Any] | None = None,
+            self,
+            *,
+            final_papers: list[PaperMetadata],
+            discovered_count: int,
+            deduplicated_count: int,
+            snowballing_added_count: int,
+            screening_stats: dict[str, int],
+            run_status: str,
+            run_error: str | None = None,
+            emit_completed_event: bool = True,
+            extra_result_fields: dict[str, Any] | None = None,
     ) -> dict[str, str | int]:
         """Generate reports, emit artifact events, and build the final result payload."""
 
@@ -358,13 +360,13 @@ class PipelineController:
         }
 
     def _build_report_stats(
-        self,
-        *,
-        final_papers: list[PaperMetadata],
-        discovered_count: int,
-        deduplicated_count: int,
-        snowballing_added_count: int,
-        screening_stats: dict[str, int],
+            self,
+            *,
+            final_papers: list[PaperMetadata],
+            discovered_count: int,
+            deduplicated_count: int,
+            snowballing_added_count: int,
+            screening_stats: dict[str, int],
     ) -> dict[str, Any]:
         """Build the shared reporting stats payload used by full and partial runs."""
 
@@ -407,11 +409,11 @@ class PipelineController:
                     for name, callable_ in clients.items()
                 }
                 for future in tqdm(
-                    as_completed(future_map),
-                    total=len(future_map),
-                    desc="Discovery sources",
-                    unit="source",
-                    disable=self.config.disable_progress_bars,
+                        as_completed(future_map),
+                        total=len(future_map),
+                        desc="Discovery sources",
+                        unit="source",
+                        disable=self.config.disable_progress_bars,
                 ):
                     self._check_stop()
                     source_name = future_map[future]
@@ -588,8 +590,10 @@ class PipelineController:
             cached = self.database.get_cached_screening_entry(cache_key, self.config.screening_context_key)
             if cached is None:
                 uncached_candidates.append(paper)
+                LOGGER.info("Paper is not cached, will be screened.")
             else:
                 cached_results.append((paper.database_id, cached[0], cached[1]))
+                LOGGER.info("Paper is cached, will not be screened.")
 
         if cached_results:
             LOGGER.info("Reused %s cached screening results.", len(cached_results))
@@ -623,14 +627,16 @@ class PipelineController:
                     for paper in uncached_candidates
                     if paper.database_id is not None
                 }
+                LOGGER.info("Screening %s uncached papers.", len(future_map))
                 for future in tqdm(
-                    as_completed(future_map),
-                    total=len(future_map),
-                    desc="AI screening",
-                    unit="paper",
-                    disable=self.config.disable_progress_bars,
+                        as_completed(future_map),
+                        total=len(future_map),
+                        desc="AI screening",
+                        unit="paper",
+                        disable=self.config.disable_progress_bars,
                 ):
                     self._check_stop()
+
                     paper = future_map[future]
                     try:
                         result, screening_details = future.result()
@@ -641,6 +647,7 @@ class PipelineController:
                             result=result,
                             screening_details=screening_details,
                         )
+                        LOGGER.info("Screening result for %s cached.", paper.title)
                         results.append((paper.database_id or 0, result, screening_details))
                         LOGGER.info(
                             "Screening progress: %s/%s completed. Latest paper: '%s' -> %s (%.2f).",
@@ -655,6 +662,10 @@ class PipelineController:
             finally:
                 if executor in self._active_executors:
                     self._active_executors.remove(executor)
+
+                    LOGGER.info("Removed executor %s from active executors.", executor)
+
+                LOGGER.info("Executor %s has completed screening.", executor)
 
         for database_id, result, screening_details in [*cached_results, *results]:
             self.database.update_screening_result(database_id, result, screening_details=screening_details)
@@ -688,9 +699,9 @@ class PipelineController:
         for analysis_pass in self.config.resolved_analysis_passes:
             self._check_stop()
             if (
-                final_result is not None
-                and analysis_pass.min_input_score is not None
-                and (final_result.relevance_score or 0.0) < analysis_pass.min_input_score
+                    final_result is not None
+                    and analysis_pass.min_input_score is not None
+                    and (final_result.relevance_score or 0.0) < analysis_pass.min_input_score
             ):
                 self._log_verbose(
                     "Skipping pass '%s' for '%s' because the previous score %.2f is below %.2f.",
@@ -817,9 +828,9 @@ class PipelineController:
         return counts
 
     def _discover_from_source(
-        self,
-        source_name: str,
-        search_callable: Callable[[], list[PaperMetadata]],
+            self,
+            source_name: str,
+            search_callable: Callable[[], list[PaperMetadata]],
     ) -> list[PaperMetadata]:
         """Run one discovery client and emit source-level progress events."""
 
@@ -937,11 +948,11 @@ class PipelineController:
             return paper
 
     def _process_pdf_batch_queue(
-        self,
-        papers: list[PaperMetadata],
-        worker: Callable[[PaperMetadata], PaperMetadata],
-        *,
-        desc: str,
+            self,
+            papers: list[PaperMetadata],
+            worker: Callable[[PaperMetadata], PaperMetadata],
+            *,
+            desc: str,
     ) -> list[PaperMetadata]:
         """Process PDF work in bounded batches so downloads do not burst all at once."""
 
@@ -976,11 +987,11 @@ class PipelineController:
         return processed
 
     def _map_papers_with_executor(
-        self,
-        papers: list[PaperMetadata],
-        worker: Callable[[PaperMetadata], PaperMetadata],
-        *,
-        desc: str,
+            self,
+            papers: list[PaperMetadata],
+            worker: Callable[[PaperMetadata], PaperMetadata],
+            *,
+            desc: str,
     ) -> list[PaperMetadata]:
         """Process a paper batch in parallel when useful while preserving the original order."""
 
@@ -1010,11 +1021,11 @@ class PipelineController:
                     for index, paper in enumerate(papers)
                 }
                 for future in tqdm(
-                    as_completed(future_map),
-                    total=len(future_map),
-                    desc=desc,
-                    unit="paper",
-                    disable=self.config.disable_progress_bars,
+                        as_completed(future_map),
+                        total=len(future_map),
+                        desc=desc,
+                        unit="paper",
+                        disable=self.config.disable_progress_bars,
                 ):
                     self._check_stop()
                     ordered_results[future_map[future]] = future.result()
@@ -1024,12 +1035,12 @@ class PipelineController:
         return [result if result is not None else paper for result, paper in zip(ordered_results, papers)]
 
     def _map_papers_async(
-        self,
-        papers: list[PaperMetadata],
-        worker: Callable[[PaperMetadata], PaperMetadata],
-        *,
-        desc: str,
-        worker_count: int,
+            self,
+            papers: list[PaperMetadata],
+            worker: Callable[[PaperMetadata], PaperMetadata],
+            *,
+            desc: str,
+            worker_count: int,
     ) -> list[PaperMetadata]:
         """Run IO-heavy per-paper work through an asyncio coordination layer."""
 
@@ -1037,12 +1048,12 @@ class PipelineController:
         return asyncio.run(self._map_papers_async_impl(papers, worker, desc=desc, worker_count=worker_count))
 
     async def _map_papers_async_impl(
-        self,
-        papers: list[PaperMetadata],
-        worker: Callable[[PaperMetadata], PaperMetadata],
-        *,
-        desc: str,
-        worker_count: int,
+            self,
+            papers: list[PaperMetadata],
+            worker: Callable[[PaperMetadata], PaperMetadata],
+            *,
+            desc: str,
+            worker_count: int,
     ) -> list[PaperMetadata]:
         """Preserve paper order while running synchronous workers through asyncio."""
 
@@ -1123,6 +1134,3 @@ class PipelineController:
 
         if self.stop_event.is_set():
             raise PipelineStoppedError("Stopped by user request")
-
-
-
