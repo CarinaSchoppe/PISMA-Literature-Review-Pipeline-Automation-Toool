@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from utils.logging_utils import build_log_file_path, normalize_verbosity
 from utils.text_processing import build_query, ensure_parent_directory, make_query_key, parse_search_terms
@@ -36,8 +36,8 @@ DEFAULT_EXCLUDED_TITLE_TERMS = [
     "editorial",
     "retraction",
 ]
-GOOGLE_SCHOLAR_PAGE_MIN = 1
-GOOGLE_SCHOLAR_PAGE_MAX = 100
+DEFAULT_GOOGLE_SCHOLAR_PAGE_MIN = 1
+DEFAULT_GOOGLE_SCHOLAR_PAGE_MAX = 100
 
 
 class ApiSettings(BaseModel):
@@ -201,6 +201,8 @@ class ResearchConfig(BaseModel):
     output_json: bool = True
     output_markdown: bool = True
     output_sqlite_exports: bool = True
+    ui_settings_mode: Literal["compact", "advanced"] = "compact"
+    ui_show_advanced_settings: bool = False
     analysis_passes: list[AnalysisPassConfig] = Field(default_factory=list)
     openalex_enabled: bool = True
     semantic_scholar_enabled: bool = True
@@ -212,6 +214,8 @@ class ResearchConfig(BaseModel):
     core_enabled: bool = False
     google_scholar_enabled: bool = False
     google_scholar_pages: int = 1
+    google_scholar_page_min: int = DEFAULT_GOOGLE_SCHOLAR_PAGE_MIN
+    google_scholar_page_max: int = DEFAULT_GOOGLE_SCHOLAR_PAGE_MAX
     google_scholar_results_per_page: int = 10
     topic_prefilter_enabled: bool = False
     topic_prefilter_filter_low_relevance: bool = False
@@ -262,6 +266,19 @@ class ResearchConfig(BaseModel):
     log_file_path: Path | None = None
     api_settings: ApiSettings = Field(default_factory=ApiSettings)
     query_key: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_google_scholar_page_defaults(cls, value: Any) -> Any:
+        """Populate dependent Scholar defaults before validation when only custom bounds are provided."""
+
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        page_min = payload.get("google_scholar_page_min", DEFAULT_GOOGLE_SCHOLAR_PAGE_MIN)
+        if payload.get("google_scholar_pages") in {None, ""}:
+            payload["google_scholar_pages"] = page_min
+        return payload
 
     @field_validator("search_keywords", mode="before")
     @classmethod
@@ -328,18 +345,6 @@ class ResearchConfig(BaseModel):
 
         return min(max(float(value), 0.0), 1.0)
 
-    @field_validator("google_scholar_pages")
-    @classmethod
-    def validate_google_scholar_page_depth(cls, value: int) -> int:
-        """Require bounded Google Scholar page traversal so runs stay explicit and predictable."""
-
-        normalized = int(value)
-        if not GOOGLE_SCHOLAR_PAGE_MIN <= normalized <= GOOGLE_SCHOLAR_PAGE_MAX:
-            raise ValueError(
-                f"google_scholar_pages must be between {GOOGLE_SCHOLAR_PAGE_MIN} and {GOOGLE_SCHOLAR_PAGE_MAX}"
-            )
-        return normalized
-
     @field_validator("relevance_threshold")
     @classmethod
     def validate_threshold(cls, value: float) -> float:
@@ -365,6 +370,8 @@ class ResearchConfig(BaseModel):
         "http_retry_max_attempts",
         "pdf_batch_size",
         "google_scholar_pages",
+        "google_scholar_page_min",
+        "google_scholar_page_max",
         "google_scholar_results_per_page",
         "topic_prefilter_max_chars",
     )
@@ -420,6 +427,21 @@ class ResearchConfig(BaseModel):
         if int(value) < 0:
             raise ValueError("Configuration value must be at least 0")
         return int(value)
+
+    @model_validator(mode="after")
+    def validate_google_scholar_bounds(self) -> ResearchConfig:
+        """Keep Google Scholar page-depth controls internally consistent."""
+
+        if self.google_scholar_page_min < 1:
+            raise ValueError("google_scholar_page_min must be greater than or equal to 1")
+        if self.google_scholar_page_max < self.google_scholar_page_min:
+            raise ValueError("google_scholar_page_max must be greater than or equal to google_scholar_page_min")
+        if not self.google_scholar_page_min <= self.google_scholar_pages <= self.google_scholar_page_max:
+            raise ValueError(
+                "google_scholar_pages must be between "
+                f"{self.google_scholar_page_min} and {self.google_scholar_page_max}"
+            )
+        return self
 
     @property
     def search_query(self) -> str:
@@ -846,6 +868,21 @@ class ResearchConfig(BaseModel):
             if value is not None
         }
         api_settings = ApiSettings(**{**file_api_settings, **api_overrides})
+        google_scholar_page_min = value_for(
+            "google_scholar_page_min",
+            getattr(args, "google_scholar_page_min", None),
+            DEFAULT_GOOGLE_SCHOLAR_PAGE_MIN,
+        )
+        google_scholar_page_max = value_for(
+            "google_scholar_page_max",
+            getattr(args, "google_scholar_page_max", None),
+            DEFAULT_GOOGLE_SCHOLAR_PAGE_MAX,
+        )
+        google_scholar_pages = value_for(
+            "google_scholar_pages",
+            getattr(args, "google_scholar_pages", None),
+            max(DEFAULT_GOOGLE_SCHOLAR_PAGE_MIN, int(google_scholar_page_min)),
+        )
 
         return cls(
             research_topic=topic,
@@ -901,6 +938,12 @@ class ResearchConfig(BaseModel):
                 getattr(args, "output_sqlite_exports", None),
                 True,
             ),
+            ui_settings_mode=value_for("ui_settings_mode", getattr(args, "ui_settings_mode", None), "compact"),
+            ui_show_advanced_settings=value_for(
+                "ui_show_advanced_settings",
+                getattr(args, "ui_show_advanced_settings", None),
+                False,
+            ),
             analysis_passes=analysis_passes,
             openalex_enabled=value_for("openalex_enabled", args.openalex_enabled, True),
             semantic_scholar_enabled=value_for("semantic_scholar_enabled", args.semantic_scholar_enabled, True),
@@ -911,7 +954,9 @@ class ResearchConfig(BaseModel):
             europe_pmc_enabled=value_for("europe_pmc_enabled", getattr(args, "europe_pmc_enabled", None), False),
             core_enabled=value_for("core_enabled", getattr(args, "core_enabled", None), False),
             google_scholar_enabled=value_for("google_scholar_enabled", getattr(args, "google_scholar_enabled", None), False),
-            google_scholar_pages=value_for("google_scholar_pages", getattr(args, "google_scholar_pages", None), 1),
+            google_scholar_pages=google_scholar_pages,
+            google_scholar_page_min=google_scholar_page_min,
+            google_scholar_page_max=google_scholar_page_max,
             google_scholar_results_per_page=value_for("google_scholar_results_per_page", getattr(args, "google_scholar_results_per_page", None), 10),
             topic_prefilter_enabled=value_for("topic_prefilter_enabled", getattr(args, "topic_prefilter_enabled", None), False),
             topic_prefilter_filter_low_relevance=value_for("topic_prefilter_filter_low_relevance", getattr(args, "topic_prefilter_filter_low_relevance", None), False),
@@ -1180,8 +1225,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
         dest="google_scholar_pages",
         help=(
             f"Number of Google Scholar result pages to process when Scholar discovery is enabled "
-            f"({GOOGLE_SCHOLAR_PAGE_MIN}-{GOOGLE_SCHOLAR_PAGE_MAX})"
+            f"({DEFAULT_GOOGLE_SCHOLAR_PAGE_MIN}-{DEFAULT_GOOGLE_SCHOLAR_PAGE_MAX} by default)"
         ),
+    )
+    parser.add_argument(
+        "--google-scholar-page-min",
+        type=int,
+        dest="google_scholar_page_min",
+        help="Lower bound applied when validating the configured Google Scholar page depth",
+    )
+    parser.add_argument(
+        "--google-scholar-page-max",
+        type=int,
+        dest="google_scholar_page_max",
+        help="Upper bound applied when validating the configured Google Scholar page depth",
     )
     parser.add_argument(
         "--google-scholar-results-per-page",
@@ -1232,6 +1289,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--run-mode",
         choices=["collect", "analyze"],
         help="Collect metadata only or run full analysis",
+    )
+    parser.add_argument(
+        "--ui-settings-mode",
+        choices=["compact", "advanced"],
+        help="Default settings density used when the guided desktop workbench opens",
+    )
+    parser.add_argument(
+        "--ui-show-advanced-settings",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Reveal or hide advanced settings pages by default when the guided desktop workbench opens",
     )
     parser.add_argument(
         "--verbosity",

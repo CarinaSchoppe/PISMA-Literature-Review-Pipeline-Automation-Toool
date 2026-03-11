@@ -77,39 +77,63 @@ class CoverageReportTests(unittest.TestCase):
         self.assertEqual(json_summary["overall"]["percent_covered"], 95.0)
         self.assertEqual(json_summary["files"][0]["missing_ranges"], "10-11, 30")
 
+    def test_build_arg_parser_supports_include_tests_and_custom_omit(self) -> None:
+        parser = coverage_report.build_arg_parser()
+        args = parser.parse_args(["--include-tests", "--omit", "foo/*", "--top-files", "7"])
+
+        self.assertTrue(args.include_tests)
+        self.assertEqual(args.omit, ["foo/*"])
+        self.assertEqual(args.top_files, 7)
+
+    def test_build_coverage_config_can_include_or_exclude_test_files(self) -> None:
+        excluded = coverage_report._build_coverage_config(["tests/*", "build/*"])
+        included = coverage_report._build_coverage_config([])
+
+        self.assertIn("omit =", excluded)
+        self.assertIn("tests/*", excluded)
+        self.assertIn("build/*", excluded)
+        self.assertNotIn("omit =", included)
+
     @patch("builtins.print")
     @patch("coverage_report.subprocess.run")
     def test_run_coverage_report_writes_expected_artifacts(self, run_mock, _print_mock) -> None:
         def fake_run(command, cwd=None, check=None, text=None, capture_output=False, env=None):
             self.assertIn("COVERAGE_FILE", env)
-            if "json" in command:
-                output_path = Path(command[command.index("-o") + 1])
-                output_path.write_text(
-                    json.dumps(
-                        {
-                            "totals": {
-                                "num_statements": 10,
-                                "covered_lines": 9,
-                                "missing_lines": 1,
-                                "percent_covered": 90.0,
-                            },
-                            "files": {
-                                "config.py": {
-                                    "summary": {
-                                        "num_statements": 10,
-                                        "covered_lines": 9,
-                                        "percent_covered": 90.0,
-                                    },
-                                    "missing_lines": [42],
-                                }
-                            },
-                        }
-                    ),
-                    encoding="utf-8",
-                )
-            if "report" in command:
-                return type("Result", (), {"stdout": "TOTAL 90.00%\n"})()
-            return type("Result", (), {"stdout": ""})()
+            self.assertIn("-m", command)
+            self.assertIn("pytest", command)
+            json_arg = next(part for part in command if part.startswith("--cov-report=json:"))
+            html_arg = next(part for part in command if part.startswith("--cov-report=html:"))
+            junit_arg = next(part for part in command if part.startswith("--junitxml="))
+            output_path = Path(json_arg.split(":", 1)[1])
+            html_path = Path(html_arg.split(":", 1)[1])
+            junit_path = Path(junit_arg.split("=", 1)[1])
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "totals": {
+                            "num_statements": 10,
+                            "covered_lines": 9,
+                            "missing_lines": 1,
+                            "percent_covered": 90.0,
+                        },
+                        "files": {
+                            "config.py": {
+                                "summary": {
+                                    "num_statements": 10,
+                                    "covered_lines": 9,
+                                    "percent_covered": 90.0,
+                                },
+                                "missing_lines": [42],
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            html_path.mkdir(parents=True, exist_ok=True)
+            (html_path / "index.html").write_text("<html></html>", encoding="utf-8")
+            junit_path.write_text("<testsuite></testsuite>", encoding="utf-8")
+            return type("Result", (), {"stdout": "============================= test session starts =============================\nTOTAL 90.00%\n"})()
 
         run_mock.side_effect = fake_run
 
@@ -124,7 +148,10 @@ class CoverageReportTests(unittest.TestCase):
             self.assertTrue((base / "coverage_report.md").exists())
             self.assertTrue((base / "coverage_report.txt").exists())
             self.assertTrue((base / "coverage_summary.json").exists())
+            self.assertTrue((base / "junit.xml").exists())
+            self.assertTrue((base / "pytest_terminal.txt").exists())
             self.assertFalse((base / ".coverage").exists())
+            self.assertTrue((base / ".coveragerc").exists())
             self.assertIn("config.py", (base / "coverage_report.txt").read_text(encoding="utf-8"))
 
     @patch("builtins.print")
@@ -132,25 +159,28 @@ class CoverageReportTests(unittest.TestCase):
     def test_run_coverage_report_can_fail_threshold(self, run_mock, _print_mock) -> None:
         def fake_run(command, cwd=None, check=None, text=None, capture_output=False, env=None):
             self.assertIn("COVERAGE_FILE", env)
-            if "json" in command:
-                output_path = Path(command[command.index("-o") + 1])
-                output_path.write_text(
-                    json.dumps(
-                        {
-                            "totals": {
-                                "num_statements": 10,
-                                "covered_lines": 7,
-                                "missing_lines": 3,
-                                "percent_covered": 70.0,
-                            },
-                            "files": {},
-                        }
-                    ),
-                    encoding="utf-8",
-                )
-            if "report" in command:
-                return type("Result", (), {"stdout": "TOTAL 70.00%\n"})()
-            return type("Result", (), {"stdout": ""})()
+            json_arg = next(part for part in command if part.startswith("--cov-report=json:"))
+            html_arg = next(part for part in command if part.startswith("--cov-report=html:"))
+            junit_arg = next(part for part in command if part.startswith("--junitxml="))
+            Path(json_arg.split(":", 1)[1]).write_text(
+                json.dumps(
+                    {
+                        "totals": {
+                            "num_statements": 10,
+                            "covered_lines": 7,
+                            "missing_lines": 3,
+                            "percent_covered": 70.0,
+                        },
+                        "files": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            html_path = Path(html_arg.split(":", 1)[1])
+            html_path.mkdir(parents=True, exist_ok=True)
+            (html_path / "index.html").write_text("<html></html>", encoding="utf-8")
+            Path(junit_arg.split("=", 1)[1]).write_text("<testsuite></testsuite>", encoding="utf-8")
+            return type("Result", (), {"stdout": "TOTAL 70.00%\n"})()
 
         run_mock.side_effect = fake_run
 
@@ -159,10 +189,6 @@ class CoverageReportTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 2)
 
-    def test_build_arg_parser_supports_include_tests_and_custom_omit(self) -> None:
-        parser = coverage_report.build_arg_parser()
-        args = parser.parse_args(["--include-tests", "--omit", "foo/*", "--top-files", "7"])
 
-        self.assertTrue(args.include_tests)
-        self.assertEqual(args.omit, ["foo/*"])
-        self.assertEqual(args.top_files, 7)
+if __name__ == "__main__":  # pragma: no cover - direct module execution helper
+    unittest.main()

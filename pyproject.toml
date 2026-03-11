@@ -102,3 +102,9 @@ disallow_incomplete_defs = false
 no_implicit_optional = true
 disable_error_code = ["import-untyped"]
 pretty = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+junit_family = "xunit2"

@@ -84,6 +84,8 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.workbench.LABELS["output_sqlite_exports"], "Write SQLite exports")
         self.assertEqual(self.workbench.LABELS["database_path"], "Main SQLite database path")
         self.assertEqual(self.workbench.LABELS["results_dir"], "Results directory")
+        self.assertEqual(self.workbench.LABELS["google_scholar_page_min"], "Google Scholar page minimum")
+        self.assertEqual(self.workbench.LABELS["google_scholar_page_max"], "Google Scholar page maximum")
         self.assertEqual(self.workbench.LABELS["gemini_model"], "Gemini model")
         self.assertEqual(self.workbench.LABELS["europe_pmc_enabled"], "Use Europe PMC")
         self.assertEqual(self.workbench.LABELS["core_enabled"], "Use CORE")
@@ -146,7 +148,8 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertGreater(len(tuple(self.workbench.settings_search_combo["values"])), 0)
 
     def test_gui_covers_all_runtime_fields_and_toolbar_actions(self) -> None:
-        config_fields = set(ResearchConfig.model_fields.keys()) - {"api_settings", "query_key"}
+        shell_control_fields = {"ui_settings_mode", "ui_show_advanced_settings"}
+        config_fields = set(ResearchConfig.model_fields.keys()) - {"api_settings", "query_key"} - shell_control_fields
         api_fields = set(ApiSettings.model_fields.keys())
         grouped_fields = set()
         for _, fields in self.workbench.GROUPS:
@@ -156,6 +159,8 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertTrue((config_fields | api_fields).issubset(grouped_fields))
         self.assertTrue(grouped_fields.issubset(widget_fields))
         self.assertIn("analysis_passes", self.workbench.text_widgets)
+        self.assertEqual(self.workbench.settings_mode_var.get(), "compact")
+        self.assertFalse(self.workbench.show_advanced_settings.get())
 
         toolbar_texts: list[str] = []
         for widget in _walk_widgets(self.workbench.root):
@@ -275,6 +280,20 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(intro_label.winfo_manager(), "grid")
         self.assertEqual(summary_label.winfo_manager(), "grid")
 
+    def test_apply_form_values_restores_persisted_ui_defaults(self) -> None:
+        self.workbench._apply_form_values(
+            {
+                **self.workbench._collect_form_values(),
+                "ui_settings_mode": "advanced",
+                "ui_show_advanced_settings": True,
+            }
+        )
+
+        self.assertEqual(self.workbench.settings_mode_var.get(), "advanced")
+        self.assertTrue(self.workbench.show_advanced_settings.get())
+        advanced_page = self.workbench.settings_page_frames["Advanced Runtime"]
+        self.assertEqual(self.workbench.settings_pages_notebook.tab(advanced_page, "state"), "normal")
+
     def test_advanced_settings_page_is_hidden_until_requested(self) -> None:
         notebook = self.workbench.settings_pages_notebook
         advanced_page = self.workbench.settings_page_frames["Advanced Runtime"]
@@ -300,6 +319,8 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.workbench.field_widget_types["partial_rerun_mode"], "combobox")
         self.assertEqual(self.workbench.field_widget_types["pages_to_retrieve"], "spinbox")
         self.assertEqual(self.workbench.field_widget_types["google_scholar_pages"], "spinbox")
+        self.assertEqual(self.workbench.field_widget_types["google_scholar_page_min"], "spinbox")
+        self.assertEqual(self.workbench.field_widget_types["google_scholar_page_max"], "spinbox")
         self.assertEqual(self.workbench.field_widget_types["google_scholar_results_per_page"], "spinbox")
         self.assertEqual(self.workbench.field_widget_types["discovery_workers"], "spinbox")
         self.assertEqual(self.workbench.field_widget_types["io_workers"], "spinbox")

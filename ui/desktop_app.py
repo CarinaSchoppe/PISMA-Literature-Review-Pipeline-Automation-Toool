@@ -190,6 +190,8 @@ class DesktopWorkbench:
         "pages_to_retrieve": {"from_": 1, "to": 50, "increment": 1},
         "results_per_page": {"from_": 1, "to": 200, "increment": 1},
         "google_scholar_pages": {"from_": 1, "to": 100, "increment": 1},
+        "google_scholar_page_min": {"from_": 1, "to": 100, "increment": 1},
+        "google_scholar_page_max": {"from_": 1, "to": 1000, "increment": 1},
         "google_scholar_results_per_page": {"from_": 1, "to": 50, "increment": 1},
         "year_range_start": {"from_": 1900, "to": 2100, "increment": 1},
         "year_range_end": {"from_": 1900, "to": 2100, "increment": 1},
@@ -248,14 +250,14 @@ class DesktopWorkbench:
             ],
         ),
         (
-            "Discovery",
-            [
-                "boolean_operators",
-                "discovery_strategy",
-                "pages_to_retrieve",
-                "results_per_page",
-                "google_scholar_pages",
-                "google_scholar_results_per_page",
+        "Discovery",
+        [
+            "boolean_operators",
+            "discovery_strategy",
+            "pages_to_retrieve",
+            "results_per_page",
+            "google_scholar_pages",
+            "google_scholar_results_per_page",
                 "max_discovered_records",
                 "min_discovered_records",
                 "year_range_start",
@@ -282,6 +284,8 @@ class DesktopWorkbench:
                 "google_scholar_import_path",
                 "researchgate_import_path",
                 "http_cache_enabled",
+                "google_scholar_page_min",
+                "google_scholar_page_max",
                 "semantic_scholar_max_requests_per_minute",
                 "semantic_scholar_request_delay_seconds",
                 "semantic_scholar_retry_attempts",
@@ -409,6 +413,8 @@ class DesktopWorkbench:
         "citation_snowballing_enabled": "Enable citation snowballing",
         "google_scholar_enabled": "Use Google Scholar",
         "google_scholar_pages": "Google Scholar pages",
+        "google_scholar_page_min": "Google Scholar page minimum",
+        "google_scholar_page_max": "Google Scholar page maximum",
         "google_scholar_results_per_page": "Google Scholar results / page",
         "openalex_enabled": "Use OpenAlex",
         "semantic_scholar_enabled": "Use Semantic Scholar",
@@ -1228,7 +1234,7 @@ class DesktopWorkbench:
         self.settings_search_var = tk.StringVar(value="")
         self.quick_destination_var = tk.StringVar(value="")
         self.guide_choice_var = tk.StringVar(value="")
-        self.settings_mode_var = tk.StringVar(value="compact")
+        self.settings_mode_var = tk.StringVar(value=str(self.form_values.get("ui_settings_mode", "compact") or "compact"))
         self.settings_search_combo: ttk.Combobox | None = None
         self.quick_destination_combo: ttk.Combobox | None = None
         self.guide_choice_combo: ttk.Combobox | None = None
@@ -1260,7 +1266,7 @@ class DesktopWorkbench:
         self.base_status_message = "Ready."
         self.status_var = tk.StringVar(value=self.base_status_message)
         self.hover_help_enabled = tk.BooleanVar(value=True)
-        self.show_advanced_settings = tk.BooleanVar(value=False)
+        self.show_advanced_settings = tk.BooleanVar(value=bool(self.form_values.get("ui_show_advanced_settings", False)))
         self.hover_tooltip = HoverTooltip(self.root)
         self._hover_message_active = False
         self.all_filter_var = tk.StringVar(value="all")
@@ -4417,6 +4423,10 @@ class DesktopWorkbench:
                 self._set_placeholder_text(field_name, text_value)
             else:
                 self._restore_placeholder_if_empty(field_name)
+        self.settings_mode_var.set(str(values.get("ui_settings_mode", self.settings_mode_var.get()) or "compact"))
+        self.show_advanced_settings.set(bool(values.get("ui_show_advanced_settings", self.show_advanced_settings.get())))
+        self._apply_settings_mode()
+        self._apply_settings_page_visibility()
         for field_name in self.slider_value_label_groups:
             self._sync_slider_label(field_name)
         self._refresh_settings_overview()
@@ -4436,6 +4446,8 @@ class DesktopWorkbench:
             widget = self.placeholder_widgets[field_name]
             mode = self.placeholder_modes[field_name]
             values[field_name] = self._placeholder_safe_value(field_name, self._get_widget_content(widget, mode))
+        values["ui_settings_mode"] = self.settings_mode_var.get()
+        values["ui_show_advanced_settings"] = bool(self.show_advanced_settings.get())
         profile_name = self.profile_combo.get().strip()
         if profile_name and not values.get("profile_name"):
             values["profile_name"] = profile_name
