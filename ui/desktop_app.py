@@ -4267,8 +4267,13 @@ class DesktopWorkbench:
         if column == "inclusion_decision":
             badge_text, _tone = self._decision_badge_text(value)
             return badge_text
+        if column == "topic_prefilter_research_fit_label":
+            badge_text, _tone = self._research_fit_badge_text(value)
+            return badge_text
         if column == "relevance_score" and value.strip():
             return f"[SCORE] {value}"
+        if column == "topic_prefilter_weighted_score" and value.strip():
+            return f"[FIT] {value}"
         if column == "source" and value.strip():
             return f"[SRC] {value}"
         return value[:500]
@@ -6183,7 +6188,13 @@ class DesktopWorkbench:
             row_payload = {column: row.get(column, "") for column in dataframe.columns}
             item_id = f"{key}-{index}"
             decision = str(row_payload.get("inclusion_decision", "") or "").strip().lower()
-            tags = (decision,) if decision in {"include", "maybe", "exclude"} else ()
+            fit_label = str(row_payload.get("topic_prefilter_research_fit_label", "") or "").strip().upper()
+            fit_tag = {
+                "STRONG_FIT": "strong_fit",
+                "NEAR_FIT": "near_fit",
+                "WEAK_FIT": "weak_fit",
+            }.get(fit_label, "")
+            tags = tuple(tag for tag in (decision, fit_tag) if tag)
             self.table_rows[key][item_id] = row_payload
             tree.insert(
                 "",
