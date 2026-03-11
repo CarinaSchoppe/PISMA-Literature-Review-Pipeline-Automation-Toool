@@ -331,10 +331,41 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.workbench.toolbar_buttons["Force Stop"].cget("style"), "Danger.TButton")
         self.assertEqual(self.workbench.notebook.cget("style"), "Workbench.TNotebook")
         self.assertEqual(self.workbench.status_label.cget("style"), "Status.TLabel")
+        self.assertEqual(str(self.workbench.style.lookup("HeroPanel.TFrame", "background")), self.workbench.PALETTE["hero_bg"])
+        self.assertEqual(
+            str(self.workbench.style.lookup("MetricAccent.TFrame", "background")),
+            self.workbench.PALETTE["muted_surface"],
+        )
+        self.assertEqual(
+            str(self.workbench.style.lookup("MetricHeroValue.TLabel", "foreground")),
+            self.workbench.PALETTE["inverse_text"],
+        )
         self.assertEqual(
             self.workbench.style.lookup("Workbench.TNotebook.Tab", "background", ("selected",)),
             self.workbench.PALETTE["surface_bg"],
         )
+
+    def test_visual_summary_cards_are_rendered_for_modern_dashboard_sections(self) -> None:
+        expected_cards = {
+            "hero_guided_pages",
+            "hero_outputs",
+            "hero_reruns",
+            "hero_mode",
+            "hero_help",
+            "settings_brief_card",
+            "settings_discovery_card",
+            "settings_runtime_card",
+            "log_visibility_card",
+            "log_trace_card",
+            "log_debug_card",
+            "outputs_csv_card",
+            "outputs_sqlite_card",
+            "outputs_pdf_card",
+            "charts_decisions_card",
+            "charts_sources_card",
+            "charts_audit_card",
+        }
+        self.assertTrue(expected_cards.issubset(set(self.workbench.visual_summary_cards.keys())))
 
     def test_quick_access_summaries_show_model_and_output_details(self) -> None:
         passes = [

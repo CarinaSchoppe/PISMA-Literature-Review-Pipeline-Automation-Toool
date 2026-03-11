@@ -100,23 +100,33 @@ class DesktopWorkbench:
     RUN_HISTORY_FILENAME = "ui_run_history.json"
 
     PALETTE = {
-        "window_bg": "#f7f8fc",
-        "shell_bg": "#eef2f8",
+        "window_bg": "#f4f7fb",
+        "shell_bg": "#edf2f8",
         "surface_bg": "#ffffff",
-        "surface_alt": "#f8faff",
-        "muted_surface": "#eef2ff",
-        "sidebar_bg": "#f4f7fb",
+        "surface_alt": "#f7faff",
+        "surface_raised": "#fbfdff",
+        "muted_surface": "#eef3ff",
+        "sidebar_bg": "#f3f7fc",
         "inspector_bg": "#f6f9fd",
-        "border": "#d9e2ef",
-        "border_strong": "#c7d4e5",
-        "shadow": "#cfd9e8",
-        "text": "#0f172a",
-        "muted_text": "#607086",
+        "hero_bg": "#111936",
+        "hero_alt": "#1d2752",
+        "hero_soft": "#dde7ff",
+        "border": "#d9e4f0",
+        "border_strong": "#c7d6e5",
+        "shadow": "#d5deea",
+        "text": "#101828",
+        "muted_text": "#63758c",
         "accent": "#5b6cff",
-        "accent_active": "#4756eb",
+        "accent_active": "#4656e6",
         "accent_soft": "#e7ebff",
+        "accent_lilac": "#efe6ff",
+        "accent_mint": "#e7fbf2",
+        "accent_peach": "#fff1e8",
+        "success": "#12b76a",
+        "warning": "#f79009",
         "danger": "#ef4444",
         "danger_active": "#dc2626",
+        "inverse_text": "#f8fbff",
         "selection": "#eef2ff",
     }
 
@@ -1182,8 +1192,8 @@ class DesktopWorkbench:
         self.args = args
         self.root = tk.Tk()
         self.root.title("PRISMA Literature Review Workbench")
-        self.root.geometry("1180x760")
-        self.root.minsize(920, 640)
+        self.root.geometry("1280x820")
+        self.root.minsize(980, 680)
         self.style = ttk.Style(self.root)
         self.active_theme = self._configure_theme()
         self.profile_manager = ProfileManager()
@@ -1218,6 +1228,7 @@ class DesktopWorkbench:
         self.canvas_scrollbars: dict[str, dict[str, ttk.Scrollbar]] = {}
         self.table_frames: dict[str, ttk.Frame] = {}
         self.toolbar_buttons: dict[str, ttk.Button] = {}
+        self.visual_summary_cards: dict[str, ttk.Frame] = {}
         self.status_label: ttk.Label | None = None
         self.outputs_tree: ttk.Treeview | None = None
         self.handbook_tree: ttk.Treeview | None = None
@@ -1313,10 +1324,17 @@ class DesktopWorkbench:
         self.style.configure("TFrame", background=self.PALETTE["shell_bg"])
         self.style.configure("Shell.TFrame", background=self.PALETTE["shell_bg"])
         self.style.configure("Surface.TFrame", background=self.PALETTE["surface_bg"])
+        self.style.configure("Raised.TFrame", background=self.PALETTE["surface_raised"])
         self.style.configure("Panel.TFrame", background=self.PALETTE["surface_bg"])
         self.style.configure(
             "Header.TFrame",
             background=self.PALETTE["surface_bg"],
+            relief="solid",
+            borderwidth=1,
+        )
+        self.style.configure(
+            "HeroPanel.TFrame",
+            background=self.PALETTE["hero_bg"],
             relief="solid",
             borderwidth=1,
         )
@@ -1348,12 +1366,24 @@ class DesktopWorkbench:
             "HeroTitle.TLabel",
             background=self.PALETTE["surface_bg"],
             foreground=self.PALETTE["text"],
-            font=("Segoe UI Semibold", 19),
+            font=("Segoe UI Semibold", 20),
         )
         self.style.configure(
             "HeroSubtitle.TLabel",
             background=self.PALETTE["surface_bg"],
             foreground=self.PALETTE["muted_text"],
+            font=("Segoe UI", 10),
+        )
+        self.style.configure(
+            "HeroPanelTitle.TLabel",
+            background=self.PALETTE["hero_bg"],
+            foreground=self.PALETTE["inverse_text"],
+            font=("Segoe UI Semibold", 15),
+        )
+        self.style.configure(
+            "HeroPanelBody.TLabel",
+            background=self.PALETTE["hero_bg"],
+            foreground=self.PALETTE["hero_soft"],
             font=("Segoe UI", 10),
         )
         self.style.configure(
@@ -1386,6 +1416,85 @@ class DesktopWorkbench:
             foreground=self.PALETTE["accent_active"],
             font=("Segoe UI Semibold", 9),
             padding=(12, 7),
+        )
+        self.style.configure(
+            "HeroPill.TLabel",
+            background=self.PALETTE["hero_alt"],
+            foreground=self.PALETTE["inverse_text"],
+            font=("Segoe UI Semibold", 9),
+            padding=(12, 7),
+        )
+        self.style.configure(
+            "Metric.TFrame",
+            background=self.PALETTE["surface_raised"],
+            relief="solid",
+            borderwidth=1,
+        )
+        self.style.configure(
+            "MetricAccent.TFrame",
+            background=self.PALETTE["muted_surface"],
+            relief="solid",
+            borderwidth=1,
+        )
+        self.style.configure(
+            "MetricHero.TFrame",
+            background=self.PALETTE["hero_alt"],
+            relief="solid",
+            borderwidth=1,
+        )
+        self.style.configure(
+            "MetricLabel.TLabel",
+            background=self.PALETTE["surface_raised"],
+            foreground=self.PALETTE["muted_text"],
+            font=("Segoe UI Semibold", 9),
+        )
+        self.style.configure(
+            "MetricValue.TLabel",
+            background=self.PALETTE["surface_raised"],
+            foreground=self.PALETTE["text"],
+            font=("Segoe UI Semibold", 16),
+        )
+        self.style.configure(
+            "MetricMeta.TLabel",
+            background=self.PALETTE["surface_raised"],
+            foreground=self.PALETTE["muted_text"],
+            font=("Segoe UI", 9),
+        )
+        self.style.configure(
+            "MetricAccentLabel.TLabel",
+            background=self.PALETTE["muted_surface"],
+            foreground=self.PALETTE["accent_active"],
+            font=("Segoe UI Semibold", 9),
+        )
+        self.style.configure(
+            "MetricAccentValue.TLabel",
+            background=self.PALETTE["muted_surface"],
+            foreground=self.PALETTE["text"],
+            font=("Segoe UI Semibold", 16),
+        )
+        self.style.configure(
+            "MetricAccentMeta.TLabel",
+            background=self.PALETTE["muted_surface"],
+            foreground=self.PALETTE["muted_text"],
+            font=("Segoe UI", 9),
+        )
+        self.style.configure(
+            "MetricHeroLabel.TLabel",
+            background=self.PALETTE["hero_alt"],
+            foreground=self.PALETTE["hero_soft"],
+            font=("Segoe UI Semibold", 9),
+        )
+        self.style.configure(
+            "MetricHeroValue.TLabel",
+            background=self.PALETTE["hero_alt"],
+            foreground=self.PALETTE["inverse_text"],
+            font=("Segoe UI Semibold", 16),
+        )
+        self.style.configure(
+            "MetricHeroMeta.TLabel",
+            background=self.PALETTE["hero_alt"],
+            foreground=self.PALETTE["hero_soft"],
+            font=("Segoe UI", 9),
         )
         self.style.configure(
             "Status.TLabel",
@@ -1461,7 +1570,7 @@ class DesktopWorkbench:
             "Workbench.TNotebook.Tab",
             background=self.PALETTE["muted_surface"],
             foreground=self.PALETTE["muted_text"],
-            padding=(18, 12),
+            padding=(18, 13),
             font=("Segoe UI Semibold", 10),
         )
         self.style.map(
@@ -1471,7 +1580,7 @@ class DesktopWorkbench:
         )
         self.style.configure(
             "TButton",
-            padding=(14, 10),
+            padding=(14, 11),
             relief="flat",
             borderwidth=0,
             background=self.PALETTE["muted_surface"],
@@ -1487,7 +1596,7 @@ class DesktopWorkbench:
             "Accent.TButton",
             background=self.PALETTE["accent"],
             foreground="#ffffff",
-            padding=(16, 11),
+            padding=(16, 12),
         )
         self.style.map(
             "Accent.TButton",
@@ -1496,11 +1605,11 @@ class DesktopWorkbench:
         )
         self.style.configure(
             "Secondary.TButton",
-            background=self.PALETTE["surface_alt"],
+            background=self.PALETTE["surface_raised"],
             foreground=self.PALETTE["text"],
             borderwidth=1,
             relief="solid",
-            padding=(14, 10),
+            padding=(14, 11),
         )
         self.style.map(
             "Secondary.TButton",
@@ -1510,7 +1619,7 @@ class DesktopWorkbench:
             "Nav.TButton",
             background=self.PALETTE["sidebar_bg"],
             foreground=self.PALETTE["text"],
-            padding=(16, 12),
+            padding=(16, 13),
             borderwidth=1,
             relief="solid",
         )
@@ -1522,7 +1631,7 @@ class DesktopWorkbench:
             "SelectedNav.TButton",
             background=self.PALETTE["accent"],
             foreground="#ffffff",
-            padding=(16, 12),
+            padding=(16, 13),
             borderwidth=0,
         )
         self.style.map(
@@ -1534,7 +1643,7 @@ class DesktopWorkbench:
             "Danger.TButton",
             background=self.PALETTE["danger"],
             foreground="#ffffff",
-            padding=(16, 11),
+            padding=(16, 12),
         )
         self.style.map(
             "Danger.TButton",
@@ -1579,7 +1688,7 @@ class DesktopWorkbench:
             fieldbackground=self.PALETTE["surface_bg"],
             foreground=self.PALETTE["text"],
             bordercolor=self.PALETTE["border"],
-            rowheight=32,
+            rowheight=36,
         )
         self.style.map("Treeview", background=[("selected", self.PALETTE["selection"])])
         self.style.configure(
@@ -1588,7 +1697,7 @@ class DesktopWorkbench:
             foreground=self.PALETTE["text"],
             relief="flat",
             font=("Segoe UI Semibold", 10),
-            padding=(8, 6),
+            padding=(10, 8),
         )
         self.style.configure(
             "Tooltip.TFrame",
@@ -1618,6 +1727,48 @@ class DesktopWorkbench:
             arrowcolor=self.PALETTE["muted_text"],
         )
         return preferred_theme
+
+    def _build_metric_strip(
+        self,
+        parent: ttk.Frame,
+        cards: list[tuple[str, str, str, str, str]],
+        *,
+        card_padding: tuple[int, int] = (14, 12),
+    ) -> ttk.Frame:
+        """Render a row of compact summary cards to give dense pages more visual hierarchy."""
+
+        strip = ttk.Frame(parent, style="Surface.TFrame")
+        for index, _card in enumerate(cards):
+            strip.columnconfigure(index, weight=1)
+        for index, (key, title, value, meta, tone) in enumerate(cards):
+            frame_style = {
+                "accent": "MetricAccent.TFrame",
+                "hero": "MetricHero.TFrame",
+            }.get(tone, "Metric.TFrame")
+            label_style = {
+                "accent": "MetricAccentLabel.TLabel",
+                "hero": "MetricHeroLabel.TLabel",
+            }.get(tone, "MetricLabel.TLabel")
+            value_style = {
+                "accent": "MetricAccentValue.TLabel",
+                "hero": "MetricHeroValue.TLabel",
+            }.get(tone, "MetricValue.TLabel")
+            meta_style = {
+                "accent": "MetricAccentMeta.TLabel",
+                "hero": "MetricHeroMeta.TLabel",
+            }.get(tone, "MetricMeta.TLabel")
+            card = ttk.Frame(strip, padding=card_padding, style=frame_style)
+            card.grid(row=0, column=index, sticky="nsew", padx=(0 if index == 0 else 8, 0))
+            ttk.Label(card, text=title, style=label_style).grid(row=0, column=0, sticky="w")
+            ttk.Label(card, text=value, style=value_style).grid(row=1, column=0, sticky="w", pady=(6, 0))
+            ttk.Label(card, text=meta, style=meta_style, wraplength=220, justify="left").grid(
+                row=2,
+                column=0,
+                sticky="w",
+                pady=(4, 0),
+            )
+            self.visual_summary_cards[key] = card
+        return strip
 
     def run(self) -> int:
         """Enter the Tk event loop until the user closes the application window."""
@@ -1778,7 +1929,7 @@ class DesktopWorkbench:
         shell.columnconfigure(0, weight=1)
         shell.rowconfigure(2, weight=1)
 
-        header = ttk.Frame(shell, padding=16, style="Header.TFrame")
+        header = ttk.Frame(shell, padding=18, style="Header.TFrame")
         header.grid(row=0, column=0, sticky="ew")
         header.columnconfigure(0, weight=1)
         header.columnconfigure(1, weight=0)
@@ -1801,30 +1952,56 @@ class DesktopWorkbench:
             justify="left",
             style="HeroSubtitle.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        header_metrics = self._build_metric_strip(
+            title_block,
+            [
+                ("hero_guided_pages", "Guided pages", "6", "Review, discovery, models, keys, storage, runtime", "accent"),
+                ("hero_outputs", "Artifact surfaces", "6+", "Tables, charts, outputs, handbook, history, audit", "default"),
+                ("hero_reruns", "Safe reruns", "Built in", "Stored analysis, partial reruns, cache-aware screening", "default"),
+            ],
+            card_padding=(12, 10),
+        )
+        header_metrics.grid(row=2, column=0, sticky="ew", pady=(14, 0))
 
-        header_controls = ttk.Frame(header, padding=12, style="ToolbarGroup.TFrame")
+        header_controls = ttk.Frame(header, padding=14, style="HeroPanel.TFrame")
         header_controls.grid(row=0, column=1, sticky="e", padx=(16, 0))
-        header_controls.columnconfigure(1, weight=1)
-        ttk.Label(header_controls, text="Profile", style="HeroSubtitle.TLabel").grid(row=0, column=0, sticky="w")
+        header_controls.columnconfigure(0, weight=1)
+        ttk.Label(header_controls, text="Workspace profile", style="HeroPanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            header_controls,
+            text="Keep one reusable configuration nearby while you tune discovery, AI passes, and outputs.",
+            style="HeroPanelBody.TLabel",
+            wraplength=260,
+            justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(6, 10))
         self.profile_combo = ttk.Combobox(header_controls, width=32, state="readonly")
-        self.profile_combo.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        self.profile_combo.grid(row=2, column=0, sticky="ew")
         self.profile_combo.bind("<<ComboboxSelected>>", lambda _event: self._load_profile())
+        header_mode_strip = self._build_metric_strip(
+            header_controls,
+            [
+                ("hero_mode", "Density", "Compact", "Switch to advanced mode when you need deeper tuning.", "hero"),
+                ("hero_help", "Help", "Live", "Hover hints and handbook guidance stay available together.", "hero"),
+            ],
+            card_padding=(10, 9),
+        )
+        header_mode_strip.grid(row=3, column=0, sticky="ew", pady=(10, 0))
         hover_toggle = ttk.Checkbutton(
             header_controls,
             text="Hover Help",
             variable=self.hover_help_enabled,
             command=self._toggle_hover_help,
         )
-        hover_toggle.grid(row=2, column=0, sticky="w", pady=(10, 0))
+        hover_toggle.grid(row=4, column=0, sticky="w", pady=(10, 0))
 
         action_bar = ttk.Frame(shell, padding=(0, 10, 0, 10), style="TFrame")
         action_bar.grid(row=1, column=0, sticky="ew")
         action_bar.columnconfigure(0, weight=1)
         action_bar.columnconfigure(1, weight=0)
 
-        primary_actions = ttk.Frame(action_bar, padding=8, style="ToolbarGroup.TFrame")
+        primary_actions = ttk.Frame(action_bar, padding=10, style="ToolbarGroup.TFrame")
         primary_actions.grid(row=0, column=0, sticky="w")
-        utility_actions = ttk.Frame(action_bar, padding=8, style="ToolbarGroup.TFrame")
+        utility_actions = ttk.Frame(action_bar, padding=10, style="ToolbarGroup.TFrame")
         utility_actions.grid(row=0, column=1, sticky="e")
 
         start_button = ttk.Button(primary_actions, text="Start Run", command=self._start_run, style="Accent.TButton")
@@ -1927,7 +2104,7 @@ class DesktopWorkbench:
         container.columnconfigure(0, weight=1)
         container.rowconfigure(1, weight=1)
 
-        hero = ttk.Frame(container, padding=16, style="PageHero.TFrame")
+        hero = ttk.Frame(container, padding=18, style="PageHero.TFrame")
         hero.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         hero.columnconfigure(0, weight=1)
         hero.columnconfigure(1, weight=0)
@@ -1950,12 +2127,22 @@ class DesktopWorkbench:
             style="PageBody.TLabel",
         )
         hero_body.grid(row=2, column=0, sticky="w", pady=(8, 0))
+        hero_metrics = self._build_metric_strip(
+            hero,
+            [
+                ("settings_brief_card", "Review brief", "Structured", "Topic, question, criteria, and exclusions stay grouped together.", "default"),
+                ("settings_discovery_card", "Discovery controls", "Source aware", "Breadth, rate limits, and import paths are split into dedicated sections.", "accent"),
+                ("settings_runtime_card", "Runtime safety", "Visible", "Reruns, cache resets, worker limits, and logging are still reachable when needed.", "default"),
+            ],
+            card_padding=(12, 10),
+        )
+        hero_metrics.grid(row=3, column=0, sticky="ew", pady=(14, 0))
         hero_chip = ttk.Label(
             hero,
-            text="Resizable panes  •  Scrollable settings pages  •  Compact jump menus",
-            style="Pill.TLabel",
+            text="Resizable panes  •  Scrollable pages  •  Quick jumps  •  Live guidance",
+            style="HeroPill.TLabel",
         )
-        hero_chip.grid(row=0, column=1, rowspan=3, sticky="ne", padx=(20, 0))
+        hero_chip.grid(row=0, column=1, rowspan=4, sticky="ne", padx=(20, 0))
         self._bind_hover_help(
             hero_chip,
             "You can resize the page rail, the main editor, and the inspector. The center pages scroll independently, "
@@ -4211,26 +4398,54 @@ class DesktopWorkbench:
 
     def _build_log_tab(self) -> None:
         """Create the read-only live log panel."""
-
+        container = ttk.Frame(self.log_tab, padding=8, style="Surface.TFrame")
+        container.pack(fill="both", expand=True)
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(2, weight=1)
+        ttk.Label(container, text="Run log", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
+        metric_strip = self._build_metric_strip(
+            container,
+            [
+                ("log_visibility_card", "Visibility", "Stage by stage", "Preparation, screening, caching, and exports all report their progress here.", "default"),
+                ("log_trace_card", "Verbosity", "Config driven", "Normal, verbose, and ultra-verbose stay aligned with CLI and saved profiles.", "accent"),
+                ("log_debug_card", "Persistence", "Optional file", "The same run can also write into a durable log file for later inspection.", "default"),
+            ],
+            card_padding=(12, 10),
+        )
+        metric_strip.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         shell, self.log_widget = self._create_scrolled_text_widget(
-            self.log_tab,
+            container,
             key="run_log",
             height=18,
             wrap="none",
             horizontal=True,
         )
-        shell.pack(fill="both", expand=True, padx=8, pady=8)
+        shell.grid(row=2, column=0, sticky="nsew")
 
     def _build_table_tab(self, parent: ttk.Frame, key: str, *, include_filters: bool = False) -> None:
         """Create a generic results table tab, optionally with filters for the full paper list."""
 
-        container = ttk.Frame(parent, padding=8)
+        container = ttk.Frame(parent, padding=8, style="Surface.TFrame")
         container.pack(fill="both", expand=True)
         container.columnconfigure(0, weight=1)
-        container.rowconfigure(1, weight=1)
+        container.rowconfigure(2, weight=1)
+        titles = {
+            "all_papers": ("All discovered papers", "Inspect the full merged record set, then narrow it with filters and search."),
+            "included_papers": ("Included papers", "Positive screening outcomes stay grouped here for synthesis and export."),
+            "excluded_papers": ("Excluded papers", "Rejected records stay visible with reasons for auditability."),
+        }
+        title_text, body_text = titles.get(key, ("Paper table", "Inspect current table content."))
+        ttk.Label(container, text=title_text, style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        ttk.Label(
+            container,
+            text=body_text,
+            style="HeroSubtitle.TLabel",
+            wraplength=1000,
+            justify="left",
+        ).grid(row=1, column=0, sticky="ew", pady=(0, 8))
         if include_filters:
             filter_bar = ttk.Frame(container)
-            filter_bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+            filter_bar.grid(row=2, column=0, sticky="ew", pady=(0, 8))
             ttk.Label(filter_bar, text="Filter:").pack(side="left")
             filter_combo = ttk.Combobox(
                 filter_bar,
@@ -4253,7 +4468,7 @@ class DesktopWorkbench:
             )
 
         tree_shell, tree = self._create_scrolled_tree_widget(container, key=key, show="headings")
-        tree_shell.grid(row=1, column=0, sticky="nsew")
+        tree_shell.grid(row=3 if include_filters else 2, column=0, sticky="nsew")
         self.treeviews[key] = tree
         self.table_frames[key] = container
 
@@ -4282,6 +4497,16 @@ class DesktopWorkbench:
             wrap="word",
         )
         preview_shell.grid(row=1, column=0, sticky="nsew")
+        preview_metrics = self._build_metric_strip(
+            preview_frame,
+            [
+                ("outputs_csv_card", "Structured exports", "CSV + JSON", "Tabular and machine-readable outputs remain on by default unless you turn them off.", "default"),
+                ("outputs_sqlite_card", "Persistent storage", "SQLite", "One main database plus optional export databases keep the run inspectable.", "accent"),
+                ("outputs_pdf_card", "Full text", "Optional PDFs", "Relevant-only downloads can stay in a dedicated folder for later reading.", "default"),
+            ],
+            card_padding=(12, 10),
+        )
+        preview_metrics.grid(row=2, column=0, sticky="ew", pady=(10, 0))
 
         browser_shell = ttk.Panedwindow(container, orient="horizontal")
         browser_shell.grid(row=1, column=0, sticky="nsew")
@@ -4357,6 +4582,16 @@ class DesktopWorkbench:
             text="Chart preview",
             style="PageTitle.TLabel",
         ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        chart_metrics = self._build_metric_strip(
+            container,
+            [
+                ("charts_decisions_card", "Decision mix", "Live refresh", "Included, maybe, and excluded outcomes are summarized after each run refresh.", "default"),
+                ("charts_sources_card", "Source spread", "Top providers", "The notes panel highlights which discovery sources contributed most records.", "accent"),
+                ("charts_audit_card", "Audit friendly", "Kept local", "Visuals are derived from the same exported artifacts shown in the browser tabs.", "default"),
+            ],
+            card_padding=(12, 10),
+        )
+        chart_metrics.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         chart_shell, self.chart_canvas = self._create_scrolled_canvas_widget(
             container,
             key="chart_preview",
@@ -4365,9 +4600,9 @@ class DesktopWorkbench:
             highlightthickness=1,
             highlightbackground=self.PALETTE["border_strong"],
         )
-        chart_shell.grid(row=1, column=0, sticky="nsew")
+        chart_shell.grid(row=2, column=0, sticky="nsew")
         summary_frame = ttk.LabelFrame(container, text="Chart notes", padding=8, style="Card.TLabelframe")
-        summary_frame.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        summary_frame.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         summary_frame.columnconfigure(0, weight=1)
         chart_text_shell, self.charts_summary_text = self._create_scrolled_text_widget(
             summary_frame,
