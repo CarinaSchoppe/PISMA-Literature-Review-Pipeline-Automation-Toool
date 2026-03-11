@@ -16,6 +16,10 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
     steps:
       - name: Check out repository
@@ -30,14 +34,27 @@ jobs:
       - name: Install project and dev dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev] || true
-          python -m pip install pytest coverage ruff mypy
+          # Quote the editable extras expression so bash does not interpret the brackets.
+          python -m pip install -e ".[dev]"
+          # Install pytest-cov explicitly as a belt-and-braces guard for CI environments
+          # where extras resolution is unexpectedly incomplete.
+          python -m pip install pytest-cov
 
+      - name: Validate toolchain
+        run: |
+          python --version
+          python -m pytest --version
+          python -m ruff --version
+          python -m mypy --version
+          python -c "import coverage, pytest_cov; print('coverage', coverage.__version__); print('pytest-cov', pytest_cov.__version__)"
       - name: Lint
         run: python -m ruff check .
 
       - name: Type-check
         run: python -m mypy
+
+      - name: Compile sanity check
+        run: python -m compileall .
 
       - name: Provider contract tests
         run: python -m pytest tests/test_provider_contracts.py -v
@@ -56,6 +73,7 @@ jobs:
         if: always()
         with:
           name: quality-artifacts
+          if-no-files-found: warn
           path: |
             results/coverage_report
             results/benchmark_report

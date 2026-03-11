@@ -98,9 +98,10 @@ class CoverageReportTests(unittest.TestCase):
         self.assertIn("build/*", excluded)
         self.assertNotIn("omit =", included)
 
+    @patch("coverage_report._pytest_cov_is_available", return_value=True)
     @patch("builtins.print")
     @patch("coverage_report.subprocess.run")
-    def test_run_coverage_report_writes_expected_artifacts(self, run_mock, _print_mock) -> None:
+    def test_run_coverage_report_writes_expected_artifacts(self, run_mock, _print_mock, _plugin_available) -> None:
         def fake_run(command, cwd=None, check=None, text=None, capture_output=False, env=None):
             self.assertIn("COVERAGE_FILE", env)
             self.assertIn("-m", command)
@@ -158,9 +159,15 @@ class CoverageReportTests(unittest.TestCase):
             self.assertTrue((base / ".coveragerc").exists())
             self.assertIn("config.py", (base / "coverage_report.txt").read_text(encoding="utf-8"))
 
+    @patch("coverage_report._pytest_cov_is_available", return_value=True)
     @patch("builtins.print")
     @patch("coverage_report.subprocess.run")
-    def test_run_coverage_report_reports_when_no_threshold_was_requested(self, run_mock, print_mock) -> None:
+    def test_run_coverage_report_reports_when_no_threshold_was_requested(
+        self,
+        run_mock,
+        print_mock,
+        _plugin_available,
+    ) -> None:
         def fake_run(command, cwd=None, check=None, text=None, capture_output=False, env=None):
             json_arg = next(part for part in command if part.startswith("--cov-report=json:"))
             html_arg = next(part for part in command if part.startswith("--cov-report=html:"))
@@ -196,9 +203,10 @@ class CoverageReportTests(unittest.TestCase):
             any("Coverage threshold check: no fail-under threshold was requested for this run." in chunk for chunk in printed_chunks)
         )
 
+    @patch("coverage_report._pytest_cov_is_available", return_value=True)
     @patch("builtins.print")
     @patch("coverage_report.subprocess.run")
-    def test_run_coverage_report_can_fail_threshold(self, run_mock, _print_mock) -> None:
+    def test_run_coverage_report_can_fail_threshold(self, run_mock, _print_mock, _plugin_available) -> None:
         def fake_run(command, cwd=None, check=None, text=None, capture_output=False, env=None):
             self.assertIn("COVERAGE_FILE", env)
             json_arg = next(part for part in command if part.startswith("--cov-report=json:"))
@@ -231,12 +239,14 @@ class CoverageReportTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 2)
 
+    @patch("coverage_report._pytest_cov_is_available", return_value=True)
     @patch("builtins.print")
     @patch("coverage_report.subprocess.run")
     def test_run_coverage_report_handles_failed_pytest_before_artifacts_exist(
         self,
         run_mock,
         print_mock,
+        _plugin_available,
     ) -> None:
         run_mock.return_value = type(
             "Result",
@@ -260,28 +270,54 @@ class CoverageReportTests(unittest.TestCase):
         error_messages = [str(call.args[0]) for call in print_mock.call_args_list if call.kwargs.get("file") is sys.stderr]
         self.assertIn("Coverage report generation failed before coverage artifacts were written.", error_messages)
 
+    @patch("coverage_report._pytest_cov_is_available", return_value=False)
     @patch("builtins.print")
     @patch("coverage_report.subprocess.run")
-    def test_run_coverage_report_surfaces_missing_pytest_cov_plugin_hint(self, run_mock, print_mock) -> None:
-        run_mock.return_value = type(
-            "Result",
-            (),
-            {
-                "stdout": "",
-                "stderr": "ERROR: usage: __main__.py [options]\\n__main__.py: error: unrecognized arguments: --cov=. --cov-report=json:file",
-                "returncode": 4,
-            },
-        )()
+    def test_run_coverage_report_falls_back_to_coverage_py_when_pytest_cov_is_missing(
+        self,
+        run_mock,
+        print_mock,
+        _plugin_available,
+    ) -> None:
+        def fake_run(command, cwd=None, text=None, capture_output=False, env=None):
+            if command[:4] == [sys.executable, "-m", "coverage", "run"]:
+                junit_arg = next(part for part in command if part.startswith("--junitxml="))
+                coverage_data_arg = next(part for part in command if part.startswith("--data-file="))
+                Path(junit_arg.split("=", 1)[1]).write_text("<testsuite></testsuite>", encoding="utf-8")
+                Path(coverage_data_arg.split("=", 1)[1]).write_text("coverage data", encoding="utf-8")
+                return type("Result", (), {"stdout": "fallback pytest run", "stderr": "", "returncode": 0})()
+            if command[:4] == [sys.executable, "-m", "coverage", "json"]:
+                raw_json_path = Path(command[command.index("-o") + 1])
+                raw_json_path.write_text(
+                    json.dumps(
+                        {
+                            "totals": {
+                                "num_statements": 10,
+                                "covered_lines": 10,
+                                "missing_lines": 0,
+                                "percent_covered": 100.0,
+                            },
+                            "files": {},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                return type("Result", (), {"stdout": "coverage json ok", "stderr": "", "returncode": 0})()
+            if command[:4] == [sys.executable, "-m", "coverage", "html"]:
+                html_dir = Path(command[command.index("-d") + 1])
+                html_dir.mkdir(parents=True, exist_ok=True)
+                (html_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+                return type("Result", (), {"stdout": "coverage html ok", "stderr": "", "returncode": 0})()
+            raise AssertionError(f"Unexpected command: {command}")
+
+        run_mock.side_effect = fake_run
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            exit_code = coverage_report.run_coverage_report(["--results-dir", tmpdir])
+            exit_code = coverage_report.run_coverage_report(["--results-dir", tmpdir, "--fail-under", "99.5"])
 
-        self.assertEqual(exit_code, 4)
-        error_messages = [str(call.args[0]) for call in print_mock.call_args_list if call.kwargs.get("file") is sys.stderr]
-        self.assertIn(
-            "Pytest-cov does not appear to be installed in the active environment. Install the development dependencies or explicitly install pytest-cov before running coverage_report.py.",
-            error_messages,
-        )
+        self.assertEqual(exit_code, 0)
+        printed_chunks = [" ".join(str(part) for part in call.args) for call in print_mock.call_args_list]
+        self.assertTrue(any("coverage.py fallback runner" in chunk for chunk in printed_chunks))
 
     @patch("coverage_report.run_coverage_report", return_value=0)
     def test_main_exits_with_report_status(self, run_mock) -> None:

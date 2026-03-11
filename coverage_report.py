@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import subprocess
@@ -252,31 +253,52 @@ def run_coverage_report(argv: Sequence[str] | None = None) -> int:
     coverage_env["COVERAGE_FILE"] = str(coverage_data_path)
     coverage_config_path.write_text(_build_coverage_config(omit_patterns), encoding="utf-8")
 
-    pytest_command = [
-        python_executable,
-        "-m",
-        "pytest",
-        "-v",
-        "--cov=.",
-        f"--cov-config={coverage_config_path}",
-        "--cov-report=term-missing:skip-covered",
-        f"--cov-report=json:{raw_json_path}",
-        f"--cov-report=html:{html_dir}",
-        f"--junitxml={junit_xml_path}",
-        "tests",
-    ]
-    report_result = subprocess.run(
-        pytest_command,
-        cwd=project_root,
-        text=True,
-        capture_output=True,
-        env=coverage_env,
-    )
-    stdout = getattr(report_result, "stdout", "")
-    stderr = getattr(report_result, "stderr", "")
-    pytest_output = stdout
-    if stderr:
-        pytest_output = f"{pytest_output}\n[stderr]\n{stderr}".strip()
+    fallback_used = False
+    if _pytest_cov_is_available():
+        report_result = _run_subprocess(
+            _build_pytest_cov_command(
+                python_executable=python_executable,
+                coverage_config_path=coverage_config_path,
+                raw_json_path=raw_json_path,
+                html_dir=html_dir,
+                junit_xml_path=junit_xml_path,
+            ),
+            cwd=project_root,
+            env=coverage_env,
+        )
+        pytest_output = _format_subprocess_output(report_result)
+    else:
+        fallback_used = True
+        report_result = _run_subprocess(
+            _build_coverage_fallback_pytest_command(
+                python_executable=python_executable,
+                coverage_data_path=coverage_data_path,
+                coverage_config_path=coverage_config_path,
+                junit_xml_path=junit_xml_path,
+            ),
+            cwd=project_root,
+            env=coverage_env,
+        )
+        pytest_output = (
+            "Pytest-cov plugin was not available, so coverage_report.py used the built-in "
+            "coverage.py fallback runner.\n\n"
+            + _format_subprocess_output(report_result)
+        )
+        if coverage_data_path.exists():
+            export_result, export_output = _export_coverage_artifacts_with_coverage_py(
+                python_executable=python_executable,
+                coverage_data_path=coverage_data_path,
+                coverage_config_path=coverage_config_path,
+                raw_json_path=raw_json_path,
+                html_dir=html_dir,
+                cwd=project_root,
+                env=coverage_env,
+            )
+            if export_output:
+                pytest_output = f"{pytest_output}\n\n[coverage.py export]\n{export_output}".strip()
+            if export_result.returncode != 0 and not raw_json_path.exists():
+                report_result = export_result
+
     pytest_output_path.write_text(pytest_output + "\n", encoding="utf-8")
 
     if int(getattr(report_result, "returncode", 0)) != 0 and not raw_json_path.exists():
@@ -287,7 +309,12 @@ def run_coverage_report(argv: Sequence[str] | None = None) -> int:
         print("Generated artifacts")
         print("===================")
         print(f"Pytest terminal log: {pytest_output_path}")
-        if "--cov=." in pytest_output and "unrecognized arguments" in pytest_output:
+        if fallback_used:
+            print(
+                "Coverage.py fallback mode was used, but coverage artifacts could still not be generated.",
+                file=sys.stderr,
+            )
+        elif "--cov=." in pytest_output and "unrecognized arguments" in pytest_output:
             print(
                 "Pytest-cov does not appear to be installed in the active environment. "
                 "Install the development dependencies or explicitly install pytest-cov before running coverage_report.py.",
@@ -325,6 +352,8 @@ def run_coverage_report(argv: Sequence[str] | None = None) -> int:
     print(f"JUnit XML: {junit_xml_path}")
     print(f"Pytest terminal log: {pytest_output_path}")
     if args.fail_under is not None:
+        # Print the threshold comparison explicitly so CI logs show both the configured gate
+        # and the observed result without requiring the operator to open the report artifact.
         print(
             "Coverage threshold check: "
             f"required >= {float(args.fail_under):.2f}%, observed {summary.percent_covered:.2f}%"
@@ -346,6 +375,134 @@ def main() -> None:
     """Run the coverage report helper as a top-level script."""
 
     raise SystemExit(run_coverage_report())
+
+
+def _pytest_cov_is_available() -> bool:
+    """Return whether `pytest-cov` is importable in the current Python environment."""
+
+    return importlib.util.find_spec("pytest_cov") is not None
+
+
+def _build_pytest_cov_command(
+    *,
+    python_executable: str,
+    coverage_config_path: Path,
+    raw_json_path: Path,
+    html_dir: Path,
+    junit_xml_path: Path,
+) -> list[str]:
+    """Build the preferred pytest command that relies on the `pytest-cov` plugin."""
+
+    return [
+        python_executable,
+        "-m",
+        "pytest",
+        "-v",
+        "--cov=.",
+        f"--cov-config={coverage_config_path}",
+        "--cov-report=term-missing:skip-covered",
+        f"--cov-report=json:{raw_json_path}",
+        f"--cov-report=html:{html_dir}",
+        f"--junitxml={junit_xml_path}",
+        "tests",
+    ]
+
+
+def _build_coverage_fallback_pytest_command(
+    *,
+    python_executable: str,
+    coverage_data_path: Path,
+    coverage_config_path: Path,
+    junit_xml_path: Path,
+) -> list[str]:
+    """Build a fallback pytest command that runs under `coverage.py` directly."""
+
+    return [
+        python_executable,
+        "-m",
+        "coverage",
+        "run",
+        f"--data-file={coverage_data_path}",
+        f"--rcfile={coverage_config_path}",
+        "-m",
+        "pytest",
+        "-v",
+        f"--junitxml={junit_xml_path}",
+        "tests",
+    ]
+
+
+def _export_coverage_artifacts_with_coverage_py(
+    *,
+    python_executable: str,
+    coverage_data_path: Path,
+    coverage_config_path: Path,
+    raw_json_path: Path,
+    html_dir: Path,
+    cwd: Path,
+    env: dict[str, str],
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    """Export JSON and HTML coverage artifacts using the `coverage.py` CLI fallback."""
+
+    json_result = _run_subprocess(
+        [
+            python_executable,
+            "-m",
+            "coverage",
+            "json",
+            f"--data-file={coverage_data_path}",
+            f"--rcfile={coverage_config_path}",
+            "-o",
+            str(raw_json_path),
+        ],
+        cwd=cwd,
+        env=env,
+    )
+    html_result = _run_subprocess(
+        [
+            python_executable,
+            "-m",
+            "coverage",
+            "html",
+            f"--data-file={coverage_data_path}",
+            f"--rcfile={coverage_config_path}",
+            "-d",
+            str(html_dir),
+        ],
+        cwd=cwd,
+        env=env,
+    )
+    outputs = [segment for segment in (_format_subprocess_output(json_result), _format_subprocess_output(html_result)) if segment]
+    combined_output = "\n\n".join(outputs)
+    return (html_result if html_result.returncode != 0 else json_result), combined_output
+
+
+def _run_subprocess(
+    command: Sequence[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    """Run one subprocess in text mode and capture stdout/stderr for reporting."""
+
+    return subprocess.run(
+        list(command),
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        env=env,
+    )
+
+
+def _format_subprocess_output(result: subprocess.CompletedProcess[str]) -> str:
+    """Combine stdout and stderr into one readable transcript block."""
+
+    stdout = getattr(result, "stdout", "") or ""
+    stderr = getattr(result, "stderr", "") or ""
+    output = stdout.strip()
+    if stderr:
+        output = f"{output}\n[stderr]\n{stderr}".strip()
+    return output
 
 
 def _build_coverage_config(omit_patterns: Sequence[str]) -> str:
