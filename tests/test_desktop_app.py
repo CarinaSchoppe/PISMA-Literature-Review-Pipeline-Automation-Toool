@@ -217,14 +217,14 @@ class DesktopWorkbenchTests(unittest.TestCase):
 
     def test_scrollable_shells_exist_for_tables_logs_panels_and_visuals(self) -> None:
         for tree_key in (
-            "all_papers",
-            "included_papers",
-            "excluded_papers",
-            "outputs_tree",
-            "run_history_tree",
-            "screening_audit_tree",
-            "handbook_tree",
-            "provider_health_tree",
+                "all_papers",
+                "included_papers",
+                "excluded_papers",
+                "outputs_tree",
+                "run_history_tree",
+                "screening_audit_tree",
+                "handbook_tree",
+                "provider_health_tree",
         ):
             with self.subTest(tree_key=tree_key):
                 self.assertIn(tree_key, self.workbench.tree_scrollbars)
@@ -232,16 +232,16 @@ class DesktopWorkbenchTests(unittest.TestCase):
                 self.assertIn("horizontal", self.workbench.tree_scrollbars[tree_key])
 
         for text_key in (
-            "run_log",
-            "handbook_text",
-            "outputs_preview",
-            "artifact_summary",
-            "charts_summary",
-            "run_history_text",
-            "screening_audit_text",
-            "model_summary",
-            "output_summary",
-            "export_preview",
+                "run_log",
+                "handbook_text",
+                "outputs_preview",
+                "artifact_summary",
+                "charts_summary",
+                "run_history_text",
+                "screening_audit_text",
+                "model_summary",
+                "output_summary",
+                "export_preview",
         ):
             with self.subTest(text_key=text_key):
                 self.assertIn(text_key, self.workbench.text_scrollbars)

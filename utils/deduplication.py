@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from models.paper import PaperMetadata
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from models.paper import PaperMetadata
+
 
 def deduplicate_papers(
-    papers: Iterable[PaperMetadata],
-    *,
-    title_similarity_threshold: float = 0.92,
+        papers: Iterable[PaperMetadata],
+        *,
+        title_similarity_threshold: float = 0.92,
 ) -> list[PaperMetadata]:
     """Merge papers that share a DOI or exceed the configured title similarity threshold."""
 

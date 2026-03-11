@@ -522,10 +522,3 @@ class ProfileManager:
         payload = load_config_file(self.profile_dir / f"{name}.json")
         config = ResearchConfig(**payload).finalize()
         return config_to_form_values(config)
-
-
-
-
-
-
-

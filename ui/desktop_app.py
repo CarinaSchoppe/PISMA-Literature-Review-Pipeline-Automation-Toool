@@ -8,8 +8,8 @@ import os
 import queue
 import subprocess
 import sys
-import threading
 import textwrap
+import threading
 import tkinter as tk
 import tkinter.font as tkfont
 from datetime import datetime
@@ -2340,12 +2340,12 @@ class DesktopWorkbench:
         self._handle_settings_page_changed()
 
     def _render_settings_group(
-        self,
-        parent: ttk.Frame,
-        page_name: str,
-        section_name: str,
-        field_names: list[str],
-        row: int,
+            self,
+            parent: ttk.Frame,
+            page_name: str,
+            section_name: str,
+            field_names: list[str],
+            row: int,
     ) -> None:
         """Render one logical settings group inside the selected settings page."""
 
@@ -2410,12 +2410,12 @@ class DesktopWorkbench:
             self._render_entry_field(frame, field_name, help_text, row)
 
     def _render_multiline_field(
-        self,
-        frame: ttk.LabelFrame,
-        field_name: str,
-        label: str,
-        help_text: str,
-        row: int,
+            self,
+            frame: ttk.LabelFrame,
+            field_name: str,
+            label: str,
+            help_text: str,
+            row: int,
     ) -> None:
         """Render a free-form multi-line text field or the analysis-pass summary panel."""
 
@@ -2469,6 +2469,7 @@ class DesktopWorkbench:
         self.field_input_widgets[field_name] = widget
         self.field_focus_widgets[field_name] = widget
         self._bind_hover_help(widget, help_text)
+
     def _render_radio_field(self, frame: ttk.LabelFrame, field_name: str, help_text: str, row: int) -> None:
         """Render an enumerated field as a compact radio-button group."""
 
@@ -2611,6 +2612,7 @@ class DesktopWorkbench:
         placeholder = self.FIELD_PLACEHOLDERS.get(field_name)
         if placeholder:
             self._register_placeholder(field_name, widget, placeholder, mode="entry")
+
     def _help_text_for_field(self, field_name: str) -> str:
         """Return the explanatory hover text for one settings field."""
 
@@ -3669,13 +3671,13 @@ class DesktopWorkbench:
         widget.configure(state="disabled")
 
     def _create_scrolled_text_widget(
-        self,
-        parent: tk.Widget,
-        *,
-        key: str,
-        height: int,
-        wrap: str = "word",
-        horizontal: bool = False,
+            self,
+            parent: tk.Widget,
+            *,
+            key: str,
+            height: int,
+            wrap: str = "word",
+            horizontal: bool = False,
     ) -> tuple[ttk.Frame, tk.Text]:
         """Create one text widget with consistent scrollbar wiring and testable metadata."""
 
@@ -3700,13 +3702,13 @@ class DesktopWorkbench:
         return shell, text_widget
 
     def _create_scrolled_tree_widget(
-        self,
-        parent: tk.Widget,
-        *,
-        key: str,
-        columns: tuple[str, ...] = (),
-        show: str = "headings",
-        height: int | None = None,
+            self,
+            parent: tk.Widget,
+            *,
+            key: str,
+            columns: tuple[str, ...] = (),
+            show: str = "headings",
+            height: int | None = None,
     ) -> tuple[ttk.Frame, ttk.Treeview]:
         """Create one tree view with vertical and horizontal scrollbars."""
 
@@ -3732,14 +3734,14 @@ class DesktopWorkbench:
         return shell, tree_widget
 
     def _create_scrolled_canvas_widget(
-        self,
-        parent: tk.Widget,
-        *,
-        key: str,
-        height: int,
-        background: str,
-        highlightthickness: int = 0,
-        highlightbackground: str = "",
+            self,
+            parent: tk.Widget,
+            *,
+            key: str,
+            height: int,
+            background: str,
+            highlightthickness: int = 0,
+            highlightbackground: str = "",
     ) -> tuple[ttk.Frame, tk.Canvas]:
         """Create one canvas with two-axis scrolling for oversized visual content."""
 
@@ -4094,13 +4096,13 @@ class DesktopWorkbench:
             height=16,
         )
         for column, title, width in (
-            ("name", "Pass", 120),
-            ("provider", "Provider", 180),
-            ("threshold", "Threshold", 90),
-            ("mode", "Mode", 100),
-            ("margin", "Maybe", 90),
-            ("model", "Model override", 220),
-            ("min_score", "Start if prev >=", 120),
+                ("name", "Pass", 120),
+                ("provider", "Provider", 180),
+                ("threshold", "Threshold", 90),
+                ("mode", "Mode", 100),
+                ("margin", "Maybe", 90),
+                ("model", "Model override", 220),
+                ("min_score", "Start if prev >=", 120),
         ):
             tree.heading(column, text=title)
             tree.column(column, width=width, anchor="w")
@@ -4924,10 +4926,10 @@ class DesktopWorkbench:
             self.profile_combo["values"] = self.profile_manager.list_profiles()
 
     def _start_run(
-        self,
-        *,
-        skip_discovery_override: bool | None = None,
-        run_mode_override: str | None = None,
+            self,
+            *,
+            skip_discovery_override: bool | None = None,
+            run_mode_override: str | None = None,
     ) -> None:
         """Validate the current form and launch the pipeline on a background worker thread."""
 
@@ -5156,7 +5158,7 @@ class DesktopWorkbench:
             path = Path(candidate)
             label_lower = label.lower()
             if path.suffix.lower() not in allowed_suffixes and not (
-                label_lower.endswith(("_dir", "_path")) or "dir" in label_lower or "path" in label_lower
+                    label_lower.endswith(("_dir", "_path")) or "dir" in label_lower or "path" in label_lower
             ):
                 continue
             entries.append(
@@ -5536,9 +5538,3 @@ def launch_desktop_app(args: Any) -> int:
     """Start the guided Tkinter workbench."""
 
     return DesktopWorkbench(args).run()
-
-
-
-
-
-

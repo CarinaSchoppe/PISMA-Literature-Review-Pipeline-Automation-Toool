@@ -55,13 +55,13 @@ def _log_http_trace(message: str, *args: Any) -> None:
 
 
 def configure_http_runtime(
-    *,
-    cache_enabled: bool,
-    cache_dir: str | Path,
-    cache_ttl_seconds: int,
-    retry_max_attempts: int,
-    retry_base_delay_seconds: float,
-    retry_max_delay_seconds: float,
+        *,
+        cache_enabled: bool,
+        cache_dir: str | Path,
+        cache_ttl_seconds: int,
+        retry_max_attempts: int,
+        retry_base_delay_seconds: float,
+        retry_max_delay_seconds: float,
 ) -> None:
     """Configure process-wide caching and backoff settings for the request helpers."""
 
@@ -102,12 +102,12 @@ class RateLimiter:
     """Simple per-process rate limiter shared by API clients."""
 
     def __init__(
-        self,
-        calls_per_second: float = 1.0,
-        *,
-        max_requests_per_minute: int | None = None,
-        request_delay_seconds: float = 0.0,
-        name: str = "HTTP source",
+            self,
+            calls_per_second: float = 1.0,
+            *,
+            max_requests_per_minute: int | None = None,
+            request_delay_seconds: float = 0.0,
+            name: str = "HTTP source",
     ) -> None:
         self.name = name
         self.min_interval = 1.0 / calls_per_second if calls_per_second > 0 else 0.0
@@ -229,18 +229,18 @@ def build_session(user_agent: str, extra_headers: dict[str, str] | None = None) 
 
 
 def request_json(
-    session: requests.Session,
-    method: str,
-    url: str,
-    *,
-    limiter: RateLimiter | None = None,
-    timeout: int = 30,
-    use_cache: bool | None = None,
-    retry_max_attempts: int | None = None,
-    retry_backoff_strategy: BackoffStrategy = "exponential",
-    retry_base_delay_seconds: float | None = None,
-    request_label: str | None = None,
-    **kwargs: Any,
+        session: requests.Session,
+        method: str,
+        url: str,
+        *,
+        limiter: RateLimiter | None = None,
+        timeout: int = 30,
+        use_cache: bool | None = None,
+        retry_max_attempts: int | None = None,
+        retry_backoff_strategy: BackoffStrategy = "exponential",
+        retry_base_delay_seconds: float | None = None,
+        request_label: str | None = None,
+        **kwargs: Any,
 ) -> Any:
     """Perform an HTTP request and parse the response body as JSON when successful."""
 
@@ -295,17 +295,17 @@ def request_json(
 
 
 def request_content(
-    session: requests.Session,
-    url: str,
-    *,
-    limiter: RateLimiter | None = None,
-    timeout: int = 60,
-    stream: bool = False,
-    retry_max_attempts: int | None = None,
-    retry_backoff_strategy: BackoffStrategy = "exponential",
-    retry_base_delay_seconds: float | None = None,
-    request_label: str | None = None,
-    **kwargs: Any,
+        session: requests.Session,
+        url: str,
+        *,
+        limiter: RateLimiter | None = None,
+        timeout: int = 60,
+        stream: bool = False,
+        retry_max_attempts: int | None = None,
+        retry_backoff_strategy: BackoffStrategy = "exponential",
+        retry_base_delay_seconds: float | None = None,
+        request_label: str | None = None,
+        **kwargs: Any,
 ) -> requests.Response | None:
     """Perform an HTTP GET request intended for binary content such as PDFs."""
 
@@ -337,18 +337,18 @@ def request_content(
 
 
 def request_text(
-    session: requests.Session,
-    method: str,
-    url: str,
-    *,
-    limiter: RateLimiter | None = None,
-    timeout: int = 30,
-    use_cache: bool | None = None,
-    retry_max_attempts: int | None = None,
-    retry_backoff_strategy: BackoffStrategy = "exponential",
-    retry_base_delay_seconds: float | None = None,
-    request_label: str | None = None,
-    **kwargs: Any,
+        session: requests.Session,
+        method: str,
+        url: str,
+        *,
+        limiter: RateLimiter | None = None,
+        timeout: int = 30,
+        use_cache: bool | None = None,
+        retry_max_attempts: int | None = None,
+        retry_backoff_strategy: BackoffStrategy = "exponential",
+        retry_base_delay_seconds: float | None = None,
+        request_label: str | None = None,
+        **kwargs: Any,
 ) -> str | None:
     """Perform an HTTP request and return the raw text body on success."""
 
@@ -394,17 +394,17 @@ def request_text(
 
 
 def _request_with_backoff(
-    session: requests.Session,
-    method: str,
-    url: str,
-    *,
-    limiter: RateLimiter | None = None,
-    timeout: int,
-    retry_max_attempts: int | None = None,
-    retry_backoff_strategy: BackoffStrategy = "exponential",
-    retry_base_delay_seconds: float | None = None,
-    request_label: str | None = None,
-    **kwargs: Any,
+        session: requests.Session,
+        method: str,
+        url: str,
+        *,
+        limiter: RateLimiter | None = None,
+        timeout: int,
+        retry_max_attempts: int | None = None,
+        retry_backoff_strategy: BackoffStrategy = "exponential",
+        retry_base_delay_seconds: float | None = None,
+        request_label: str | None = None,
+        **kwargs: Any,
 ) -> requests.Response | None:
     """Perform one request with explicit 429-aware backoff that respects `Retry-After`."""
 
@@ -448,11 +448,11 @@ def _request_with_backoff(
 
 
 def _calculate_backoff_delay(
-    response: requests.Response,
-    attempt: int,
-    *,
-    strategy: BackoffStrategy = "exponential",
-    base_delay_seconds: float | None = None,
+        response: requests.Response,
+        attempt: int,
+        *,
+        strategy: BackoffStrategy = "exponential",
+        base_delay_seconds: float | None = None,
 ) -> float:
     """Calculate the next delay using `Retry-After` when present, otherwise the chosen backoff strategy."""
 
@@ -475,12 +475,12 @@ def _calculate_backoff_delay(
 
 
 def _load_cached_payload(
-    method: str,
-    url: str,
-    *,
-    expected_kind: str,
-    use_cache: bool | None,
-    kwargs: dict[str, Any],
+        method: str,
+        url: str,
+        *,
+        expected_kind: str,
+        use_cache: bool | None,
+        kwargs: dict[str, Any],
 ) -> Any | None:
     """Load a cached GET response when request caching is enabled."""
 
@@ -496,13 +496,13 @@ def _load_cached_payload(
 
 
 def _store_cached_payload(
-    method: str,
-    url: str,
-    *,
-    kind: str,
-    payload: Any,
-    use_cache: bool | None,
-    kwargs: dict[str, Any],
+        method: str,
+        url: str,
+        *,
+        kind: str,
+        payload: Any,
+        use_cache: bool | None,
+        kwargs: dict[str, Any],
 ) -> None:
     """Store a fresh cache entry for GET requests when request caching is enabled."""
 

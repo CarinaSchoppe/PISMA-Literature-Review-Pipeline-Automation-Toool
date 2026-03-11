@@ -178,12 +178,12 @@ The guided workbench includes:
 - a refreshed light theme with higher-contrast tabs, accent actions, danger-stop styling, and cleaner tables
 - English-only visible text across the GUI, CLI prompts, handbook entries, hover help, and status guidance
 - settings pages:
-  - `Review Setup`
-  - `Discovery`
-  - `AI Screening`
-  - `Connections and Keys`
-  - `Storage and Output`
-  - `Advanced Runtime`
+    - `Review Setup`
+    - `Discovery`
+    - `AI Screening`
+    - `Connections and Keys`
+    - `Storage and Output`
+    - `Advanced Runtime`
 - a left-hand page rail so the settings follow the review workflow instead of one long stacked panel
 - a resizable three-pane settings shell, so you can widen the editor or the inspector instead of being stuck with one fixed layout
 - a right-hand inspector with dedicated `Find`, `Quick Edit`, `Guides`, and `Summary` tabs
@@ -201,13 +201,13 @@ The guided workbench includes:
 - placeholder text and nearby input guidance for review-topic, keyword, criteria, and filter fields, including explicit separator examples for commas, semicolons, and line breaks
 - live `Run Log` tab
 - result tabs for:
-  - `All Papers`
-  - `Included`
-  - `Excluded`
-  - `Outputs`
-  - `Charts`
-  - `Run History`
-  - `Screening Audit`
+    - `All Papers`
+    - `Included`
+    - `Excluded`
+    - `Outputs`
+    - `Charts`
+    - `Run History`
+    - `Screening Audit`
 - export preview before the run starts, so you can confirm which files and folders the current settings will produce
 - an artifact browser with summary panes and open-folder actions for generated files
 - `Analyze Stored Results` button to skip discovery and rerun screening/reporting
