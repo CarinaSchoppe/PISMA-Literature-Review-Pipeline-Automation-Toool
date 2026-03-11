@@ -36,14 +36,19 @@ def _run_headless(args) -> int:
     controller = PipelineController(config)
     result = controller.run()
 
-    print("\nPipeline completed.")
-    print(f"Run mode: {config.run_mode}")
-    print(f"Verbosity: {config.verbosity}")
+    print("\nPipeline execution summary")
+    print("==========================")
+    print("Pipeline completed successfully.")
+    print(f"Run mode selected: {config.run_mode}")
+    print(f"Logging verbosity: {config.verbosity}")
     if resolved_log_path:
-        print(f"Persistent log file: {resolved_log_path}")
-    print(f"Discovered records: {result['discovered_count']}")
-    print(f"Deduplicated records: {result['deduplicated_count']}")
-    print(f"Database records for this query: {result['database_count']}")
+        print(f"Persistent log file written to: {resolved_log_path}")
+    print(f"Discovered records before deduplication: {result['discovered_count']}")
+    print(f"Unique records after deduplication: {result['deduplicated_count']}")
+    print(f"Records stored for the active query: {result['database_count']}")
+    print()
+    print("Generated pipeline artifacts")
+    print("===========================")
     output_labels = {
         "papers_csv": "CSV summary",
         "included_papers_csv": "Included papers CSV",

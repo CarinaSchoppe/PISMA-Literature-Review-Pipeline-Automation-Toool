@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from sqlalchemy import create_engine, text
+
 from database import DatabaseManager
 from models.paper import PaperMetadata, ScreeningResult
 
@@ -104,6 +106,35 @@ class DatabaseManagerTests(unittest.TestCase):
         self.assertEqual(self.database.clear_screening_cache(), 1)
         self.assertEqual(self.database.delete_papers_for_query("query-2"), 2)
         self.assertEqual(self.database.count_papers("query-2"), 0)
+
+    def test_initialize_can_add_missing_schema_columns_to_existing_tables(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_review.db"
+        engine = create_engine(f"sqlite:///{legacy_path}")
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE papers (
+                        database_id INTEGER PRIMARY KEY,
+                        query_key TEXT,
+                        title TEXT
+                    )
+                    """
+                )
+            )
+        engine.dispose()
+
+        upgraded = DatabaseManager(legacy_path)
+        upgraded.initialize()
+        self.addCleanup(upgraded.close)
+
+        with upgraded.engine.connect() as connection:
+            columns = {
+                row[1]
+                for row in connection.execute(text("PRAGMA table_info(papers)")).fetchall()
+            }
+
+        self.assertIn("screening_details_json", columns)
 
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper

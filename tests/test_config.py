@@ -98,6 +98,25 @@ class ConfigTests(unittest.TestCase):
                 google_scholar_page_min=15,
                 google_scholar_page_max=10,
             )
+        with self.assertRaisesRegex(ValueError, "Configuration value must be at least 1"):
+            ResearchConfig(
+                research_topic="Topic",
+                search_keywords=["llm"],
+                google_scholar_pages=1,
+                google_scholar_page_min=0,
+                google_scholar_page_max=10,
+            )
+
+    def test_model_validators_cover_non_dict_input_and_invalid_verbosity(self) -> None:
+        validated = ResearchConfig.populate_google_scholar_page_defaults(["not-a-dict"])
+        self.assertEqual(validated, ["not-a-dict"])
+
+        with self.assertRaisesRegex(ValueError, "verbosity must be one of normal, verbose, or ultra_verbose"):
+            ResearchConfig(
+                research_topic="Topic",
+                search_keywords=["llm"],
+                verbosity="impossible",
+            )
 
     def test_parse_analysis_pass_accepts_json_object_and_config_file_defaults_full_text_flag(self) -> None:
         analysis_pass = parse_analysis_pass(

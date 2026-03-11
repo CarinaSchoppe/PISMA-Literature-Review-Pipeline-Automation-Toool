@@ -444,6 +444,22 @@ class HTTPUtilsTests(unittest.TestCase):
 
         self.assertEqual(delay, 0.0)
 
+    def test_request_with_backoff_returns_none_after_retry_loop_finishes(self) -> None:
+        session = Mock()
+        session.request.return_value = FakeResponse(status_code=429)
+        http.configure_http_runtime(
+            cache_enabled=False,
+            cache_dir=self.temp_dir.name,
+            cache_ttl_seconds=3600,
+            retry_max_attempts=1,
+            retry_base_delay_seconds=1.0,
+            retry_max_delay_seconds=30.0,
+        )
+
+        response = http._request_with_backoff(session, "GET", "https://example.org/api", timeout=5)
+
+        self.assertIsNone(response)
+
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()

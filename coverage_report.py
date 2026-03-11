@@ -166,12 +166,21 @@ def build_report_artifacts(
     ]
     text_lines = [
         "Coverage Report",
-        f"Overall coverage: {summary.percent_covered:.2f}%",
-        f"Covered lines: {summary.covered_lines}",
-        f"Missing lines: {summary.missing_lines}",
-        f"Executable statements: {summary.total_statements}",
-        f"HTML report: {html_index_path}",
-        f"Raw JSON: {raw_json_path}",
+        "===============",
+        "Overall result:",
+        f"- Overall coverage: {summary.percent_covered:.2f}%",
+        f"- Covered executable lines: {summary.covered_lines}",
+        f"- Missing executable lines: {summary.missing_lines}",
+        f"- Executable statements considered: {summary.total_statements}",
+        "",
+        "Generated artifacts:",
+        f"- HTML report for drill-down inspection: {html_index_path}",
+        f"- Raw coverage JSON payload: {raw_json_path}",
+        "",
+        "Interpretation:",
+        "- Higher percentages indicate that more real production code paths were exercised by tests.",
+        "- The file list below is sorted from weakest coverage to strongest coverage.",
+        "- Missing ranges show the exact executable lines that still need direct coverage.",
         "",
         "Lowest-Coverage Files:",
     ]
@@ -271,8 +280,12 @@ def run_coverage_report(argv: Sequence[str] | None = None) -> int:
     pytest_output_path.write_text(pytest_output + "\n", encoding="utf-8")
 
     if int(getattr(report_result, "returncode", 0)) != 0 and not raw_json_path.exists():
+        print("Pytest execution transcript")
+        print("=========================")
         print(pytest_output.strip())
         print()
+        print("Generated artifacts")
+        print("===================")
         print(f"Pytest terminal log: {pytest_output_path}")
         print("Coverage report generation failed before coverage artifacts were written.", file=sys.stderr)
         return int(getattr(report_result, "returncode", 1))
@@ -290,15 +303,28 @@ def run_coverage_report(argv: Sequence[str] | None = None) -> int:
     text_path.write_text(text_report, encoding="utf-8")
     summary_json_path.write_text(json.dumps(summary_json, indent=2), encoding="utf-8")
 
+    print("Pytest execution transcript")
+    print("=========================")
     print(pytest_output.strip())
     print()
+    print("Coverage execution summary")
+    print("=========================")
     print(text_report.strip())
     print()
+    print("Generated artifacts")
+    print("===================")
     print(f"Markdown report: {markdown_path}")
     print(f"JSON summary: {summary_json_path}")
     print(f"HTML report: {html_dir / 'index.html'}")
     print(f"JUnit XML: {junit_xml_path}")
     print(f"Pytest terminal log: {pytest_output_path}")
+    if args.fail_under is not None:
+        print(
+            "Coverage threshold check: "
+            f"required >= {float(args.fail_under):.2f}%, observed {summary.percent_covered:.2f}%"
+        )
+    else:
+        print("Coverage threshold check: no fail-under threshold was requested for this run.")
 
     if args.fail_under is not None and summary.percent_covered < float(args.fail_under):
         print(
@@ -328,5 +354,5 @@ def _build_coverage_config(omit_patterns: Sequence[str]) -> str:
     return textwrap.dedent("\n".join([*run_lines, "", *report_lines, ""]))
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     main()

@@ -235,6 +235,17 @@ class PipelineControllerHelperTests(unittest.TestCase):
         self.assertEqual(events[0]["event_type"], "custom")
         self.assertEqual(events[1]["event_type"], "artifact_written")
 
+    def test_log_trace_emits_only_in_ultra_verbose_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = PipelineController(self._config(root, verbosity="ultra_verbose"))
+            try:
+                with patch("pipeline.pipeline_controller.LOGGER.log") as log_mock:
+                    controller._log_trace("trace message %s", "value")
+                log_mock.assert_called_once_with(5, "trace message %s", "value")
+            finally:
+                controller.close()
+
     def test_close_and_request_stop_shutdown_active_executors(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

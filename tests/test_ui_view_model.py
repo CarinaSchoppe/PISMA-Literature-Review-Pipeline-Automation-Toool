@@ -316,6 +316,20 @@ class UIViewModelTests(unittest.TestCase):
         self.assertTrue(config_fields.issubset(covered_fields))
         self.assertTrue(api_fields.issubset(covered_fields))
 
+    def test_blank_float_fields_fall_back_to_defaults_when_round_tripping(self) -> None:
+        values = default_form_values()
+        values.update(
+            {
+                "research_topic": "Topic",
+                "search_keywords": "llm, review",
+                "http_retry_base_delay_seconds": "",
+            }
+        )
+
+        config = form_values_to_config(values)
+
+        self.assertEqual(config.http_retry_base_delay_seconds, 1.0)
+
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper
     unittest.main()

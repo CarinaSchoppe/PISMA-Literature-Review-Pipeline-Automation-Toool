@@ -444,7 +444,7 @@ def _request_with_backoff(
             retry_backoff_strategy,
         )
         time.sleep(delay_seconds)
-    return None
+    raise AssertionError("429 retry loop exited without returning a response")  # pragma: no cover
 
 
 def _calculate_backoff_delay(

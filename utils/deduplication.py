@@ -45,8 +45,6 @@ def deduplicate_papers(
         merged = paper
         consumed.add(index)
         for candidate_index in range(index + 1, len(title_only)):
-            if candidate_index in consumed:
-                continue
             if similarities[index, candidate_index] >= title_similarity_threshold:
                 merged = merged.merge_with(title_only[candidate_index])
                 consumed.add(candidate_index)

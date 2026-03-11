@@ -85,3 +85,14 @@ class DeduplicationTests(unittest.TestCase):
         deduplicated = deduplicate_papers(papers)
 
         self.assertEqual(len(deduplicated), 2)
+
+    def test_similarity_merge_skips_candidates_already_consumed(self) -> None:
+        papers = [
+            PaperMetadata(title="AI governance in hospitals", source="openalex"),
+            PaperMetadata(title="AI governance in hospital systems", source="crossref"),
+            PaperMetadata(title="AI governance in hospital system", source="springer"),
+        ]
+
+        deduplicated = deduplicate_papers(papers, title_similarity_threshold=0.5)
+
+        self.assertEqual(len(deduplicated), 1)
