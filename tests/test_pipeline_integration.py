@@ -84,6 +84,10 @@ class PipelineIntegrationTests(unittest.TestCase):
             self.assertIn("retain_reason", included.columns)
             self.assertIn("exclusion_reason", excluded.columns)
             self.assertIn("matched_excluded_title_terms", papers.columns)
+            self.assertIn("topic_prefilter_research_fit_label", papers.columns)
+            self.assertIn("topic_prefilter_weighted_score", papers.columns)
+            self.assertIn("topic_prefilter_extracted_topics", papers.columns)
+            self.assertEqual(len(first_run["papers_snapshot"]), first_run["database_count"])
 
             connection = sqlite3.connect(root / "results" / "excluded_papers.db")
             try:

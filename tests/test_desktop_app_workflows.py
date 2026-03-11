@@ -376,6 +376,44 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
         self.assertEqual(len(self.workbench.treeviews["all_papers"].get_children()), 2)
         self.assertEqual(len(self.workbench.treeviews["included_papers"].get_children()), 1)
         self.assertEqual(len(self.workbench.treeviews["excluded_papers"].get_children()), 1)
+        self.assertEqual(len(self.workbench.research_fit_tree.get_children()), 2)
+
+    def test_research_fit_refresh_and_document_preview_render_keyword_details(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            csv_path = Path(temp_dir) / "papers.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "title": "Paper A",
+                        "abstract": "alpha",
+                        "source": "fixture",
+                        "inclusion_decision": "include",
+                        "topic_prefilter_research_fit_label": "STRONG_FIT",
+                        "topic_prefilter_weighted_score": 81.5,
+                        "topic_prefilter_min_keyword_matches": 2,
+                        "topic_prefilter_matched_keyword_count": 3,
+                        "topic_prefilter_label": "HIGH_RELEVANCE",
+                        "topic_prefilter_similarity": 0.82,
+                        "topic_prefilter_extracted_topics": '["systematic review", "large language models"]',
+                        "topic_prefilter_keyword_details": (
+                            '[{"keyword":"systematic review","weight":1.6,"match_percent":100.0,'
+                            '"status":"matched","best_topic":"systematic review"}]'
+                        ),
+                    }
+                ]
+            ).to_csv(csv_path, index=False)
+
+            self.workbench._refresh_research_fit(csv_path)
+
+            items = self.workbench.research_fit_tree.get_children()
+            self.assertEqual(len(items), 1)
+            self.assertIn("Paper A", self.workbench.research_fit_text.get("1.0", tk.END))
+            self.assertIn("systematic review", self.workbench.research_fit_text.get("1.0", tk.END))
+
+            row = self.workbench.research_fit_rows[items[0]]
+            summary_text, _content_text = self.workbench._build_document_preview(row, source_label="Research Fit", document_path=None)
+            self.assertIn("Research fit snapshot", summary_text)
+            self.assertIn("Top keyword matches", summary_text)
 
     def test_run_history_is_written_and_rendered(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

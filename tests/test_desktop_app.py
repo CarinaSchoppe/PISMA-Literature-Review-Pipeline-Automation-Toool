@@ -92,6 +92,8 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.workbench.LABELS["http_cache_enabled"], "Enable HTTP source cache")
         self.assertEqual(self.workbench.LABELS["http_cache_dir"], "HTTP cache directory")
         self.assertEqual(self.workbench.LABELS["pdf_batch_size"], "PDF batch size")
+        self.assertEqual(self.workbench.LABELS["topic_prefilter_weighted_keywords"], "Weighted research keywords")
+        self.assertEqual(self.workbench.LABELS["topic_prefilter_match_threshold"], "Research-fit strong threshold")
 
     def test_keyword_and_filter_fields_have_placeholders_and_guidance(self) -> None:
         expected_fields = {
@@ -103,6 +105,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
             "exclusion_criteria",
             "banned_topics",
             "excluded_title_terms",
+            "topic_prefilter_weighted_keywords",
         }
         self.assertTrue(expected_fields.issubset(set(self.workbench.FIELD_PLACEHOLDERS.keys())))
         self.assertIn("search_keywords", self.workbench.placeholder_widgets)
@@ -131,6 +134,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(values["exclusion_criteria"], "")
         self.assertEqual(values["banned_topics"], "")
         self.assertEqual(values["excluded_title_terms"], "")
+        self.assertEqual(values["topic_prefilter_weighted_keywords"], "")
 
     def test_guided_text_validation_reports_missing_topic_and_empty_keyword_list(self) -> None:
         messages = self.workbench._validate_guided_text_inputs(
@@ -180,11 +184,29 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("Force Stop", toolbar_texts)
 
     def test_slider_fields_exist_for_threshold_controls(self) -> None:
-        for field_name in ("relevance_threshold", "maybe_threshold_margin", "llm_temperature", "title_similarity_threshold"):
+        for field_name in (
+            "relevance_threshold",
+            "maybe_threshold_margin",
+            "llm_temperature",
+            "title_similarity_threshold",
+            "topic_prefilter_match_threshold",
+            "topic_prefilter_near_fit_threshold",
+        ):
             self.assertIn(field_name, self.workbench.slider_value_labels)
             self.assertIn(field_name, self.workbench.scalar_vars)
         self.assertIn("google_scholar_pages", self.workbench.slider_value_label_groups)
         self.assertEqual(self.workbench.field_widget_types["google_scholar_pages"], "spinbox")
+        self.assertEqual(self.workbench.field_widget_types["topic_prefilter_min_keyword_matches"], "spinbox")
+
+    def test_research_fit_tab_and_badges_exist(self) -> None:
+        notebook_labels = [self.workbench.notebook.tab(tab_id, "text") for tab_id in self.workbench.notebook.tabs()]
+
+        self.assertIn("Research Fit", notebook_labels)
+        self.assertIsNotNone(self.workbench.research_fit_tree)
+        self.assertIsNotNone(self.workbench.research_fit_text)
+        self.assertEqual(self.workbench.research_fit_strong_badge_var.get(), "[FIT] 0 strong")
+        self.assertEqual(self.workbench.research_fit_near_badge_var.get(), "[FIT] 0 near")
+        self.assertEqual(self.workbench.research_fit_weak_badge_var.get(), "[FIT] 0 weak")
 
     def test_settings_are_split_into_multiple_pages(self) -> None:
         notebook = self.workbench.settings_pages_notebook

@@ -68,6 +68,42 @@ class ConfigTests(unittest.TestCase):
             ResearchConfig(research_topic="Topic", search_keywords=["llm"], discovery_workers=-1)
         with self.assertRaises(ValueError):
             ResearchConfig(research_topic="Topic", search_keywords=["llm"], google_scholar_pages=101)
+        with self.assertRaises(ValueError):
+            ResearchConfig(
+                research_topic="Topic",
+                search_keywords=["llm"],
+                topic_prefilter_match_threshold=30,
+                topic_prefilter_near_fit_threshold=40,
+            )
+
+    def test_cli_parses_weighted_topic_fit_controls(self) -> None:
+        parser = build_arg_parser()
+        args = parser.parse_args(
+            [
+                "--topic",
+                "Topic",
+                "--keywords",
+                "llm",
+                "--topic-prefilter-weighted-keywords",
+                "systematic review|1.6; large language models|1.4",
+                "--topic-prefilter-min-keyword-matches",
+                "2",
+                "--topic-prefilter-match-threshold",
+                "55",
+                "--topic-prefilter-near-fit-threshold",
+                "35",
+            ]
+        )
+
+        config = ResearchConfig.from_cli(args)
+
+        self.assertEqual(
+            config.topic_prefilter_weighted_keywords,
+            ["systematic review|1.6", "large language models|1.4"],
+        )
+        self.assertEqual(config.topic_prefilter_min_keyword_matches, 2)
+        self.assertEqual(config.topic_prefilter_match_threshold, 55.0)
+        self.assertEqual(config.topic_prefilter_near_fit_threshold, 35.0)
 
     def test_google_scholar_page_bounds_are_configurable_and_validated_together(self) -> None:
         config = ResearchConfig(
