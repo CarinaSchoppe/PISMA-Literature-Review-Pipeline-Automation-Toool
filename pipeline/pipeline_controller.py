@@ -443,7 +443,13 @@ class PipelineController:
                                 )
                                 return limited[: self.config.max_discovered_records]
                     except Exception as exc:  # noqa: BLE001
-                        LOGGER.exception("Discovery failed for %s: %s", source_name, exc)
+                        self._log_recoverable_exception(
+                            logging.ERROR,
+                            "Discovery failed for %s: %s",
+                            source_name,
+                            exc,
+                            exc=exc,
+                        )
             finally:
                 if executor in self._active_executors:
                     self._active_executors.remove(executor)
@@ -492,7 +498,12 @@ class PipelineController:
                             task.cancel()
                         return limited[: self.config.max_discovered_records]
             except Exception as exc:  # noqa: BLE001
-                LOGGER.exception("Async discovery source failed: %s", exc)
+                self._log_recoverable_exception(
+                    logging.ERROR,
+                    "Async discovery source failed: %s",
+                    exc,
+                    exc=exc,
+                )
         return discovered
 
     def _build_discovery_clients(self, *, allow_empty: bool = False) -> dict[str, Callable[[], list[PaperMetadata]]]:
@@ -658,7 +669,13 @@ class PipelineController:
                             result.relevance_score,
                         )
                     except Exception as exc:  # noqa: BLE001
-                        LOGGER.exception("Screening failed for %s: %s", paper.title, exc)
+                        self._log_recoverable_exception(
+                            logging.ERROR,
+                            "Screening failed for %s: %s",
+                            paper.title,
+                            exc,
+                            exc=exc,
+                        )
             finally:
                 if executor in self._active_executors:
                     self._active_executors.remove(executor)
@@ -1091,6 +1108,19 @@ class PipelineController:
 
         if self.config.verbosity == "ultra_verbose":
             LOGGER.log(5, message, *args)
+
+    def _log_recoverable_exception(
+        self,
+        level: int,
+        message: str,
+        *args: Any,
+        exc: BaseException,
+    ) -> None:
+        """Keep expected worker/source failures visible without always printing full tracebacks."""
+
+        LOGGER.log(level, message, *args)
+        if self.config.verbosity == "ultra_verbose":
+            LOGGER.debug("%s", message % args, exc_info=exc)
 
     def _build_manual_import_clients(self) -> list[ManualImportClient]:
         clients: list[ManualImportClient] = []

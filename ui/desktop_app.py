@@ -1303,8 +1303,10 @@ class DesktopWorkbench:
     def _configure_theme(self) -> str:
         """Apply a consistent light theme so the guided workbench feels modern and easier to scan."""
 
-        preferred_theme = "clam" if "clam" in self.style.theme_names() else self.style.theme_use()
-        self.style.theme_use(preferred_theme)
+        current_theme = self.style.theme_use()
+        preferred_theme = "clam" if "clam" in self.style.theme_names() else current_theme
+        if current_theme != preferred_theme:
+            self.style.theme_use(preferred_theme)
 
         base_font = tkfont.nametofont("TkDefaultFont")
         base_font.configure(family="Segoe UI", size=10)
@@ -5523,6 +5525,12 @@ class DesktopWorkbench:
                 pass
         if self.log_handler in self.root_logger.handlers:
             self.root_logger.removeHandler(self.log_handler)
+        try:
+            self.root.withdraw()
+            self.root.update_idletasks()
+            self.root.quit()
+        except tk.TclError:
+            pass
         self.root.destroy()
 
 

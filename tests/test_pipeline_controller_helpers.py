@@ -729,11 +729,38 @@ class PipelineControllerHelperTests(unittest.TestCase):
                     no_pass_controller._log_verbose("hello %s", "world")
                     no_pass_controller._log_debug("debug %s", "world")
                     no_pass_controller._log_trace("trace %s", "world")
+                    no_pass_controller._log_recoverable_exception(
+                        40,
+                        "Recoverable issue for %s",
+                        "worker",
+                        exc=RuntimeError("boom"),
+                    )
                 info_mock.assert_not_called()
                 debug_mock.assert_not_called()
-                trace_mock.assert_not_called()
+                self.assertEqual(trace_mock.call_count, 1)
+                self.assertEqual(trace_mock.call_args.args[:3], (40, "Recoverable issue for %s", "worker"))
             finally:
                 no_pass_controller.close()
+
+            ultra_verbose_controller = PipelineController(
+                self._config(root, run_mode="collect", verbosity="ultra_verbose")
+            )
+            try:
+                with patch("pipeline.pipeline_controller.LOGGER.log") as log_mock, patch(
+                    "pipeline.pipeline_controller.LOGGER.debug"
+                ) as debug_mock:
+                    ultra_verbose_controller._log_recoverable_exception(
+                        40,
+                        "Recoverable issue for %s",
+                        "worker",
+                        exc=RuntimeError("boom"),
+                    )
+                log_mock.assert_called_once_with(40, "Recoverable issue for %s", "worker")
+                debug_mock.assert_called_once()
+                self.assertEqual(debug_mock.call_args.args[:2], ("%s", "Recoverable issue for worker"))
+                self.assertIsInstance(debug_mock.call_args.kwargs["exc_info"], RuntimeError)
+            finally:
+                ultra_verbose_controller.close()
 
 
 if __name__ == "__main__":
