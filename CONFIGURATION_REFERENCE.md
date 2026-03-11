@@ -273,9 +273,39 @@ Outputs stored for explainability include:
 
 - similarity score
 - classification label
+- extracted topics and keyphrases
+- weighted keyword score
+- matched keyword count
+- research-fit label
+- per-keyword match percentages and best matched topic
 - used text sections
 - keyword overlap
 - reason summary
+
+Additional weighted-fit controls:
+
+`topic_prefilter_weighted_keywords`
+
+- Optional weighted keywords used by the research-fit layer.
+- Syntax:
+  - `keyword`
+  - `keyword|weight`
+- Example:
+  - `systematic review|1.8`
+  - `large language models|1.4`
+
+`topic_prefilter_min_keyword_matches`
+
+- Minimum number of keyword matches required before a paper can count as a strong fit.
+
+`topic_prefilter_match_threshold`
+
+- Weighted score threshold for `STRONG_FIT`.
+
+`topic_prefilter_near_fit_threshold`
+
+- Weighted score threshold for `NEAR_FIT`.
+- Must stay less than or equal to `topic_prefilter_match_threshold`.
 
 ## AI Screening Settings
 

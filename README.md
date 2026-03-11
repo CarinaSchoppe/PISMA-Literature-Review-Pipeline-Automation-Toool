@@ -29,6 +29,7 @@ It can:
 * expand results through backward and forward citation snowballing
 * enrich records with open-access PDF metadata and optionally download PDFs
 * screen papers with heuristics or one or more LLM passes
+* extract paper keyphrases locally and compare them against weighted research keywords
 * export accepted and rejected records with reasons
 * generate PRISMA-style flow outputs and ranked results
 
@@ -145,14 +146,23 @@ The prefilter:
 
 * builds one review brief from the topic, research question, objective, keywords, and inclusion criteria
 * uses the research topic, research question, and review objective directly in the local research-fit explanation path
+* extracts paper keyphrases from title, abstract, and metadata keywords
+* compares extracted topics against weighted research keywords and minimum-match requirements
 * embeds the review brief and each paper locally on the machine
 * compares them with cosine similarity
 * classifies each paper as `HIGH_RELEVANCE`, `REVIEW`, or `LOW_RELEVANCE`
+* produces a research-fit badge of `STRONG_FIT`, `NEAR_FIT`, or `WEAK_FIT`
 * can automatically filter `LOW_RELEVANCE` papers before more expensive screening
 * caches the loaded embedding model in-process so repeated paper scoring does not reload the model
 * keeps the default text window and character limits moderate for normal CPU-only desktop hardware
 
 This path is designed for CPU-only execution on normal desktop hardware and remains usable offline after the initial model download.
+
+Weighted research keywords can be written as plain phrases or `keyword|weight`, for example:
+
+* `systematic review|1.8`
+* `large language models|1.4`
+* `screening automation`
 
 Multi-pass screening is supported. Each pass can define:
 
@@ -211,6 +221,7 @@ The guided workbench includes:
   - `All Papers`
   - `Included`
   - `Excluded`
+  - `Research Fit`
   - `Outputs`
   - `Charts`
   - `Run History`
@@ -218,6 +229,7 @@ The guided workbench includes:
   - `Document Viewer`
 - double-click result and audit rows to open the embedded document viewer
 - document previews combine local PDF excerpts when available with screening rationale, retain/exclude reasoning, and research-fit context
+- the `Research Fit` tab shows extracted topics, weighted keyword percentages, matched-keyword counts, and strong/near/weak fit badges
 - the embedded document viewer can render local PDF pages directly inside the tab when `Pillow` and `pypdfium2` are available
 - the document viewer includes page navigation, zoom controls, source/decision/file badges, and falls back to text preview when no renderable local PDF exists
 - export preview before the run starts, so you can confirm which files and folders the current settings will produce

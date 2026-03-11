@@ -265,6 +265,23 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(paned.sashpos(0), first_sash)
         self.assertEqual(paned.sashpos(1), second_sash)
 
+    def test_settings_sidebar_controls_can_resize_and_reset_panes(self) -> None:
+        paned = self.workbench.settings_panedwindow
+        self.assertIsNotNone(paned)
+        default_left, default_right = self.workbench._default_settings_pane_widths(bool(self.workbench.compact_window_mode.get()))
+
+        self.workbench._adjust_settings_sidebar_width("left", 32)
+        self.assertEqual(self.workbench.settings_left_pane_width, default_left + 32)
+
+        self.workbench._adjust_settings_sidebar_width("right", 32)
+        self.assertTrue(self.workbench.settings_panes_user_resized)
+        self.assertEqual(self.workbench.settings_right_pane_width, default_right + 32)
+
+        self.workbench._reset_settings_pane_widths()
+        self.assertFalse(self.workbench.settings_panes_user_resized)
+        self.assertEqual(self.workbench.settings_left_pane_width, default_left)
+        self.assertEqual(self.workbench.settings_right_pane_width, default_right)
+
     def test_settings_overview_toggle_persists_across_layout_refreshes(self) -> None:
         self.workbench.settings_mode_var.set("advanced")
         self.workbench.compact_window_mode.set(False)

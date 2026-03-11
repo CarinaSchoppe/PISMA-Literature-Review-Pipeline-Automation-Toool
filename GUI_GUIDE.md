@@ -34,6 +34,7 @@ Main tabs:
 - `All Papers`
 - `Included`
 - `Excluded`
+- `Research Fit`
 - `Outputs`
 - `Charts`
 - `Run History`
@@ -181,6 +182,9 @@ Use this page for:
 - decision mode
 - maybe margin
 - local MiniLM topic prefilter
+- weighted research keywords
+- minimum keyword-match count
+- strong-fit and near-fit thresholds
 - full-text analysis
 - pass-chain editing
 
@@ -191,6 +195,22 @@ The pass-chain builder is visual and allows:
 - reorder passes
 - set provider-specific model overrides
 - set minimum previous-pass score
+
+Weighted research keywords accept either plain phrases or `keyword|weight`, for example:
+
+- `systematic review|1.8`
+- `large language models|1.4`
+- `evidence synthesis`
+
+The Research Fit workspace uses those settings to show:
+
+- extracted paper topics and keyphrases
+- per-keyword match percentages
+- matched keyword counts against the configured minimum
+- color-coded fit badges:
+  - green for `STRONG_FIT`
+  - amber for `NEAR_FIT`
+  - red for `WEAK_FIT`
 
 ## Connections And Keys Page
 
@@ -262,6 +282,13 @@ Toolbar actions:
 ## Document Viewer
 
 The `Document Viewer` tab is built for fast result inspection.
+
+It also includes a research-fit snapshot for the selected paper:
+
+- extracted topics
+- weighted keyword evidence
+- semantic fit label
+- matched-keyword counts
 
 Open it by:
 

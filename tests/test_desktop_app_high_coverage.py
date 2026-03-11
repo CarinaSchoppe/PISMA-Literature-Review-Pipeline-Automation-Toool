@@ -954,7 +954,18 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
 
         with patch("ui.desktop_app.PipelineController", BrokenController), patch(
             "ui.desktop_app.threading.Thread", FakeThread
-        ), patch("ui.desktop_app.messagebox.showerror") as showerror, patch.object(self.workbench.root, "after", return_value=None):
+        ), patch(
+            "ui.desktop_app.form_values_to_config",
+            return_value=SimpleNamespace(
+                log_file_path=Path("results/pipeline.log"),
+                results_dir=Path("results"),
+                skip_discovery=True,
+                run_mode="collect",
+                verbosity="normal",
+            ),
+        ), patch.object(self.workbench, "_validate_guided_text_inputs", return_value=[]), patch(
+            "ui.desktop_app.messagebox.showerror"
+        ) as showerror, patch.object(self.workbench.root, "after", return_value=None):
             self.workbench._start_run(skip_discovery_override=True, run_mode_override="collect")
             self.workbench._poll_messages()
         showerror.assert_called_once()
@@ -1008,6 +1019,17 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         self.workbench.current_controller = controller
         with patch.object(self.workbench, "_set_status") as set_status, patch("ui.desktop_app.PipelineController", BrokenController), patch(
             "ui.desktop_app.threading.Thread", FakeThread
+        ), patch.object(
+            self.workbench, "_validate_guided_text_inputs", return_value=[]
+        ), patch(
+            "ui.desktop_app.form_values_to_config",
+            return_value=SimpleNamespace(
+                log_file_path=Path("results/pipeline.log"),
+                results_dir=Path("results"),
+                skip_discovery=True,
+                run_mode="analyze",
+                verbosity="normal",
+            ),
         ), patch.object(self.workbench.root, "after", return_value=None):
             self.workbench._start_run(skip_discovery_override=True, run_mode_override="analyze")
         self.assertTrue(

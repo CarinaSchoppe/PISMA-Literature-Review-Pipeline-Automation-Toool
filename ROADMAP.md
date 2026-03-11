@@ -26,6 +26,7 @@ Already implemented and verified:
 - multi-pass screening with provider chaining
 - heuristic, OpenAI-compatible, Gemini, Ollama, and local Hugging Face screening
 - local MiniLM semantic topic prefiltering with configurable thresholds and optional automatic low-relevance filtering
+- extracted paper keyphrases, weighted keyword matching, and research-fit labels (`STRONG_FIT`, `NEAR_FIT`, `WEAK_FIT`)
 - included and excluded outputs with rationale
 - PRISMA-style flow output
 - normal, verbose, and ultra-verbose logging
@@ -68,6 +69,7 @@ The product should move toward:
 - richer visual reporting
 - faster reruns through caching and resume controls
 - more polished GUI ergonomics
+- richer paper-level research-fit explainability in the GUI and exports
 - easier source onboarding through stable adapters and configuration-first toggles
 - stronger operator confidence through explicit health, audit, and recovery tools
 

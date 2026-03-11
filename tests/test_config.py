@@ -95,7 +95,7 @@ class ConfigTests(unittest.TestCase):
             ]
         )
 
-        with patch("builtins.input", side_effect=["", "", "", "", ""]):
+        with patch("builtins.input", return_value=""):
             config = ResearchConfig.from_cli(args)
 
         self.assertEqual(

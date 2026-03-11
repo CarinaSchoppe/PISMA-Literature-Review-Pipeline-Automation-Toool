@@ -90,6 +90,7 @@ Main tabs:
 - `All Papers`
 - `Included`
 - `Excluded`
+- `Research Fit`
 - `Outputs`
 - `Charts`
 - `Run History`
@@ -148,6 +149,7 @@ Result inspection tabs:
 - `Charts`: lightweight on-device chart preview for screening decisions and source mix
 - `Run History`: persistent JSON-backed record of recent runs, including status, topic, and artifact paths
 - `Screening Audit`: per-paper explanations, retain reasons, exclusion reasons, and extracted passages from `papers.csv`
+- `Research Fit`: extracted topics, weighted keyword percentages, minimum-match counts, semantic labels, and strong/near/weak fit badges
 - `Document Viewer`: double-click a paper row to inspect local document text, embedded PDF pages, screening rationale, and research-fit context without leaving the workbench
 
 Run log styling:
@@ -576,6 +578,37 @@ These settings control scoring, pass chains, and model behavior.
 - Default: `sentence-transformers/all-MiniLM-L6-v2`
 - GUI: `Connections and Keys`
 - CLI: `--topic-prefilter-model`
+
+`topic_prefilter_weighted_keywords`
+
+- Optional weighted research keywords used by the stronger research-fit explanation layer.
+- Format:
+  - `keyword`
+  - `keyword|weight`
+- Example:
+  - `systematic review|1.8`
+  - `large language models|1.4`
+- GUI: `AI Screening`
+- CLI: `--topic-prefilter-weighted-keywords`
+
+`topic_prefilter_min_keyword_matches`
+
+- Minimum number of matched keywords required for a strong keyword-fit.
+- GUI: `AI Screening`
+- CLI: `--topic-prefilter-min-keyword-matches`
+
+`topic_prefilter_match_threshold`
+
+- Weighted score threshold for `STRONG_FIT`.
+- GUI: `AI Screening`
+- CLI: `--topic-prefilter-match-threshold`
+
+`topic_prefilter_near_fit_threshold`
+
+- Weighted score threshold for `NEAR_FIT`.
+- Must be less than or equal to the strong-fit threshold.
+- GUI: `AI Screening`
+- CLI: `--topic-prefilter-near-fit-threshold`
 
 `analyze_full_text`
 

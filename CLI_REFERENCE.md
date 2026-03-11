@@ -155,6 +155,13 @@ Useful related flags:
 - `--topic-prefilter-text-mode title_abstract`
 - `--topic-prefilter-text-mode title_abstract_full_text`
 - `--topic-prefilter-max-chars 4000`
+- `--topic-prefilter-weighted-keywords "systematic review|1.8;large language models|1.4"`
+- `--topic-prefilter-min-keyword-matches 2`
+- `--topic-prefilter-match-threshold 55`
+- `--topic-prefilter-near-fit-threshold 35`
+
+The weighted keyword syntax accepts either plain phrases or `keyword|weight`.
+These settings drive the GUI `Research Fit` tab and the exported per-paper research-fit fields.
 
 ## Google Scholar Page Depth
 

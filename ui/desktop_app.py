@@ -1354,6 +1354,8 @@ class DesktopWorkbench:
         self.settings_pages_notebook: ttk.Notebook | None = None
         self.settings_tools_notebook: ttk.Notebook | None = None
         self.settings_panedwindow: ttk.Panedwindow | None = None
+        self.settings_left_sidebar: ttk.Frame | None = None
+        self.settings_right_sidebar: ttk.Frame | None = None
         self.workspace_overview_content: ttk.Frame | None = None
         self.workspace_overview_toggle_button: ttk.Button | None = None
         self.settings_overview_content: ttk.Frame | None = None
@@ -1413,6 +1415,8 @@ class DesktopWorkbench:
         self.settings_panes_initialized = False
         self.settings_panes_user_resized = False
         self.settings_panes_mode: bool | None = None
+        self.settings_left_pane_width: int | None = None
+        self.settings_right_pane_width: int | None = None
         self.is_closing = False
         self.hover_tooltip = HoverTooltip(self.root)
         self._hover_message_active = False
@@ -2284,10 +2288,8 @@ class DesktopWorkbench:
                 return
             self.settings_panedwindow.update_idletasks()
             width = max(int(self.settings_panedwindow.winfo_width() or 0), 920)
-            left_width = 210 if current_mode else 240
-            right_width = 300 if current_mode else 340
-            self.settings_panedwindow.sashpos(0, left_width)
-            self.settings_panedwindow.sashpos(1, max(left_width + 280, width - right_width))
+            left_width, right_width = self._default_settings_pane_widths(current_mode)
+            self._apply_settings_pane_widths(left_width, right_width, total_width=width)
             self.settings_panes_initialized = True
             self.settings_panes_mode = current_mode
         except (tk.TclError, RuntimeError, RecursionError):
@@ -2299,6 +2301,76 @@ class DesktopWorkbench:
         self.settings_panes_user_resized = True
         self.settings_panes_initialized = True
         self.settings_panes_mode = bool(self.compact_window_mode.get())
+        self._capture_settings_pane_widths()
+
+    def _default_settings_pane_widths(self, compact_mode: bool) -> tuple[int, int]:
+        """Return the default sidebar widths for the current layout density."""
+
+        return (210, 300) if compact_mode else (240, 340)
+
+    def _capture_settings_pane_widths(self) -> None:
+        """Persist the current left and right sidebar widths after manual resize actions."""
+
+        if self.settings_panedwindow is None:
+            return
+        try:
+            total_width = max(int(self.settings_panedwindow.winfo_width() or 0), 920)
+            left_width = int(self.settings_panedwindow.sashpos(0))
+            right_start = int(self.settings_panedwindow.sashpos(1))
+        except (tk.TclError, RuntimeError, RecursionError):
+            return
+        self.settings_left_pane_width = max(160, left_width)
+        self.settings_right_pane_width = max(220, total_width - right_start)
+
+    def _apply_settings_pane_widths(self, left_width: int, right_width: int, *, total_width: int | None = None) -> None:
+        """Apply explicit left and right sidebar widths to the settings shell."""
+
+        if self.settings_panedwindow is None:
+            return
+        try:
+            self.settings_panedwindow.update_idletasks()
+        except (tk.TclError, RuntimeError, RecursionError):
+            return
+        width = total_width
+        if width is None:
+            try:
+                width = max(int(self.settings_panedwindow.winfo_width() or 0), 920)
+            except (tk.TclError, RuntimeError, RecursionError):
+                return
+        left_width = max(160, int(left_width))
+        right_width = max(220, int(right_width))
+        center_width = max(320, width - left_width - right_width)
+        right_start = left_width + center_width
+        try:
+            self.settings_panedwindow.sashpos(0, left_width)
+            self.settings_panedwindow.sashpos(1, right_start)
+        except (tk.TclError, RuntimeError, RecursionError):
+            return
+        self.settings_left_pane_width = left_width
+        self.settings_right_pane_width = width - right_start
+        self.settings_panes_initialized = True
+        self.settings_panes_mode = bool(self.compact_window_mode.get())
+
+    def _adjust_settings_sidebar_width(self, side: str, delta: int) -> None:
+        """Grow or shrink the requested settings sidebar without relying on sash dragging alone."""
+
+        current_mode = bool(self.compact_window_mode.get())
+        default_left, default_right = self._default_settings_pane_widths(current_mode)
+        left_width = self.settings_left_pane_width if self.settings_left_pane_width is not None else default_left
+        right_width = self.settings_right_pane_width if self.settings_right_pane_width is not None else default_right
+        if side == "left":
+            left_width += delta
+        else:
+            right_width += delta
+        self.settings_panes_user_resized = True
+        self._apply_settings_pane_widths(left_width, right_width)
+
+    def _reset_settings_pane_widths(self) -> None:
+        """Restore the settings shell sidebars to the current mode defaults."""
+
+        self.settings_panes_user_resized = False
+        left_width, right_width = self._default_settings_pane_widths(bool(self.compact_window_mode.get()))
+        self._apply_settings_pane_widths(left_width, right_width)
 
     def _apply_responsive_layout(self, *_args: Any) -> None:
         """Compact the large overview blocks when the window is not tall enough for them."""
@@ -2318,6 +2390,8 @@ class DesktopWorkbench:
             self.settings_panes_initialized = False
             self.settings_panes_user_resized = False
             self.settings_panes_mode = compact_window
+            self.settings_left_pane_width = None
+            self.settings_right_pane_width = None
         advanced_mode = self.settings_mode_var.get() == "advanced"
         default_overview_visibility = advanced_mode and not compact_window
         workspace_overview_visible = (
@@ -2768,6 +2842,7 @@ class DesktopWorkbench:
 
         left_sidebar = ttk.Frame(shell_panes, padding=12, style="Sidebar.TFrame")
         left_sidebar.rowconfigure(1, weight=1)
+        self.settings_left_sidebar = left_sidebar
 
         center_frame = ttk.Frame(shell_panes, padding=0, style="Panel.TFrame")
         center_frame.columnconfigure(0, weight=1)
@@ -2775,6 +2850,7 @@ class DesktopWorkbench:
 
         right_sidebar = ttk.Frame(shell_panes, padding=12, style="Inspector.TFrame")
         right_sidebar.rowconfigure(0, weight=1)
+        self.settings_right_sidebar = right_sidebar
 
         shell_panes.add(left_sidebar, weight=1)
         shell_panes.add(center_frame, weight=4)
@@ -2875,20 +2951,81 @@ class DesktopWorkbench:
         inspector.grid(row=0, column=0, sticky="nsew")
         inspector.columnconfigure(0, weight=1)
         inspector.rowconfigure(0, weight=1)
+        inspector_resize_row = ttk.Frame(right_sidebar, style="Inspector.TFrame")
+        inspector_resize_row.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        ttk.Label(inspector_resize_row, text="Inspector width", style="Kicker.TLabel").grid(row=0, column=0, sticky="w")
+        inspector_controls = ttk.Frame(inspector_resize_row, style="Inspector.TFrame")
+        inspector_controls.grid(row=1, column=0, sticky="w", pady=(4, 0))
+        ttk.Button(
+            inspector_controls,
+            text="-",
+            width=3,
+            command=lambda: self._adjust_settings_sidebar_width("right", -32),
+            style="Secondary.TButton",
+        ).grid(row=0, column=0)
+        ttk.Button(
+            inspector_controls,
+            text="+",
+            width=3,
+            command=lambda: self._adjust_settings_sidebar_width("right", 32),
+            style="Secondary.TButton",
+        ).grid(row=0, column=1, padx=(6, 0))
+        ttk.Button(
+            inspector_controls,
+            text="Reset",
+            command=self._reset_settings_pane_widths,
+            style="Secondary.TButton",
+        ).grid(row=0, column=2, padx=(8, 0))
+        self._bind_hover_help(
+            inspector_resize_row,
+            "Use these controls to widen or narrow the right inspector sidebar if you want more room for summaries, guides, or quick edits.",
+        )
         self._build_settings_quick_access(inspector)
 
         self._populate_quick_access_controls()
         self._apply_settings_page_visibility()
         self._handle_settings_page_changed()
         self._apply_settings_mode()
+        self._reset_settings_pane_widths()
 
     def _build_settings_navigation(self, parent: ttk.Frame) -> None:
         """Create the left-hand navigation rail used to move between settings pages."""
 
         parent.columnconfigure(0, weight=1)
 
+        resize_row = ttk.Frame(parent, style="Sidebar.TFrame")
+        resize_row.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        resize_row.columnconfigure(0, weight=1)
+        ttk.Label(resize_row, text="Navigation width", style="Kicker.TLabel").grid(row=0, column=0, sticky="w")
+        nav_controls = ttk.Frame(resize_row, style="Sidebar.TFrame")
+        nav_controls.grid(row=1, column=0, sticky="w", pady=(4, 0))
+        ttk.Button(
+            nav_controls,
+            text="-",
+            width=3,
+            command=lambda: self._adjust_settings_sidebar_width("left", -32),
+            style="Secondary.TButton",
+        ).grid(row=0, column=0)
+        ttk.Button(
+            nav_controls,
+            text="+",
+            width=3,
+            command=lambda: self._adjust_settings_sidebar_width("left", 32),
+            style="Secondary.TButton",
+        ).grid(row=0, column=1, padx=(6, 0))
+        ttk.Button(
+            nav_controls,
+            text="Reset",
+            command=self._reset_settings_pane_widths,
+            style="Secondary.TButton",
+        ).grid(row=0, column=2, padx=(8, 0))
+        self._bind_hover_help(
+            resize_row,
+            "Use these controls to widen or narrow the left navigation sidebar if dragging the divider is awkward on your system.",
+        )
+
         page_card = ttk.LabelFrame(parent, text="Settings pages", padding=10, style="Sidebar.TLabelframe")
-        page_card.grid(row=0, column=0, sticky="new")
+        page_card.grid(row=1, column=0, sticky="new")
         page_card.columnconfigure(0, weight=1)
         ttk.Label(
             page_card,
@@ -2922,7 +3059,7 @@ class DesktopWorkbench:
             self._bind_hover_help(description, self.SETTINGS_PAGE_DESCRIPTIONS.get(page_name, page_name))
 
         hint_card = ttk.LabelFrame(parent, text="How to use this layout", padding=10, style="Sidebar.TLabelframe")
-        hint_card.grid(row=1, column=0, sticky="sew", pady=(12, 0))
+        hint_card.grid(row=2, column=0, sticky="sew", pady=(12, 0))
         ttk.Label(
             hint_card,
             text=(
