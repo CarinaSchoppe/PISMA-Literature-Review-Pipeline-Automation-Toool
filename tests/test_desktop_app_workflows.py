@@ -53,14 +53,16 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
 
     def test_browse_for_field_supports_directory_file_and_database_targets(self) -> None:
         with patch("ui.desktop_app.filedialog.askdirectory", return_value="results/custom"), patch(
-            "ui.desktop_app.filedialog.asksaveasfilename", return_value="data/custom.db"
+            "ui.desktop_app.filedialog.asksaveasfilename", side_effect=["data/custom.db", "results/pipeline.log"]
         ), patch("ui.desktop_app.filedialog.askopenfilename", return_value="imports/manual.csv"):
             self.workbench._browse_for_field("results_dir", self.workbench.scalar_vars["results_dir"])
             self.workbench._browse_for_field("database_path", self.workbench.scalar_vars["database_path"])
+            self.workbench._browse_for_field("log_file_path", self.workbench.scalar_vars["log_file_path"])
             self.workbench._browse_for_field("manual_source_path", self.workbench.scalar_vars["manual_source_path"])
 
         self.assertEqual(self.workbench.scalar_vars["results_dir"].get(), "results/custom")
         self.assertEqual(self.workbench.scalar_vars["database_path"].get(), "data/custom.db")
+        self.assertEqual(self.workbench.scalar_vars["log_file_path"].get(), "results/pipeline.log")
         self.assertEqual(self.workbench.scalar_vars["manual_source_path"].get(), "imports/manual.csv")
 
     def test_load_config_save_profile_and_load_profile_flows(self) -> None:
@@ -129,6 +131,16 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
         self.assertLessEqual(showerror.call_count, 1)
         _find_button(dialog, "Cancel").invoke()
         self.assertFalse(dialog.winfo_exists())
+
+    def test_pass_builder_rejects_blank_name_on_save(self) -> None:
+        self.workbench._open_pass_builder()
+        dialog = next(widget for widget in self.workbench.root.winfo_children() if isinstance(widget, tk.Toplevel))
+        with patch.object(self.workbench, "_validate_pass_builder_name", return_value=False) as validate_name:
+            _find_button(dialog, "Update Pass").invoke()
+
+        validate_name.assert_called_once()
+        self.assertTrue(dialog.winfo_exists())
+        dialog.destroy()
 
     def test_handbook_search_rendering_and_opening_specific_entries(self) -> None:
         self.workbench.handbook_search_var.set("no-match-value")

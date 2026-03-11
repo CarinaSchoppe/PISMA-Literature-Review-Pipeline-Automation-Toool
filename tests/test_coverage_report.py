@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -73,6 +74,9 @@ class CoverageReportTests(unittest.TestCase):
         self.assertIn("Overall coverage: `95.00%`", markdown)
         self.assertIn("config.py", markdown)
         self.assertIn("10-11, 30", markdown)
+        self.assertIn("Overall result:", text_report)
+        self.assertIn("Generated artifacts:", text_report)
+        self.assertIn("Interpretation:", text_report)
         self.assertIn("Lowest-Coverage Files", text_report)
         self.assertEqual(json_summary["overall"]["percent_covered"], 95.0)
         self.assertEqual(json_summary["files"][0]["missing_ranges"], "10-11, 30")
@@ -156,6 +160,44 @@ class CoverageReportTests(unittest.TestCase):
 
     @patch("builtins.print")
     @patch("coverage_report.subprocess.run")
+    def test_run_coverage_report_reports_when_no_threshold_was_requested(self, run_mock, print_mock) -> None:
+        def fake_run(command, cwd=None, check=None, text=None, capture_output=False, env=None):
+            json_arg = next(part for part in command if part.startswith("--cov-report=json:"))
+            html_arg = next(part for part in command if part.startswith("--cov-report=html:"))
+            junit_arg = next(part for part in command if part.startswith("--junitxml="))
+            Path(json_arg.split(":", 1)[1]).write_text(
+                json.dumps(
+                    {
+                        "totals": {
+                            "num_statements": 10,
+                            "covered_lines": 10,
+                            "missing_lines": 0,
+                            "percent_covered": 100.0,
+                        },
+                        "files": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            html_path = Path(html_arg.split(":", 1)[1])
+            html_path.mkdir(parents=True, exist_ok=True)
+            (html_path / "index.html").write_text("<html></html>", encoding="utf-8")
+            Path(junit_arg.split("=", 1)[1]).write_text("<testsuite></testsuite>", encoding="utf-8")
+            return type("Result", (), {"stdout": "TOTAL 100.00%\n"})()
+
+        run_mock.side_effect = fake_run
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = coverage_report.run_coverage_report(["--results-dir", tmpdir])
+
+        self.assertEqual(exit_code, 0)
+        printed_chunks = [" ".join(str(part) for part in call.args) for call in print_mock.call_args_list]
+        self.assertTrue(
+            any("Coverage threshold check: no fail-under threshold was requested for this run." in chunk for chunk in printed_chunks)
+        )
+
+    @patch("builtins.print")
+    @patch("coverage_report.subprocess.run")
     def test_run_coverage_report_can_fail_threshold(self, run_mock, _print_mock) -> None:
         def fake_run(command, cwd=None, check=None, text=None, capture_output=False, env=None):
             self.assertIn("COVERAGE_FILE", env)
@@ -188,6 +230,43 @@ class CoverageReportTests(unittest.TestCase):
             exit_code = coverage_report.run_coverage_report(["--results-dir", tmpdir, "--fail-under", "95"])
 
         self.assertEqual(exit_code, 2)
+
+    @patch("builtins.print")
+    @patch("coverage_report.subprocess.run")
+    def test_run_coverage_report_handles_failed_pytest_before_artifacts_exist(
+        self,
+        run_mock,
+        print_mock,
+    ) -> None:
+        run_mock.return_value = type(
+            "Result",
+            (),
+            {
+                "stdout": "pytest failed early",
+                "stderr": "traceback details",
+                "returncode": 5,
+            },
+        )()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = coverage_report.run_coverage_report(["--results-dir", tmpdir])
+
+        self.assertEqual(exit_code, 5)
+        printed_chunks = [" ".join(str(part) for part in call.args) for call in print_mock.call_args_list]
+        self.assertTrue(any("Pytest execution transcript" in chunk for chunk in printed_chunks))
+        self.assertTrue(any("Generated artifacts" in chunk for chunk in printed_chunks))
+        self.assertTrue(any("pytest failed early" in chunk and "[stderr]" in chunk for chunk in printed_chunks))
+        self.assertTrue(any("Pytest terminal log:" in chunk for chunk in printed_chunks))
+        error_messages = [str(call.args[0]) for call in print_mock.call_args_list if call.kwargs.get("file") is sys.stderr]
+        self.assertIn("Coverage report generation failed before coverage artifacts were written.", error_messages)
+
+    @patch("coverage_report.run_coverage_report", return_value=0)
+    def test_main_exits_with_report_status(self, run_mock) -> None:
+        with self.assertRaises(SystemExit) as caught:
+            coverage_report.main()
+
+        self.assertEqual(caught.exception.code, 0)
+        run_mock.assert_called_once()
 
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper

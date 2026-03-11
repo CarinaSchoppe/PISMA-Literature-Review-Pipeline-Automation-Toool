@@ -438,8 +438,6 @@ class ResearchConfig(BaseModel):
     def validate_google_scholar_bounds(self) -> ResearchConfig:
         """Keep Google Scholar page-depth controls internally consistent."""
 
-        if self.google_scholar_page_min < 1:
-            raise ValueError("google_scholar_page_min must be greater than or equal to 1")
         if self.google_scholar_page_max < self.google_scholar_page_min:
             raise ValueError("google_scholar_page_max must be greater than or equal to google_scholar_page_min")
         if not self.google_scholar_page_min <= self.google_scholar_pages <= self.google_scholar_page_max:
@@ -1619,8 +1617,6 @@ def parse_analysis_pass(value: str) -> AnalysisPassConfig:
 
     if candidate.startswith("{"):
         parsed = json.loads(candidate)
-        if not isinstance(parsed, dict):
-            raise ValueError("Analysis pass JSON must decode to an object")
         return AnalysisPassConfig(**parsed)
 
     if "|" in candidate:

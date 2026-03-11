@@ -95,6 +95,18 @@ class GoogleScholarClientTests(unittest.TestCase):
         self.assertEqual([paper.title for paper in papers], ["Paper A"])
         self.assertEqual(request_mock.call_count, 1)
 
+    def test_search_logs_and_breaks_when_stop_is_requested_before_query_starts(self) -> None:
+        client = GoogleScholarClient(self._config(), should_stop=lambda: True)
+
+        with patch("discovery.google_scholar_client.LOGGER.info") as info_log, patch(
+            "discovery.google_scholar_client.request_text"
+        ) as request_mock:
+            papers = client.search()
+
+        self.assertEqual(papers, [])
+        request_mock.assert_not_called()
+        self.assertTrue(any("stopped before query" in str(call.args[0]) for call in info_log.call_args_list))
+
     def test_parse_result_block_handles_plain_title_without_link(self) -> None:
         client = GoogleScholarClient(self._config())
         block = '''

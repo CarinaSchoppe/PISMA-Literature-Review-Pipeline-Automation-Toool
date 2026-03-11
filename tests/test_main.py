@@ -22,6 +22,13 @@ class MainEntrypointTests(unittest.TestCase):
             basic_config.assert_called_once()
             self.assertEqual(basic_config.call_args.kwargs["level"], 5)
 
+    def test_configure_logging_can_delegate_to_persistent_file_logging(self) -> None:
+        with patch("main.configure_application_logging", return_value="results/pipeline.log") as configure_app_logging:
+            resolved = main.configure_logging("verbose", log_file_path="results/pipeline.log")
+
+        self.assertEqual(resolved, "results/pipeline.log")
+        configure_app_logging.assert_called_once_with("verbose", log_file_path="results/pipeline.log")
+
     def test_run_headless_executes_pipeline_and_prints_outputs(self) -> None:
         config = ResearchConfig(
             research_topic="Large language models",
@@ -55,8 +62,10 @@ class MainEntrypointTests(unittest.TestCase):
             enabled=config.log_http_requests,
             log_payloads=config.log_http_payloads,
         )
-        self.assertIn("Pipeline completed.", output)
-        self.assertIn("Persistent log file:", output)
+        self.assertIn("Pipeline execution summary", output)
+        self.assertIn("Pipeline completed successfully.", output)
+        self.assertIn("Persistent log file written to:", output)
+        self.assertIn("Generated pipeline artifacts", output)
         self.assertIn("CSV summary: results/papers.csv", output)
         self.assertIn("Review summary: results/review_summary.md", output)
 

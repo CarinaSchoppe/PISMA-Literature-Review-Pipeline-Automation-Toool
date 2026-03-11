@@ -247,6 +247,14 @@ class DiscoveryClientsExtendedTests(unittest.TestCase):
         self.assertEqual(core_results[0].doi, "10.1000/core")
         self.assertTrue(core_results[0].open_access)
 
+    def test_core_search_stops_cleanly_when_payload_is_missing(self) -> None:
+        client = COREClient(self.config.model_copy(update={"core_enabled": True, "pages_to_retrieve": 2}))
+
+        with patch("discovery.core_client.request_json", return_value=None):
+            results = client.search()
+
+        self.assertEqual(results, [])
+
     def test_semantic_scholar_api_key_headers_and_per_source_limit_breaks(self) -> None:
         config = self.config.model_copy(
             update={
