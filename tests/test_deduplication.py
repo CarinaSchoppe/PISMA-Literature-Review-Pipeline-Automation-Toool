@@ -5,7 +5,6 @@ from __future__ import annotations
 import unittest
 
 from models.paper import PaperMetadata
-
 from utils.deduplication import deduplicate_papers
 
 

@@ -2,10 +2,22 @@
   "research_topic": "AI-assisted literature reviews",
   "research_question": "Can LLMs support literature discovery and screening?",
   "review_objective": "Find papers on AI-assisted screening for systematic reviews.",
-  "inclusion_criteria": ["mentions systematic review screening", "focuses on AI or LLM assistance"],
-  "exclusion_criteria": ["irrelevant domain-only paper"],
-  "banned_topics": ["crop irrigation", "plant growth"],
-  "search_keywords": ["large language models", "screening", "systematic review"],
+  "inclusion_criteria": [
+    "mentions systematic review screening",
+    "focuses on AI or LLM assistance"
+  ],
+  "exclusion_criteria": [
+    "irrelevant domain-only paper"
+  ],
+  "banned_topics": [
+    "crop irrigation",
+    "plant growth"
+  ],
+  "search_keywords": [
+    "large language models",
+    "screening",
+    "systematic review"
+  ],
   "boolean_operators": "AND",
   "pages_to_retrieve": 1,
   "results_per_page": 10,

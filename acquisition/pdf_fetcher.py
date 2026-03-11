@@ -5,9 +5,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from models.paper import PaperMetadata
-
 from config import ResearchConfig
+from models.paper import PaperMetadata
 from utils.http import RateLimiter, build_session, request_content, request_json
 from utils.text_processing import ensure_parent_directory, slugify_filename
 

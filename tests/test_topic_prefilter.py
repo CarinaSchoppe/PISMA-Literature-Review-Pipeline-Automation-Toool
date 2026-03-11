@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import nullcontext
 import unittest
+from contextlib import nullcontext
 from unittest.mock import patch
 
 from analysis.ai_screener import AIScreener
@@ -147,7 +147,7 @@ class TopicPrefilterTests(unittest.TestCase):
         paper = self._paper(raw_payload={"keywords": ["AI governance", "deployment"], "full_text_excerpt": "Detailed governance analysis for healthcare AI."})
 
         with patch("analysis.topic_prefilter.load_embedding_runtime", return_value=(_FakeTorch, _FakeTokenizerLoader, _FakeModelLoader)), \
-             patch.object(LocalTopicMatcher, "_embed_texts", return_value=[_FakeVector(1.0), _FakeVector(0.82)]):
+                patch.object(LocalTopicMatcher, "_embed_texts", return_value=[_FakeVector(1.0), _FakeVector(0.82)]):
             matcher = LocalTopicMatcher(config)
             result = matcher.score_paper(paper)
 
@@ -168,7 +168,7 @@ class TopicPrefilterTests(unittest.TestCase):
         config = self._config(topic_prefilter_enabled=True, topic_prefilter_filter_low_relevance=True)
 
         with patch("analysis.topic_prefilter.load_embedding_runtime", return_value=(_FakeTorch, _FakeTokenizerLoader, _FakeModelLoader)), \
-             patch.object(LocalTopicMatcher, "_embed_texts", return_value=[_FakeVector(1.0), _FakeVector(0.20)]):
+                patch.object(LocalTopicMatcher, "_embed_texts", return_value=[_FakeVector(1.0), _FakeVector(0.20)]):
             matcher = LocalTopicMatcher(config)
             result = matcher.score_paper(self._paper(title="Clinical biomarkers for oncology", abstract="Purely medical biomarker study."))
 
@@ -192,7 +192,7 @@ class TopicPrefilterTests(unittest.TestCase):
         paper = self._paper(title="Medical imaging biomarkers", abstract="A medical imaging paper without AI governance content.")
 
         with patch("analysis.topic_prefilter.load_embedding_runtime", return_value=(_FakeTorch, _FakeTokenizerLoader, _FakeModelLoader)), \
-             patch.object(LocalTopicMatcher, "_embed_texts", return_value=[_FakeVector(1.0), _FakeVector(0.18)]):
+                patch.object(LocalTopicMatcher, "_embed_texts", return_value=[_FakeVector(1.0), _FakeVector(0.18)]):
             screener = AIScreener(config)
             result = screener.screen(paper)
 

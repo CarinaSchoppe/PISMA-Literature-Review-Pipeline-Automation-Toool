@@ -11,10 +11,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import coverage_report
 from acquisition.full_text_extractor import FullTextExtractor
 from acquisition.pdf_fetcher import PDFFetcher
 from analysis.ai_screener import AIScreener
-import coverage_report
 from config import ResearchConfig, build_arg_parser, parse_analysis_pass
 from database import DatabaseManager
 from discovery.arxiv_client import ArxivClient
@@ -274,8 +274,8 @@ class MiscHighCoverageTests(unittest.TestCase):
             resolved = openalex_client.resolve_work(_make_paper(title="Known title", doi=None))
         self.assertIsNotNone(resolved)
         with patch.object(openalex_client, "resolve_work", return_value=_make_paper(external_ids={"openalex": "W123"})), patch(
-            "discovery.openalex_client.request_json",
-            return_value=None,
+                "discovery.openalex_client.request_json",
+                return_value=None,
         ):
             self.assertEqual(openalex_client.fetch_citations(_make_paper()), [])
 
