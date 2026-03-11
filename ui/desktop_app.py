@@ -5622,15 +5622,20 @@ class DesktopWorkbench:
             "No research-fit analysis is available yet. Run screening with the topic prefilter enabled to inspect extracted topics and weighted keyword evidence.",
         )
 
-    def _refresh_research_fit(self, papers_path: Path) -> None:
-        """Load research-fit rows from the current papers CSV when available."""
+    def _refresh_research_fit(self, papers_path: Path, records: list[dict[str, Any]] | None = None) -> None:
+        """Load research-fit rows from the current papers CSV or an in-memory snapshot."""
 
         if self.research_fit_tree is None:
             return
         self.research_fit_rows = {}
         for item in self.research_fit_tree.get_children():
             self.research_fit_tree.delete(item)
-        if not papers_path.exists():
+        if papers_path.exists():
+            dataframe = pd.read_csv(papers_path).fillna("")
+            row_payloads = [row.to_dict() for _, row in dataframe.iterrows()]
+        elif records:
+            row_payloads = list(records)
+        else:
             self._set_badge_label(self.research_fit_strong_badge, "[FIT] 0 strong", "success")
             self._set_badge_label(self.research_fit_near_badge, "[FIT] 0 near", "warning")
             self._set_badge_label(self.research_fit_weak_badge, "[FIT] 0 weak", "danger")
@@ -5639,13 +5644,15 @@ class DesktopWorkbench:
                 "No papers.csv file is available yet, so the research-fit workspace is empty.",
             )
             return
-        dataframe = pd.read_csv(papers_path).fillna("")
         strong_count = 0
         near_count = 0
         weak_count = 0
-        for index, row in dataframe.iterrows():
-            row_payload = row.to_dict()
+        for index, row_payload in enumerate(row_payloads):
             fit_label = str(row_payload.get("topic_prefilter_research_fit_label", "") or "").strip().upper()
+            if not fit_label and isinstance(row_payload.get("screening_details"), dict):
+                fit_label = str(
+                    row_payload["screening_details"].get("topic_prefilter_research_fit_label", "") or ""
+                ).strip().upper()
             if not fit_label:
                 continue
             item_id = f"fit-{index}"
@@ -6120,7 +6127,7 @@ class DesktopWorkbench:
         self._load_outputs(result)
         self._refresh_chart_preview(papers_path)
         self._refresh_screening_audit(papers_path)
-        self._refresh_research_fit(papers_path)
+        self._refresh_research_fit(papers_path, papers_snapshot)
         self._append_run_history(result)
 
     def _refresh_results_from_disk(self) -> None:
