@@ -47,6 +47,7 @@ py -3 main.py --help
 
 The CLI exposes the same underlying runtime settings as the GUI.
 That includes the same research topic, research question, and review objective fields that the GUI now also uses for embedded document-viewer research-fit summaries.
+GUI-only conveniences such as semantic badges, scrollable inspector surfaces, and embedded PDF page rendering remain presentation features on top of the same runtime configuration rather than a second execution path.
 
 ## Common Run Patterns
 

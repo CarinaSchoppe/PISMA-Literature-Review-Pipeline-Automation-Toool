@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from tkinter import ttk
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pandas as pd
 
@@ -134,13 +134,13 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         self.workbench.settings_mode_var.set("advanced")
         with patch.object(self.workbench.root, "winfo_width", return_value=1600), patch.object(
             self.workbench.root, "winfo_height", return_value=980
-        ), patch.object(self.workbench.root, "after_idle") as after_idle:
+        ), patch.object(self.workbench, "_schedule_settings_pane_positions") as schedule_panes:
             self.workbench._apply_responsive_layout()
         self.assertFalse(self.workbench.compact_window_mode.get())
         self.workbench.workspace_overview_content.grid.assert_called()
         self.workbench.settings_overview_content.grid.assert_called()
         self.workbench.settings_page_description_label.grid.assert_called()
-        after_idle.assert_called()
+        schedule_panes.assert_called_once()
 
         explicit_broken = Mock()
         explicit_broken.cget.side_effect = tk.TclError("broken")
@@ -283,6 +283,9 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         self.assertEqual(fake_notebook.selected, "basic")
         self.workbench.settings_pages_notebook = original_notebook
 
+        with patch.object(self.workbench, "_handle_settings_page_changed", side_effect=tk.TclError("bad tab")):
+            self.workbench._sync_settings_page_state()
+
     def test_mousewheel_routes_to_active_inner_widgets_and_shift_scrolls_horizontally(self) -> None:
         vertical_target = Mock(spec=["yview_scroll"])
         horizontal_target = Mock(spec=["xview_scroll", "yview_scroll"])
@@ -307,6 +310,37 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
 
         self.workbench._activate_scroll_widget(broken_target)
         self.assertIsNone(self.workbench._on_settings_mousewheel(SimpleNamespace(delta=120, state=0)))
+
+    def test_document_pdf_renderer_branches(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pdf_path = Path(temp_dir) / "paper.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4 test")
+            non_pdf_path = Path(temp_dir) / "paper.txt"
+            non_pdf_path.write_text("hello", encoding="utf-8")
+
+            fake_image = SimpleNamespace(width=480, height=640)
+            fake_page = Mock()
+            fake_page.render.return_value.to_pil.return_value = fake_image
+            fake_document = MagicMock()
+            fake_document.__len__.return_value = 3
+            fake_document.__getitem__.return_value = fake_page
+
+            with patch.object(self.workbench.document_canvas, "create_image", return_value=1), patch(
+                "ui.desktop_app.PDF_RENDERING_AVAILABLE", True
+            ), patch(
+                "ui.desktop_app.pdfium", SimpleNamespace(PdfDocument=Mock(return_value=fake_document))
+            ), patch("ui.desktop_app.ImageTk", SimpleNamespace(PhotoImage=Mock(return_value="photo"))):
+                self.workbench._load_document_render(pdf_path)
+                self.assertEqual(self.workbench.document_page_var.get(), "Page 1 / 3")
+                self.assertIn("Embedded PDF preview", self.workbench.document_render_status_var.get())
+                self.workbench._change_document_page(1)
+                self.assertEqual(self.workbench.document_pdf_page_index, 1)
+                self.workbench._change_document_zoom(1.2)
+                self.assertGreater(self.workbench.document_pdf_zoom, 1.0)
+
+            self.workbench._load_document_render(non_pdf_path)
+            self.assertIn("not a PDF", self.workbench.document_render_status_var.get())
+            self.assertEqual(self.workbench.document_page_var.get(), "Page 0 / 0")
 
     def test_scroll_and_output_guard_branches(self) -> None:
         widget = self.workbench.field_focus_widgets["database_path"]
@@ -722,6 +756,8 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
                 }
             )
             self.assertEqual(len(entries), 2)
+            self.assertEqual(entries[0]["display_label"].split()[0], "[CSV]")
+            self.assertEqual(entries[0]["tag"], "artifact_csv")
             self.assertIn("Artifact status", self.workbench._summarize_artifact_path("missing", root / "missing.csv"))
             self.assertIn("could not parse the CSV preview", self.workbench._summarize_artifact_path("csv", csv_path))
             self.assertIn("could not parse the JSON preview", self.workbench._summarize_artifact_path("json", json_path))
@@ -821,6 +857,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             self.workbench._load_outputs({"summary_json": str(dict_json)})
             output_item = self.workbench.outputs_tree.get_children()[0]
             self.workbench.outputs_tree.selection_set(output_item)
+            self.assertIn("artifact_json", self.workbench.outputs_tree.item(output_item).get("tags", ()))
             with patch.object(self.workbench, "_render_output_summary") as render_summary:
                 self.workbench._handle_output_selection(None)
             render_summary.assert_called_once_with(output_item)
@@ -835,7 +872,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
                 "results_dir": str(root / "results"),
             }
             self.workbench.run_history_entries = [history_entry]
-            self.workbench.run_history_tree.insert("", tk.END, iid="history-0", values=("2026-03-11", "completed", "analyze", "AI governance"))
+            self.workbench.run_history_tree.insert("", tk.END, iid="history-0", values=("2026-03-11", "[OK] completed", "analyze", "AI governance"))
             self.workbench.run_history_tree.selection_set("history-0")
             with patch.object(self.workbench, "_render_run_history_entry") as render_history:
                 self.workbench._handle_run_history_selection(None)
@@ -859,6 +896,8 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             self.workbench.screening_audit_tree.insert("", tk.END, iid="stale", values=("old", "", "", ""))
             self.workbench._refresh_screening_audit(sourced_csv)
             self.assertNotIn("stale", self.workbench.screening_audit_tree.get_children())
+            self.assertEqual(self.workbench.audit_include_badge.cget("text"), "[INC] 1")
+            self.assertEqual(self.workbench.audit_exclude_badge.cget("text"), "[EXC] 1")
 
             original_audit_tree = self.workbench.screening_audit_tree
             self.workbench.screening_audit_tree = None
@@ -869,6 +908,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             with patch.object(self.workbench, "_render_screening_audit_row") as render_audit:
                 self.workbench._handle_screening_audit_selection(None)
             render_audit.assert_called_once_with(audit_item)
+            self.assertIn("[MODE]", self.workbench.run_history_mode_badge.cget("text"))
 
     def test_collection_start_poll_tables_outputs_and_close_branches(self) -> None:
         self.workbench.profile_combo.set("combo-profile")

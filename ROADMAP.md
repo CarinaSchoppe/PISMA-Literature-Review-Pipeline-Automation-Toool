@@ -219,7 +219,9 @@ Already present:
 - export preview before run
 - artifact browser with open actions
 - embedded document viewer for paper-level inspection inside the workbench
+- embedded PDF page rendering in the document viewer when optional local renderer dependencies are available
 - semantic run-log highlighting for success, warning, error, and trace states
+- semantic status badges across outputs, run history, screening audit, provider health, and document-viewer surfaces
 - active-widget mouse-wheel routing so smaller-window workflows remain usable
 - chart preview tab
 - run history tab
@@ -237,6 +239,7 @@ Next GUI improvements:
 - more progressive disclosure so rarely used runtime knobs stay hidden until needed
 - stronger path presets for "single-folder", "separate review bundle", and "database-first" workflows
 - more polished visual styling within Tkinter limits, especially for summary cards and status badges
+- further layout compaction and visual refinement for smaller non-fullscreen windows without sacrificing scrollability
 
 ## Performance Roadmap
 

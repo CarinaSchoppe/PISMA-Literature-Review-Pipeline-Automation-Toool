@@ -18,6 +18,15 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Any, Callable
 
 import pandas as pd
+try:
+    from PIL import ImageTk
+except ImportError:  # pragma: no cover - optional runtime dependency
+    ImageTk = None
+
+try:
+    import pypdfium2 as pdfium
+except ImportError:  # pragma: no cover - optional runtime dependency
+    pdfium = None
 
 from acquisition.full_text_extractor import FullTextExtractor
 from analysis.relevance_scoring import RelevanceScorer
@@ -37,6 +46,7 @@ from utils.logging_utils import configure_application_logging
 from utils.text_processing import parse_search_terms
 
 LOGGER = logging.getLogger(__name__)
+PDF_RENDERING_AVAILABLE = ImageTk is not None and pdfium is not None
 
 
 class WorkbenchRoot(tk.Tk):
@@ -181,6 +191,14 @@ class DesktopWorkbench:
         " wrote ",
         " is ready",
     )
+    BADGE_STYLES = {
+        "neutral": "NeutralBadge.TLabel",
+        "info": "InfoBadge.TLabel",
+        "success": "SuccessBadge.TLabel",
+        "warning": "WarningBadge.TLabel",
+        "danger": "DangerBadge.TLabel",
+        "muted": "MutedBadge.TLabel",
+    }
 
     SETTINGS_PAGES = [
         ("Review Setup", ["Review Brief"]),
@@ -1350,7 +1368,39 @@ class DesktopWorkbench:
         self.document_content_text: tk.Text | None = None
         self.document_path_label: ttk.Label | None = None
         self.document_open_button: ttk.Button | None = None
+        self.document_decision_badge_var = tk.StringVar(value="[DOC] No paper selected")
+        self.document_source_badge_var = tk.StringVar(value="[SRC] Waiting for selection")
+        self.document_file_badge_var = tk.StringVar(value="[FILE] No local file")
+        self.document_decision_badge: ttk.Label | None = None
+        self.document_source_badge: ttk.Label | None = None
+        self.document_file_badge: ttk.Label | None = None
+        self.document_canvas: tk.Canvas | None = None
+        self.document_render_status_var = tk.StringVar(value="No document loaded.")
+        self.document_page_var = tk.StringVar(value="Page 0 / 0")
+        self.document_prev_button: ttk.Button | None = None
+        self.document_next_button: ttk.Button | None = None
+        self.document_zoom_in_button: ttk.Button | None = None
+        self.document_zoom_out_button: ttk.Button | None = None
+        self.document_pdf_path: Path | None = None
+        self.document_pdf_page_count = 0
+        self.document_pdf_page_index = 0
+        self.document_pdf_zoom = 1.0
+        self.document_photo_image: Any | None = None
+        self.run_history_status_badge_var = tk.StringVar(value="[RUN] No runs")
+        self.run_history_mode_badge_var = tk.StringVar(value="[MODE] Waiting")
+        self.run_history_artifact_badge_var = tk.StringVar(value="[ART] No artifacts")
+        self.run_history_status_badge: ttk.Label | None = None
+        self.run_history_mode_badge: ttk.Label | None = None
+        self.run_history_artifact_badge: ttk.Label | None = None
+        self.audit_include_badge_var = tk.StringVar(value="[INC] 0")
+        self.audit_maybe_badge_var = tk.StringVar(value="[MAY] 0")
+        self.audit_exclude_badge_var = tk.StringVar(value="[EXC] 0")
+        self.audit_include_badge: ttk.Label | None = None
+        self.audit_maybe_badge: ttk.Label | None = None
+        self.audit_exclude_badge: ttk.Label | None = None
         self.poll_after_id: str | None = None
+        self.responsive_after_id: str | None = None
+        self.settings_pane_after_id: str | None = None
 
         self._build_layout()
         self._apply_form_values(self.form_values)
@@ -1366,7 +1416,7 @@ class DesktopWorkbench:
         self.root.bind_all("<Button-5>", self._on_settings_mousewheel, add="+")
         self.root.bind("<Configure>", self._handle_root_resize, add="+")
         self.poll_after_id = self.root.after(100, self._poll_messages)
-        self.root.after_idle(self._apply_responsive_layout)
+        self._schedule_responsive_layout()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _configure_theme(self) -> str:
@@ -1487,6 +1537,48 @@ class DesktopWorkbench:
             foreground=self.PALETTE["accent_active"],
             font=("Segoe UI Semibold", 9),
             padding=(12, 7),
+        )
+        self.style.configure(
+            "NeutralBadge.TLabel",
+            background=self.PALETTE["surface_alt"],
+            foreground=self.PALETTE["text"],
+            font=("Segoe UI Semibold", 9),
+            padding=(12, 6),
+        )
+        self.style.configure(
+            "InfoBadge.TLabel",
+            background=self.PALETTE["accent_soft"],
+            foreground=self.PALETTE["accent_active"],
+            font=("Segoe UI Semibold", 9),
+            padding=(12, 6),
+        )
+        self.style.configure(
+            "SuccessBadge.TLabel",
+            background="#eafaf1",
+            foreground="#0f8a4a",
+            font=("Segoe UI Semibold", 9),
+            padding=(12, 6),
+        )
+        self.style.configure(
+            "WarningBadge.TLabel",
+            background="#fff5e8",
+            foreground="#b56a00",
+            font=("Segoe UI Semibold", 9),
+            padding=(12, 6),
+        )
+        self.style.configure(
+            "DangerBadge.TLabel",
+            background="#fff0ef",
+            foreground="#c24136",
+            font=("Segoe UI Semibold", 9),
+            padding=(12, 6),
+        )
+        self.style.configure(
+            "MutedBadge.TLabel",
+            background="#f3f5f8",
+            foreground="#667085",
+            font=("Segoe UI Semibold", 9),
+            padding=(12, 6),
         )
         self.style.configure(
             "HeroPill.TLabel",
@@ -1929,6 +2021,11 @@ class DesktopWorkbench:
 
         if self.settings_pages_notebook is None:
             return
+        try:
+            if hasattr(self.settings_pages_notebook, "winfo_exists") and not self.settings_pages_notebook.winfo_exists():
+                return
+        except tk.TclError:
+            return
         current_tab = self.settings_pages_notebook.select()
         if not current_tab:
             self.settings_canvas = None
@@ -1942,6 +2039,14 @@ class DesktopWorkbench:
         self.active_settings_page_description_var.set(self.SETTINGS_PAGE_DESCRIPTIONS.get(page_name, ""))
         for name, button in self.settings_nav_buttons.items():
             button.configure(style="SelectedNav.TButton" if name == page_name else "Nav.TButton")
+
+    def _sync_settings_page_state(self) -> None:
+        """Refresh the selected settings-page state without depending on Tk virtual-event parsing."""
+
+        try:
+            self._handle_settings_page_changed()
+        except (tk.TclError, RuntimeError, RecursionError):
+            return
 
     def _on_settings_mousewheel(self, event: tk.Event) -> str | None:
         """Scroll the widget under the pointer, falling back to the active settings page."""
@@ -2083,21 +2188,30 @@ class DesktopWorkbench:
     def _apply_default_settings_pane_positions(self) -> None:
         """Give the settings shell narrower sidebars so the editor stays usable on smaller windows."""
 
+        self.settings_pane_after_id = None
         if self.settings_panedwindow is None:
             return
         try:
+            if not self.settings_panedwindow.winfo_exists():
+                return
             self.settings_panedwindow.update_idletasks()
             width = max(int(self.settings_panedwindow.winfo_width() or 0), 920)
             left_width = 210 if self.compact_window_mode.get() else 240
             right_width = 300 if self.compact_window_mode.get() else 340
             self.settings_panedwindow.sashpos(0, left_width)
             self.settings_panedwindow.sashpos(1, max(left_width + 280, width - right_width))
-        except tk.TclError:
+        except (tk.TclError, RuntimeError, RecursionError):
             return
 
     def _apply_responsive_layout(self, *_args: Any) -> None:
         """Compact the large overview blocks when the window is not tall enough for them."""
 
+        self.responsive_after_id = None
+        try:
+            if not self.root.winfo_exists():
+                return
+        except tk.TclError:
+            return
         width = int(self.root.winfo_width() or 0)
         height = int(self.root.winfo_height() or 0)
         compact_window = width < 1280 or height < 820
@@ -2111,14 +2225,44 @@ class DesktopWorkbench:
                 self.settings_page_description_label.grid()
             else:
                 self.settings_page_description_label.grid_remove()
-        self.root.after_idle(self._apply_default_settings_pane_positions)
+        self._schedule_settings_pane_positions()
 
     def _handle_root_resize(self, _event: tk.Event | None = None) -> None:
         """Refresh the responsive layout after one window resize event."""
 
         if self.is_closing:
             return
-        self._apply_responsive_layout()
+        self._schedule_responsive_layout()
+
+    def _schedule_responsive_layout(self) -> None:
+        """Debounce responsive layout refreshes so they can be cancelled during shutdown."""
+
+        if self.is_closing:
+            return
+        if self.responsive_after_id is not None:
+            try:
+                self.root.after_cancel(self.responsive_after_id)
+            except tk.TclError:
+                pass
+        try:
+            self.responsive_after_id = self.root.after(25, self._apply_responsive_layout)
+        except tk.TclError:
+            self.responsive_after_id = None
+
+    def _schedule_settings_pane_positions(self) -> None:
+        """Debounce pane-position updates to avoid stale after callbacks and popup errors."""
+
+        if self.is_closing:
+            return
+        if self.settings_pane_after_id is not None:
+            try:
+                self.root.after_cancel(self.settings_pane_after_id)
+            except tk.TclError:
+                pass
+        try:
+            self.settings_pane_after_id = self.root.after(25, self._apply_default_settings_pane_positions)
+        except tk.TclError:
+            self.settings_pane_after_id = None
 
     def _report_callback_exception(
         self,
@@ -2132,6 +2276,35 @@ class DesktopWorkbench:
             LOGGER.debug("Ignored Tk callback during shutdown: %s", exc_value)
             return
         LOGGER.error("Tkinter callback failed: %s", exc_value, exc_info=(exc_type, exc_value, exc_traceback))
+
+    def _set_badge_label(self, label: ttk.Label | None, text: str, tone: str) -> None:
+        """Apply one semantic badge style to a label."""
+
+        if label is None:
+            return
+        variable_name = str(label.cget("textvariable") or "").strip()
+        if variable_name:
+            try:
+                self.root.setvar(variable_name, text)
+            except tk.TclError:
+                label.configure(text=text)
+        else:
+            label.configure(text=text)
+        label.configure(style=self.BADGE_STYLES.get(tone, "NeutralBadge.TLabel"))
+
+    def _decision_badge_text(self, decision: str) -> tuple[str, str]:
+        """Return a visible badge string and semantic tone for one screening decision."""
+
+        normalized = decision.strip().lower()
+        if normalized == "include":
+            return "[INC] Include", "success"
+        if normalized == "maybe":
+            return "[MAY] Maybe", "warning"
+        if normalized == "exclude":
+            return "[EXC] Exclude", "danger"
+        if normalized:
+            return f"[{normalized[:3].upper()}] {decision}", "neutral"
+        return "[REV] Not screened", "muted"
 
     def _build_layout(self) -> None:
         """Construct the top-level toolbar, notebook, and status bar widgets."""
@@ -2500,7 +2673,6 @@ class DesktopWorkbench:
         page_notebook = ttk.Notebook(center_frame, style="Workbench.TNotebook")
         page_notebook.grid(row=1, column=0, sticky="nsew")
         self.settings_pages_notebook = page_notebook
-        page_notebook.bind("<<NotebookTabChanged>>", self._handle_settings_page_changed)
 
         grouped_fields = {section_name: field_names for section_name, field_names in self.GROUPS}
         for page_name, section_names in self.SETTINGS_PAGES:
@@ -2602,7 +2774,7 @@ class DesktopWorkbench:
         if page is None:
             return
         self.settings_pages_notebook.select(page)
-        self._handle_settings_page_changed()
+        self._sync_settings_page_state()
 
     def _render_settings_group(
             self,
@@ -3915,16 +4087,31 @@ class DesktopWorkbench:
 
         for provider, enabled, credential_ready, note in provider_rows:
             if not enabled:
-                status = "Disabled"
+                status = "[OFF] Disabled"
                 reason = "Not active for the current run."
+                tag = "muted"
             elif credential_ready:
-                status = "Ready"
+                status = "[OK] Ready"
                 reason = note
+                tag = "ready"
             else:
-                status = "Attention"
+                status = "[WARN] Attention"
                 reason = note
-            tag = "ready" if enabled and credential_ready else "attention"
+                tag = "attention"
             self.provider_health_tree.insert("", tk.END, values=(provider, status, reason), tags=(tag,))
+
+    def _display_table_value(self, column: str, row_payload: dict[str, Any]) -> str:
+        """Return a user-facing table value with compact badges for high-signal columns."""
+
+        value = str(row_payload.get(column, "") or "")
+        if column == "inclusion_decision":
+            badge_text, _tone = self._decision_badge_text(value)
+            return badge_text
+        if column == "relevance_score" and value.strip():
+            return f"[SCORE] {value}"
+        if column == "source" and value.strip():
+            return f"[SRC] {value}"
+        return value[:500]
 
     def _write_summary_widget(self, widget: tk.Text | None, text: str) -> None:
         """Render summary text into a read-only scrolled text widget."""
@@ -4013,6 +4200,14 @@ class DesktopWorkbench:
             "warning": {"background": "#fff5e8", "foreground": "#b56a00"},
             "ready": {"background": "#eafaf1", "foreground": "#0f8a4a"},
             "attention": {"background": "#fff5e8", "foreground": "#b56a00"},
+            "muted": {"background": "#f3f5f8", "foreground": "#667085"},
+            "artifact_csv": {"background": "#eef8ff", "foreground": "#175cd3"},
+            "artifact_json": {"background": "#eef4ff", "foreground": "#3538cd"},
+            "artifact_markdown": {"background": "#f5f3ff", "foreground": "#6938ef"},
+            "artifact_sqlite": {"background": "#eefbf3", "foreground": "#067647"},
+            "artifact_pdf": {"background": "#fff1f3", "foreground": "#c01048"},
+            "artifact_folder": {"background": "#fff7ed", "foreground": "#c2410c"},
+            "artifact_file": {"background": "#f8fafc", "foreground": "#475467"},
         }
         for tag_name, style in tag_styles.items():
             tree_widget.tag_configure(tag_name, **style)
@@ -4769,7 +4964,7 @@ class DesktopWorkbench:
         container.pack(fill="both", expand=True)
         container.columnconfigure(0, weight=1)
         container.columnconfigure(1, weight=2)
-        container.rowconfigure(2, weight=1)
+        container.rowconfigure(3, weight=1)
 
         ttk.Label(container, text="Document viewer", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
         ttk.Label(
@@ -4782,9 +4977,30 @@ class DesktopWorkbench:
             wraplength=1200,
             justify="left",
         ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        badge_row = ttk.Frame(container, style="Surface.TFrame")
+        badge_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        badge_row.columnconfigure(3, weight=1)
+        self.document_decision_badge = ttk.Label(
+            badge_row,
+            textvariable=self.document_decision_badge_var,
+            style="MutedBadge.TLabel",
+        )
+        self.document_decision_badge.grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.document_source_badge = ttk.Label(
+            badge_row,
+            textvariable=self.document_source_badge_var,
+            style="InfoBadge.TLabel",
+        )
+        self.document_source_badge.grid(row=0, column=1, sticky="w", padx=(0, 8))
+        self.document_file_badge = ttk.Label(
+            badge_row,
+            textvariable=self.document_file_badge_var,
+            style="NeutralBadge.TLabel",
+        )
+        self.document_file_badge.grid(row=0, column=2, sticky="w")
 
         left_card = ttk.LabelFrame(container, text="Paper snapshot", padding=8, style="Card.TLabelframe")
-        left_card.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
+        left_card.grid(row=3, column=0, sticky="nsew", padx=(0, 8))
         left_card.columnconfigure(0, weight=1)
         left_card.rowconfigure(2, weight=1)
 
@@ -4812,14 +5028,73 @@ class DesktopWorkbench:
         )
         summary_shell.grid(row=2, column=0, sticky="nsew")
 
-        right_card = ttk.LabelFrame(container, text="Document text preview", padding=8, style="Card.TLabelframe")
-        right_card.grid(row=2, column=1, sticky="nsew")
+        right_card = ttk.LabelFrame(container, text="Document preview", padding=8, style="Card.TLabelframe")
+        right_card.grid(row=3, column=1, sticky="nsew")
         right_card.columnconfigure(0, weight=1)
-        right_card.rowconfigure(0, weight=1)
+        right_card.rowconfigure(1, weight=1)
+
+        viewer_toolbar = ttk.Frame(right_card, style="Surface.TFrame")
+        viewer_toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        viewer_toolbar.columnconfigure(4, weight=1)
+        self.document_prev_button = ttk.Button(
+            viewer_toolbar,
+            text="Prev Page",
+            style="Secondary.TButton",
+            command=lambda: self._change_document_page(-1),
+        )
+        self.document_prev_button.grid(row=0, column=0, padx=(0, 6))
+        self.document_next_button = ttk.Button(
+            viewer_toolbar,
+            text="Next Page",
+            style="Secondary.TButton",
+            command=lambda: self._change_document_page(1),
+        )
+        self.document_next_button.grid(row=0, column=1, padx=(0, 6))
+        self.document_zoom_out_button = ttk.Button(
+            viewer_toolbar,
+            text="Zoom Out",
+            style="Secondary.TButton",
+            command=lambda: self._change_document_zoom(0.85),
+        )
+        self.document_zoom_out_button.grid(row=0, column=2, padx=(0, 6))
+        self.document_zoom_in_button = ttk.Button(
+            viewer_toolbar,
+            text="Zoom In",
+            style="Secondary.TButton",
+            command=lambda: self._change_document_zoom(1.15),
+        )
+        self.document_zoom_in_button.grid(row=0, column=3, padx=(0, 10))
+        ttk.Label(viewer_toolbar, textvariable=self.document_page_var, style="Pill.TLabel").grid(row=0, column=4, sticky="w")
+        ttk.Label(viewer_toolbar, textvariable=self.document_render_status_var, style="Muted.TLabel").grid(
+            row=0, column=5, sticky="e"
+        )
+
+        preview_panes = ttk.Panedwindow(right_card, orient="vertical")
+        preview_panes.grid(row=1, column=0, sticky="nsew")
+
+        canvas_frame = ttk.Frame(preview_panes, style="Surface.TFrame")
+        canvas_frame.columnconfigure(0, weight=1)
+        canvas_frame.rowconfigure(0, weight=1)
+        content_frame = ttk.Frame(preview_panes, style="Surface.TFrame")
+        content_frame.columnconfigure(0, weight=1)
+        content_frame.rowconfigure(0, weight=1)
+        preview_panes.add(canvas_frame, weight=3)
+        preview_panes.add(content_frame, weight=2)
+
+        canvas_shell, self.document_canvas = self._create_scrolled_canvas_widget(
+            canvas_frame,
+            key="document_canvas",
+            height=360,
+            background=self.PALETTE["surface_bg"],
+            highlightthickness=1,
+            highlightbackground=self.PALETTE["border_strong"],
+        )
+        canvas_shell.grid(row=0, column=0, sticky="nsew")
+
         content_shell, self.document_content_text = self._create_scrolled_text_widget(
-            right_card,
+            content_frame,
             key="document_content",
-            height=24,
+            height=12,
             wrap="word",
         )
         content_shell.grid(row=0, column=0, sticky="nsew")
@@ -4831,6 +5106,7 @@ class DesktopWorkbench:
             self.document_content_text,
             "Document preview will appear here when a local PDF or text-based artifact is available.",
         )
+        self._clear_document_render("No document loaded.")
 
     def _build_outputs_tab(self) -> None:
         """Create a richer artifact browser with export preview, summaries, and open actions."""
@@ -4985,12 +5261,33 @@ class DesktopWorkbench:
         left = ttk.Frame(shell, padding=8, style="Surface.TFrame")
         right = ttk.Frame(shell, padding=8, style="Surface.TFrame")
         left.columnconfigure(0, weight=1)
-        left.rowconfigure(1, weight=1)
+        left.rowconfigure(2, weight=1)
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
         shell.add(left, weight=2)
         shell.add(right, weight=3)
         ttk.Label(left, text="Run history", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        badge_row = ttk.Frame(left, style="Surface.TFrame")
+        badge_row.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        badge_row.columnconfigure(3, weight=1)
+        self.run_history_status_badge = ttk.Label(
+            badge_row,
+            textvariable=self.run_history_status_badge_var,
+            style="MutedBadge.TLabel",
+        )
+        self.run_history_status_badge.grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.run_history_mode_badge = ttk.Label(
+            badge_row,
+            textvariable=self.run_history_mode_badge_var,
+            style="InfoBadge.TLabel",
+        )
+        self.run_history_mode_badge.grid(row=0, column=1, sticky="w", padx=(0, 8))
+        self.run_history_artifact_badge = ttk.Label(
+            badge_row,
+            textvariable=self.run_history_artifact_badge_var,
+            style="NeutralBadge.TLabel",
+        )
+        self.run_history_artifact_badge.grid(row=0, column=2, sticky="w")
         run_history_tree_shell, self.run_history_tree = self._create_scrolled_tree_widget(
             left,
             key="run_history_tree",
@@ -5003,7 +5300,7 @@ class DesktopWorkbench:
         self.run_history_tree.column("time", width=170, anchor="w")
         self.run_history_tree.column("status", width=120, anchor="w")
         self.run_history_tree.column("topic", width=360, anchor="w")
-        run_history_tree_shell.grid(row=1, column=0, sticky="nsew")
+        run_history_tree_shell.grid(row=2, column=0, sticky="nsew")
         self.run_history_tree.bind("<<TreeviewSelect>>", self._handle_run_history_selection)
         ttk.Label(right, text="Run details", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
         run_history_text_shell, self.run_history_text = self._create_scrolled_text_widget(
@@ -5026,12 +5323,33 @@ class DesktopWorkbench:
         left = ttk.Frame(shell, padding=8, style="Surface.TFrame")
         right = ttk.Frame(shell, padding=8, style="Surface.TFrame")
         left.columnconfigure(0, weight=1)
-        left.rowconfigure(1, weight=1)
+        left.rowconfigure(2, weight=1)
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
         shell.add(left, weight=3)
         shell.add(right, weight=2)
         ttk.Label(left, text="Screening audit", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        badge_row = ttk.Frame(left, style="Surface.TFrame")
+        badge_row.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        badge_row.columnconfigure(3, weight=1)
+        self.audit_include_badge = ttk.Label(
+            badge_row,
+            textvariable=self.audit_include_badge_var,
+            style="SuccessBadge.TLabel",
+        )
+        self.audit_include_badge.grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.audit_maybe_badge = ttk.Label(
+            badge_row,
+            textvariable=self.audit_maybe_badge_var,
+            style="WarningBadge.TLabel",
+        )
+        self.audit_maybe_badge.grid(row=0, column=1, sticky="w", padx=(0, 8))
+        self.audit_exclude_badge = ttk.Label(
+            badge_row,
+            textvariable=self.audit_exclude_badge_var,
+            style="DangerBadge.TLabel",
+        )
+        self.audit_exclude_badge.grid(row=0, column=2, sticky="w")
         screening_tree_shell, self.screening_audit_tree = self._create_scrolled_tree_widget(
             left,
             key="screening_audit_tree",
@@ -5046,7 +5364,7 @@ class DesktopWorkbench:
         self.screening_audit_tree.column("decision", width=110, anchor="w")
         self.screening_audit_tree.column("score", width=70, anchor="e")
         self.screening_audit_tree.column("source", width=120, anchor="w")
-        screening_tree_shell.grid(row=1, column=0, sticky="nsew")
+        screening_tree_shell.grid(row=2, column=0, sticky="nsew")
         self.screening_audit_tree.bind("<<TreeviewSelect>>", self._handle_screening_audit_selection)
         self.screening_audit_tree.bind("<Double-1>", lambda _event: self._open_document_from_screening_audit())
         ttk.Label(right, text="Decision details", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
@@ -5379,6 +5697,7 @@ class DesktopWorkbench:
                     messagebox.showerror("Run failed", str(payload))
         except queue.Empty:
             pass
+        self._sync_settings_page_state()
         # Tkinter stays responsive because the worker communicates only through this queued pump.
         try:
             self.poll_after_id = self.root.after(100, self._poll_messages)
@@ -5466,7 +5785,18 @@ class DesktopWorkbench:
             decision = str(row_payload.get("inclusion_decision", "") or "").strip().lower()
             tags = (decision,) if decision in {"include", "maybe", "exclude"} else ()
             self.table_rows[key][item_id] = row_payload
-            tree.insert("", tk.END, iid=item_id, values=[str(row.get(column, ""))[:500] for column in columns], tags=tags)
+            tree.insert(
+                "",
+                tk.END,
+                iid=item_id,
+                values=[self._display_table_value(column, row_payload) for column in columns],
+                tags=tags,
+            )
+
+    def load_dataframe_into_tree(self, key: str, path: Path) -> None:
+        """Compatibility wrapper for callers that use the non-underscored helper name."""
+
+        self._load_dataframe_into_tree(key, path)
 
     def _filter_all_papers(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         """Apply the current UI filter and free-text search to the full paper table."""
@@ -5501,7 +5831,13 @@ class DesktopWorkbench:
             self.outputs_tree.delete(item)
         for index, artifact in enumerate(self._artifact_entries_from_result(result)):
             item_id = f"artifact-{index}"
-            self.outputs_tree.insert("", tk.END, iid=item_id, values=[artifact["label"], artifact["path"]])
+            self.outputs_tree.insert(
+                "",
+                tk.END,
+                iid=item_id,
+                values=[artifact["display_label"], artifact["path"]],
+                tags=(artifact["tag"],),
+            )
             self.artifact_details[item_id] = artifact
         if self.outputs_tree.get_children():
             first_item = self.outputs_tree.get_children()[0]
@@ -5534,11 +5870,40 @@ class DesktopWorkbench:
             entries.append(
                 {
                     "label": label,
+                    "display_label": f"{self._artifact_badge_for_path(path)} {label}",
                     "path": str(path),
+                    "tag": self._artifact_tag_for_path(path),
                     "summary": self._summarize_artifact_path(label, path),
                 }
             )
         return entries
+
+    def _artifact_badge_for_path(self, path: Path) -> str:
+        """Return a compact badge label for one artifact path."""
+
+        if path.is_dir() or path.suffix == "":
+            return "[DIR]"
+        return {
+            ".csv": "[CSV]",
+            ".json": "[JSON]",
+            ".md": "[MD]",
+            ".db": "[DB]",
+            ".pdf": "[PDF]",
+            ".txt": "[TXT]",
+        }.get(path.suffix.lower(), "[FILE]")
+
+    def _artifact_tag_for_path(self, path: Path) -> str:
+        """Return the semantic Treeview tag used for one artifact path."""
+
+        if path.is_dir() or path.suffix == "":
+            return "artifact_folder"
+        return {
+            ".csv": "artifact_csv",
+            ".json": "artifact_json",
+            ".md": "artifact_markdown",
+            ".db": "artifact_sqlite",
+            ".pdf": "artifact_pdf",
+        }.get(path.suffix.lower(), "artifact_file")
 
     def _summarize_artifact_path(self, label: str, path: Path) -> str:
         """Build a human-readable summary for one output artifact or directory."""
@@ -5694,11 +6059,19 @@ class DesktopWorkbench:
             self.run_history_tree.delete(item)
         for index, entry in enumerate(self.run_history_entries):
             status = str(entry.get("status", "") or "").strip().lower()
+            if status == "completed":
+                status_text = "[OK] completed"
+            elif status == "failed":
+                status_text = "[ERR] failed"
+            elif status == "stopped":
+                status_text = "[WARN] stopped"
+            else:
+                status_text = str(entry.get("status", "") or "")
             self.run_history_tree.insert(
                 "",
                 tk.END,
                 iid=f"history-{index}",
-                values=(entry.get("timestamp", ""), entry.get("status", ""), entry.get("topic", "")),
+                values=(entry.get("timestamp", ""), status_text, entry.get("topic", "")),
                 tags=((status,) if status in {"completed", "failed", "stopped"} else ()),
             )
         if self.run_history_tree.get_children():
@@ -5708,6 +6081,9 @@ class DesktopWorkbench:
             self._render_run_history_entry(first_item)
         else:
             self._write_summary_widget(self.run_history_text, "No runs have been recorded in this workbench yet.")
+            self._set_badge_label(self.run_history_status_badge, "[RUN] No runs", "muted")
+            self._set_badge_label(self.run_history_mode_badge, "[MODE] Waiting", "info")
+            self._set_badge_label(self.run_history_artifact_badge, "[ART] No artifacts", "neutral")
 
     def _handle_run_history_selection(self, _event: Any | None = None) -> None:
         """Show details for the currently selected run-history row."""
@@ -5743,6 +6119,22 @@ class DesktopWorkbench:
             if value:
                 lines.append(f"{key}: {value}")
         self._write_summary_widget(self.run_history_text, "\n".join(lines))
+        status = str(entry.get("status", "") or "").strip().lower()
+        status_text = {
+            "completed": "[RUN] Completed",
+            "failed": "[RUN] Failed",
+            "stopped": "[RUN] Stopped",
+        }.get(status, f"[RUN] {entry.get('status', 'Unknown')}")
+        status_tone = {"completed": "success", "failed": "danger", "stopped": "warning"}.get(status, "neutral")
+        self._set_badge_label(self.run_history_status_badge, status_text, status_tone)
+        run_mode = str(entry.get("run_mode", "") or "").strip() or "unknown"
+        self._set_badge_label(self.run_history_mode_badge, f"[MODE] {run_mode}", "info")
+        artifact_count = sum(1 for key in ("papers_csv", "included_papers_csv", "excluded_papers_csv") if entry.get(key))
+        self._set_badge_label(
+            self.run_history_artifact_badge,
+            f"[ART] {artifact_count} linked artifact{'s' if artifact_count != 1 else ''}",
+            "neutral",
+        )
 
     def _refresh_chart_preview(self, papers_path: Path) -> None:
         """Draw a lightweight chart preview using the current papers CSV when available."""
@@ -5813,13 +6205,25 @@ class DesktopWorkbench:
                 self.screening_audit_text,
                 "No papers.csv file is available yet, so there is no screening audit to inspect.",
             )
+            self._set_badge_label(self.audit_include_badge, "[INC] 0", "success")
+            self._set_badge_label(self.audit_maybe_badge, "[MAY] 0", "warning")
+            self._set_badge_label(self.audit_exclude_badge, "[EXC] 0", "danger")
             return
         dataframe = pd.read_csv(papers_path).fillna("")
+        include_count = 0
+        maybe_count = 0
+        exclude_count = 0
         for index, row in dataframe.iterrows():
             item_id = f"audit-{index}"
             row_payload = row.to_dict()
             self.screening_audit_rows[item_id] = row_payload
             decision = str(row_payload.get("inclusion_decision", "") or "").strip().lower()
+            if decision == "include":
+                include_count += 1
+            elif decision == "maybe":
+                maybe_count += 1
+            elif decision == "exclude":
+                exclude_count += 1
             tags = (decision,) if decision in {"include", "maybe", "exclude"} else ()
             self.screening_audit_tree.insert(
                 "",
@@ -5827,12 +6231,15 @@ class DesktopWorkbench:
                 iid=item_id,
                 values=(
                     str(row_payload.get("title", ""))[:120],
-                    row_payload.get("inclusion_decision", ""),
-                    row_payload.get("relevance_score", ""),
-                    row_payload.get("source", ""),
+                    self._display_table_value("inclusion_decision", row_payload),
+                    self._display_table_value("relevance_score", row_payload),
+                    self._display_table_value("source", row_payload),
                 ),
                 tags=tags,
             )
+        self._set_badge_label(self.audit_include_badge, f"[INC] {include_count}", "success")
+        self._set_badge_label(self.audit_maybe_badge, f"[MAY] {maybe_count}", "warning")
+        self._set_badge_label(self.audit_exclude_badge, f"[EXC] {exclude_count}", "danger")
         if self.screening_audit_tree.get_children():
             first_item = self.screening_audit_tree.get_children()[0]
             self.screening_audit_tree.selection_set(first_item)
@@ -5910,8 +6317,22 @@ class DesktopWorkbench:
         self._write_summary_widget(self.document_content_text, content_text)
         if document_path is not None and document_path.exists():
             self.document_status_var.set(f"Linked local document: {document_path}")
+            self._load_document_render(document_path)
         else:
             self.document_status_var.set("No linked local document found. Showing the best available metadata/text preview.")
+            self._clear_document_render("No local PDF available for embedded rendering.")
+        decision_text, decision_tone = self._decision_badge_text(str(row.get("inclusion_decision", "") or ""))
+        self._set_badge_label(self.document_decision_badge, decision_text, decision_tone)
+        source_value = str(row.get("source", "") or "").strip() or "Unknown source"
+        self._set_badge_label(self.document_source_badge, f"[SRC] {source_value}", "info")
+        if document_path is not None and document_path.exists():
+            suffix = document_path.suffix.lower() or "file"
+            file_text = "[PDF] Local PDF" if suffix == ".pdf" else f"[FILE] {suffix.upper().lstrip('.')}"
+            file_tone = "success" if suffix == ".pdf" else "neutral"
+        else:
+            file_text = "[FILE] No local file"
+            file_tone = "muted"
+        self._set_badge_label(self.document_file_badge, file_text, file_tone)
         if self.document_open_button is not None:
             if document_path is not None and document_path.exists():
                 self.document_open_button.state(["!disabled"])
@@ -6042,6 +6463,122 @@ class DesktopWorkbench:
             )
         return "\n".join(lines), content_text
 
+    def _load_document_render(self, document_path: Path | None) -> None:
+        """Prepare the embedded PDF renderer for a selected local document."""
+
+        self.document_pdf_path = None
+        self.document_pdf_page_count = 0
+        self.document_pdf_page_index = 0
+        self.document_pdf_zoom = 1.0
+        if document_path is None or not document_path.exists():
+            self._clear_document_render("No local document available.")
+            return
+        if document_path.suffix.lower() != ".pdf":
+            self._clear_document_render("Local document is not a PDF. Text preview remains available below.")
+            return
+        if not PDF_RENDERING_AVAILABLE:
+            self._clear_document_render("Embedded PDF rendering is unavailable. Install Pillow and pypdfium2.")
+            return
+        try:
+            pdf_document = pdfium.PdfDocument(str(document_path))
+            self.document_pdf_page_count = len(pdf_document)
+            pdf_document.close()
+        except Exception as exc:  # noqa: BLE001
+            self._clear_document_render(f"PDF preview unavailable: {exc}")
+            return
+        self.document_pdf_path = document_path
+        self._render_document_page()
+
+    def _clear_document_render(self, status_text: str) -> None:
+        """Reset the embedded PDF surface to a friendly empty state."""
+
+        self.document_pdf_path = None
+        self.document_pdf_page_count = 0
+        self.document_pdf_page_index = 0
+        self.document_pdf_zoom = 1.0
+        self.document_photo_image = None
+        self.document_page_var.set("Page 0 / 0")
+        self.document_render_status_var.set(status_text)
+        self._set_badge_label(self.document_file_badge, "[FILE] No local file", "muted")
+        if self.document_canvas is not None:
+            self.document_canvas.delete("all")
+            self.document_canvas.configure(scrollregion=(0, 0, 0, 0))
+            self.document_canvas.create_text(
+                24,
+                24,
+                anchor="nw",
+                text=status_text,
+                fill=self.PALETTE["muted_text"],
+                width=max(int(self.document_canvas.winfo_width() or 0) - 48, 320),
+                font=("Segoe UI", 10),
+            )
+        self._update_document_navigation_state()
+
+    def _render_document_page(self) -> None:
+        """Render the current PDF page into the embedded document canvas."""
+
+        if self.document_canvas is None or self.document_pdf_path is None or not PDF_RENDERING_AVAILABLE:
+            return
+        try:
+            pdf_document = pdfium.PdfDocument(str(self.document_pdf_path))
+            self.document_pdf_page_count = len(pdf_document)
+            if self.document_pdf_page_count <= 0:
+                pdf_document.close()
+                self._clear_document_render("PDF contains no renderable pages.")
+                return
+            self.document_pdf_page_index = max(0, min(self.document_pdf_page_index, self.document_pdf_page_count - 1))
+            page = pdf_document[self.document_pdf_page_index]
+            rendered = page.render(scale=max(1.0, 1.6 * self.document_pdf_zoom)).to_pil()
+            self.document_photo_image = ImageTk.PhotoImage(rendered)
+            self.document_canvas.delete("all")
+            self.document_canvas.create_image(0, 0, anchor="nw", image=self.document_photo_image)
+            self.document_canvas.configure(scrollregion=(0, 0, rendered.width, rendered.height))
+            self.document_page_var.set(f"Page {self.document_pdf_page_index + 1} / {self.document_pdf_page_count}")
+            self.document_render_status_var.set(f"Embedded PDF preview • {int(self.document_pdf_zoom * 100)}% zoom")
+            page.close()
+            pdf_document.close()
+        except Exception as exc:  # noqa: BLE001
+            self._clear_document_render(f"PDF preview unavailable: {exc}")
+            return
+        self._update_document_navigation_state()
+
+    def _update_document_navigation_state(self) -> None:
+        """Enable or disable page and zoom controls based on the current document state."""
+
+        has_pdf = self.document_pdf_path is not None and self.document_pdf_page_count > 0
+        button_states = (
+            (self.document_prev_button, not has_pdf or self.document_pdf_page_index <= 0),
+            (self.document_next_button, not has_pdf or self.document_pdf_page_index >= max(self.document_pdf_page_count - 1, 0)),
+            (self.document_zoom_in_button, not has_pdf),
+            (self.document_zoom_out_button, not has_pdf),
+        )
+        for button, disabled in button_states:
+            if button is None:
+                continue
+            if disabled:
+                button.state(["disabled"])
+            else:
+                button.state(["!disabled"])
+
+    def _change_document_page(self, delta: int) -> None:
+        """Move to the previous or next PDF page in the embedded viewer."""
+
+        if self.document_pdf_path is None or self.document_pdf_page_count <= 0:
+            return
+        new_index = max(0, min(self.document_pdf_page_index + delta, self.document_pdf_page_count - 1))
+        if new_index == self.document_pdf_page_index:
+            return
+        self.document_pdf_page_index = new_index
+        self._render_document_page()
+
+    def _change_document_zoom(self, factor: float) -> None:
+        """Adjust the PDF zoom and rerender the current page."""
+
+        if self.document_pdf_path is None or self.document_pdf_page_count <= 0:
+            return
+        self.document_pdf_zoom = max(0.5, min(self.document_pdf_zoom * factor, 3.0))
+        self._render_document_page()
+
     def _open_document_external(self) -> None:
         """Open the currently linked document outside the app when one is available."""
 
@@ -6079,6 +6616,14 @@ class DesktopWorkbench:
             except tk.TclError:
                 pass
             self.poll_after_id = None
+        for after_id_name in ("responsive_after_id", "settings_pane_after_id"):
+            after_id = getattr(self, after_id_name)
+            if after_id is not None:
+                try:
+                    self.root.after_cancel(after_id)
+                except tk.TclError:
+                    pass
+                setattr(self, after_id_name, None)
         for sequence in ("<MouseWheel>", "<Shift-MouseWheel>", "<Button-4>", "<Button-5>"):
             try:
                 self.root.unbind_all(sequence)

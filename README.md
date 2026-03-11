@@ -206,6 +206,7 @@ The guided workbench includes:
 - placeholder text and nearby input guidance for review-topic, keyword, criteria, and filter fields, including explicit separator examples for commas, semicolons, and line breaks
 - live `Run Log` tab
 - semantic log highlighting with badges for neutral info, green success, orange warnings, red errors, and dimmed trace lines
+- visible status badges across the workbench, including outputs, run history, screening audit, provider health, and the embedded document viewer
 - result tabs for:
   - `All Papers`
   - `Included`
@@ -217,6 +218,8 @@ The guided workbench includes:
   - `Document Viewer`
 - double-click result and audit rows to open the embedded document viewer
 - document previews combine local PDF excerpts when available with screening rationale, retain/exclude reasoning, and research-fit context
+- the embedded document viewer can render local PDF pages directly inside the tab when `Pillow` and `pypdfium2` are available
+- the document viewer includes page navigation, zoom controls, source/decision/file badges, and falls back to text preview when no renderable local PDF exists
 - export preview before the run starts, so you can confirm which files and folders the current settings will produce
 - an artifact browser with summary panes and open-folder actions for generated files
 - `Analyze Stored Results` button to skip discovery and rerun screening/reporting
@@ -225,6 +228,8 @@ The guided workbench includes:
 - error pop-ups for invalid configuration, failed runs, stopped runs, and invalid paths
 
 The GUI is not a separate implementation. It edits the same validated runtime configuration used by the CLI.
+
+The settings shell is also hardened against stale Tk `after(...)` callbacks. Responsive pane updates and settings-page sync are debounced so smaller-window resizing and page changes do not produce noisy popup callback failures.
 
 For the current page-by-page workbench behavior, including compact-window usage, see [GUI_GUIDE.md](GUI_GUIDE.md).
 

@@ -123,6 +123,7 @@ Important visibility behavior:
 - the run log, result tables, handbook tree and detail panel, artifact browser, chart preview, run history, and screening audit views all provide the scrollbars they need when the window is smaller than the content
 - the document viewer is also scrollable, and mouse-wheel routing follows the active inner widget instead of trapping scroll at the outer shell
 - `Shift + MouseWheel` scrolls horizontally in wide tables and preview panes where a horizontal scrollbar exists
+- settings-pane sizing and page-sync callbacks are debounced so resize-heavy use does not trigger stale Tk `after(...)` popup errors
 - `Compact` settings mode collapses longer section descriptions to reduce visual density
 - `Advanced` settings mode restores the full section helper text on the settings pages
 - saved profiles persist this preference through `ui_settings_mode`
@@ -147,7 +148,7 @@ Result inspection tabs:
 - `Charts`: lightweight on-device chart preview for screening decisions and source mix
 - `Run History`: persistent JSON-backed record of recent runs, including status, topic, and artifact paths
 - `Screening Audit`: per-paper explanations, retain reasons, exclusion reasons, and extracted passages from `papers.csv`
-- `Document Viewer`: double-click a paper row to inspect local document text, screening rationale, and research-fit context without leaving the workbench
+- `Document Viewer`: double-click a paper row to inspect local document text, embedded PDF pages, screening rationale, and research-fit context without leaving the workbench
 
 Run log styling:
 
@@ -155,6 +156,7 @@ Run log styling:
 - orange warning lines mark recoverable provider or parsing issues
 - red error lines mark failed stages or run-level faults
 - trace lines stay visually muted so the important states remain easier to scan
+- outputs, run history, result tables, screening audit, and the document viewer also use compact semantic badges so high-signal states stand out before you open a details pane
 
 Pass-chain builder:
 

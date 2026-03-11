@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import tempfile
 import tkinter as tk
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
+
+import pandas as pd
 
 from config import ApiSettings, ResearchConfig
 from ui.desktop_app import DesktopWorkbench, WorkbenchRoot
@@ -224,6 +228,9 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIsNotNone(self.workbench.screening_audit_tree)
         self.assertIsNotNone(self.workbench.document_summary_text)
         self.assertIsNotNone(self.workbench.document_content_text)
+        self.assertIsNotNone(self.workbench.document_canvas)
+        self.assertIsNotNone(self.workbench.document_prev_button)
+        self.assertIsNotNone(self.workbench.document_next_button)
 
     def test_scrollable_shells_exist_for_tables_logs_panels_and_visuals(self) -> None:
         for tree_key in (
@@ -263,6 +270,9 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("chart_preview", self.workbench.canvas_scrollbars)
         self.assertIn("vertical", self.workbench.canvas_scrollbars["chart_preview"])
         self.assertIn("horizontal", self.workbench.canvas_scrollbars["chart_preview"])
+        self.assertIn("document_canvas", self.workbench.canvas_scrollbars)
+        self.assertIn("vertical", self.workbench.canvas_scrollbars["document_canvas"])
+        self.assertIn("horizontal", self.workbench.canvas_scrollbars["document_canvas"])
 
     def test_log_widget_uses_semantic_badges_and_tags(self) -> None:
         self.workbench._append_log("2026-03-12 10:00:00 | INFO | pipeline.pipeline_controller | Pipeline finished in 0.02 seconds.")
@@ -271,6 +281,26 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("log_success", self.workbench.log_widget.tag_names())
         self.assertIn("log_warning", self.workbench.log_widget.tag_names())
         self.assertIn("log_error", self.workbench.log_widget.tag_names())
+
+    def test_outputs_and_history_use_visible_badges(self) -> None:
+        self.workbench._append_run_history(
+            {
+                "run_status": "completed",
+                "run_mode": "analyze",
+                "research_topic": "Topic",
+                "results_dir": "results",
+            }
+        )
+        history_values = self.workbench.run_history_tree.item(self.workbench.run_history_tree.get_children()[0]).get("values", [])
+        self.assertIn("[OK] completed", history_values)
+
+        self.workbench._load_outputs({"papers_csv": "results/papers.csv"})
+        output_item = self.workbench.outputs_tree.get_children()[0]
+        output_values = self.workbench.outputs_tree.item(output_item).get("values", [])
+        self.assertTrue(str(output_values[0]).startswith("[CSV]"))
+        self.assertIn("artifact_csv", self.workbench.outputs_tree.item(output_item).get("tags", ()))
+        self.assertIn("[RUN] Completed", self.workbench.run_history_status_badge.cget("text"))
+        self.assertIn("[MODE] analyze", self.workbench.run_history_mode_badge.cget("text"))
 
     def test_double_click_document_preview_can_open_from_result_table(self) -> None:
         title = "Preview paper"
@@ -295,6 +325,29 @@ class DesktopWorkbenchTests(unittest.TestCase):
         summary_text = self.workbench.document_summary_text.get("1.0", tk.END)
         self.assertIn(title, summary_text)
         self.assertEqual(self.workbench.notebook.tab(self.workbench.notebook.select(), "text"), "Document Viewer")
+        self.assertIn("[INC] Include", self.workbench.document_decision_badge.cget("text"))
+        self.assertIn("[SRC] fixture", self.workbench.document_source_badge.cget("text"))
+
+    def test_result_tables_render_visible_decision_badges(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            csv_path = Path(temp_dir) / "papers.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "title": "Paper A",
+                        "inclusion_decision": "include",
+                        "relevance_score": 88.4,
+                        "source": "OpenAlex",
+                    }
+                ]
+            ).to_csv(csv_path, index=False)
+            self.workbench.load_dataframe_into_tree("all_papers", csv_path)
+            item_id = self.workbench.treeviews["all_papers"].get_children()[0]
+            values = self.workbench.treeviews["all_papers"].item(item_id).get("values", [])
+            joined = " ".join(map(str, values))
+            self.assertIn("[INC] Include", joined)
+            self.assertIn("[SCORE]", joined)
+            self.assertIn("[SRC] OpenAlex", joined)
 
     def test_compact_and_advanced_settings_modes_toggle_helper_density(self) -> None:
         intro_label = self.workbench.settings_page_intro_labels["Review Setup"]

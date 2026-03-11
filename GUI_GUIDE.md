@@ -89,6 +89,7 @@ Scrollable areas include:
 - run history
 - screening audit
 - document viewer summary and preview panes
+- embedded PDF page canvas with page navigation and zoom
 
 If a page grows beyond the visible window size, vertical scrolling keeps the content reachable. Wide tables and wide content areas also expose horizontal scrolling where needed.
 
@@ -104,6 +105,7 @@ Non-fullscreen usability:
 - pane defaults narrow so the center editing canvas gets more room
 - oversized overview blocks are hidden automatically in compact-window situations
 - the pages themselves remain scrollable, so you can keep working without maximizing the app
+- settings-pane resizing and page-sync updates are debounced to avoid stale Tk `after(...)` popup errors during resize-heavy use
 
 ## Compact And Advanced Modes
 
@@ -273,6 +275,9 @@ What it shows:
 - core paper metadata
 - screening decision and score
 - retain or exclusion reasons
+- an embedded PDF page renderer for local PDFs when `Pillow` and `pypdfium2` are available
+- previous/next page navigation and zoom controls for rendered PDFs
+- visible decision, source, and file badges at the top of the viewer
 - local PDF text excerpt when a downloaded PDF exists
 - fallback abstract or extracted passage when no local PDF is present
 - a compact research-fit snapshot using the current topic, research question, and review objective
@@ -288,6 +293,13 @@ The run log uses semantic color and badge styling:
 - errors: red
 - trace lines: muted
 - neutral info: standard foreground color
+
+Other workbench surfaces also use visible semantic badges:
+
+- outputs use artifact badges such as `[CSV]`, `[JSON]`, `[MD]`, `[DB]`, and `[PDF]`
+- run history uses badges such as `[OK] completed`, `[ERR] failed`, and `[WARN] stopped`
+- screening audit and result tables use compact decision badges such as `[INC] Include`, `[MAY] Maybe`, and `[EXC] Exclude`
+- provider health uses ready, attention, and disabled color states
 
 ## Window-Size Tips
 
