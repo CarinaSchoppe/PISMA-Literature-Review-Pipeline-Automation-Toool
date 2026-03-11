@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import tkinter as tk
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 
 from config import ApiSettings, ResearchConfig
