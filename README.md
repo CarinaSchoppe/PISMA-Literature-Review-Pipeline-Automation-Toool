@@ -10,6 +10,9 @@ The project supports two equal entry modes:
 No Jupyter notebook is required.
 
 For full operating instructions, see [HANDBOOK.md](HANDBOOK.md).
+For configuration details, see [CONFIGURATION_REFERENCE.md](CONFIGURATION_REFERENCE.md).
+For CLI usage patterns, see [CLI_REFERENCE.md](CLI_REFERENCE.md).
+For GUI workflow notes, see [GUI_GUIDE.md](GUI_GUIDE.md).
 For the planned target state and roadmap, see [ROADMAP.md](ROADMAP.md).
 
 ---
@@ -34,6 +37,23 @@ Workflow:
 ```text
 input -> discovery -> deduplication -> database storage -> citation expansion -> pdf enrichment -> AI screening -> scoring -> ranking -> report generation
 ```
+
+## Documentation Map
+
+Use the docs in this order:
+
+* [README.md](README.md)
+  Short project overview and quick-start guide.
+* [HANDBOOK.md](HANDBOOK.md)
+  Operator guide with workflow explanations and runtime behavior notes.
+* [CONFIGURATION_REFERENCE.md](CONFIGURATION_REFERENCE.md)
+  Detailed setting-by-setting configuration reference.
+* [CLI_REFERENCE.md](CLI_REFERENCE.md)
+  Command-line patterns, examples, and flag usage notes.
+* [GUI_GUIDE.md](GUI_GUIDE.md)
+  Guided desktop workbench layout, scrolling, and interaction model.
+* [ROADMAP.md](ROADMAP.md)
+  Planned future direction.
 
 ---
 
@@ -128,6 +148,8 @@ The prefilter:
 * compares them with cosine similarity
 * classifies each paper as `HIGH_RELEVANCE`, `REVIEW`, or `LOW_RELEVANCE`
 * can automatically filter `LOW_RELEVANCE` papers before more expensive screening
+* caches the loaded embedding model in-process so repeated paper scoring does not reload the model
+* keeps the default text window and character limits moderate for normal CPU-only desktop hardware
 
 This path is designed for CPU-only execution on normal desktop hardware and remains usable offline after the initial model download.
 
@@ -169,6 +191,7 @@ The guided workbench includes:
 - scrollable settings pages, a scrollable quick-edit panel, and a scrollable summary inspector so the window stays usable on smaller screens
 - scrollable logs, result tables, handbook content, artifact browser tables, chart previews, run history, and screening audit views so no important content is trapped off-screen on smaller windows
 - `Show advanced settings` toggle so lower-level runtime options stay out of the way until needed
+- persisted GUI defaults for `Compact` vs `Advanced` density and whether advanced pages start expanded
 - quick-edit controls for the most-used model, threshold, and output settings, without forcing every option onto the main form at once
 - a richer visual pass-chain builder with provider-specific model suggestions, per-pass previews, duplication, ordering, and entry-score gates
 - stronger grouped path configuration for database paths, result folders, and paper PDF folders
@@ -285,6 +308,8 @@ Important settings:
 
 * `--google-scholar-enabled`
 * `--google-scholar-pages`
+* `--google-scholar-page-min`
+* `--google-scholar-page-max`
 * `--google-scholar-results-per-page`
 * `--google-scholar-calls-per-second`
 
@@ -361,7 +386,7 @@ Relevant setting:
 
 The engineering toolchain is now unified around:
 
-* [pyproject.toml](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/pyproject.toml) for packaging metadata plus Ruff, Coverage, and MyPy configuration
+* [pyproject.toml](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/pyproject.toml) for packaging metadata plus Pytest, pytest-cov, Ruff, Coverage, and MyPy configuration
 * [quality.yml](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/.github/workflows/quality.yml) for CI quality gates
 * [coverage_report.py](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/coverage_report.py) for JaCoCo-style coverage bundles
 * [benchmark_report.py](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/benchmark_report.py) for local benchmark regression reports
@@ -372,8 +397,8 @@ Recommended local quality commands:
 ```powershell
 py -3 -m ruff check .
 py -3 -m mypy
-py -3 -m unittest discover -s tests -v
-py -3 coverage_report.py --top-files 25 --fail-under 99
+py -3 -m pytest -v
+py -3 coverage_report.py --results-dir results\coverage_report --top-files 25 --fail-under 99.5
 py -3 benchmark_report.py --fail-on-regression
 ```
 
@@ -723,20 +748,23 @@ The GUI surfaces operational issues through:
 
 ## Testing And Quality
 
-Current tested baseline:
+Latest local verification for this repository state is written to generated artifacts under:
 
-* `242` passing tests
-* `99.58%` total coverage across the full measured repository run
-* `99.58%` coverage in the generated full coverage report
+* `results/coverage_report/`
+* `results/coverage_report_all/`
+
+The enforced release gate is:
+
+* production-code coverage `>= 99.5%`
 * clean `ruff` lint
-* clean `mypy` type-checking for the configured backend/tooling scope
+* clean `mypy` type-checking for the configured backend and tooling scope
 * clean `compileall`
 * clean benchmark regression pass with `benchmark_report.py --fail-on-regression`
 
 Run the test suite:
 
 ```powershell
-py -3 -m unittest discover -s tests -v
+py -3 -m pytest -v
 ```
 
 Run lint:
@@ -751,30 +779,28 @@ Run compile validation:
 py -3 -m compileall .
 ```
 
-Measure app-code coverage:
+Measure app-code coverage with `pytest-cov`:
 
 ```powershell
-py -3 -m coverage run -m unittest discover -s tests -v
-py -3 -m coverage report -m --omit "tests/*"
-py -3 -m coverage html -d results\coverage_html_app --omit "tests/*"
+py -3 -m pytest -v --cov=. --cov-config=pyproject.toml --cov-report=term-missing --cov-report=html:results\coverage_html_app --cov-report=json:results\coverage_html_app\coverage.json tests
 ```
 
-Generate a JaCoCo-style coverage bundle:
+Generate a JaCoCo-style coverage bundle with `pytest` and `pytest-cov`:
 
 ```powershell
 py -3 coverage_report.py
 ```
 
-Generate the stricter app-code release gate:
+Generate the production-code release gate:
 
 ```powershell
-py -3 coverage_report.py --top-files 25 --fail-under 99
+py -3 coverage_report.py --results-dir results\coverage_report --top-files 25 --fail-under 99.5
 ```
 
-Generate the full-repository report, including `tests/`:
+Generate an optional whole-tree reference report, including tests:
 
 ```powershell
-py -3 coverage_report.py --include-tests --results-dir results\coverage_report_all --top-files 25 --fail-under 99
+py -3 coverage_report.py --include-tests --results-dir results\coverage_report_all --top-files 25
 ```
 
 Offline deterministic smoke test:
@@ -788,12 +814,12 @@ Generated reports include:
 * `results/coverage_report/coverage_report.txt`
 * `results/coverage_report/coverage_report.md`
 * `results/coverage_report/coverage_summary.json`
+* `results/coverage_report/junit.xml`
+* `results/coverage_report/pytest_terminal.txt`
 * `results/coverage_report/html/index.html`
-* `results/coverage_report_all/coverage_report.txt`
-* `results/coverage_report_all/coverage_report.md`
-* `results/coverage_report_all/coverage_summary.json`
-* `results/coverage_report_all/html/index.html`
 * `results/coverage_html_app/index.html`
+
+Optional whole-tree reference reports can be written under `results/coverage_report_all/`.
 
 Each coverage-report run uses its own coverage data file inside the target results directory, so separate report runs do not collide with the root `.coverage` file.
 
@@ -854,6 +880,9 @@ The default thresholds live in `configs/benchmark_baselines.json`.
 ## Documentation
 
 * [HANDBOOK.md](HANDBOOK.md) — full operator reference
+* [CONFIGURATION_REFERENCE.md](CONFIGURATION_REFERENCE.md) — detailed setting reference
+* [CLI_REFERENCE.md](CLI_REFERENCE.md) — command-line usage reference
+* [GUI_GUIDE.md](GUI_GUIDE.md) — guided desktop workbench notes
 * [ROADMAP.md](ROADMAP.md) — planned feature roadmap
 
 

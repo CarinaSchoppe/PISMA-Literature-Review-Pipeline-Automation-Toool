@@ -69,6 +69,36 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ResearchConfig(research_topic="Topic", search_keywords=["llm"], google_scholar_pages=101)
 
+    def test_google_scholar_page_bounds_are_configurable_and_validated_together(self) -> None:
+        config = ResearchConfig(
+            research_topic="Topic",
+            search_keywords=["llm"],
+            google_scholar_pages=12,
+            google_scholar_page_min=5,
+            google_scholar_page_max=25,
+        )
+
+        self.assertEqual(config.google_scholar_pages, 12)
+        self.assertEqual(config.google_scholar_page_min, 5)
+        self.assertEqual(config.google_scholar_page_max, 25)
+
+        with self.assertRaises(ValueError):
+            ResearchConfig(
+                research_topic="Topic",
+                search_keywords=["llm"],
+                google_scholar_pages=4,
+                google_scholar_page_min=5,
+                google_scholar_page_max=25,
+            )
+        with self.assertRaises(ValueError):
+            ResearchConfig(
+                research_topic="Topic",
+                search_keywords=["llm"],
+                google_scholar_pages=10,
+                google_scholar_page_min=15,
+                google_scholar_page_max=10,
+            )
+
     def test_parse_analysis_pass_accepts_json_object_and_config_file_defaults_full_text_flag(self) -> None:
         analysis_pass = parse_analysis_pass(
             '{"name": "deep", "llm_provider": "gemini", "threshold": 81, "decision_mode": "triage"}'
@@ -379,6 +409,10 @@ class ConfigTests(unittest.TestCase):
                 "--google-scholar-enabled",
                 "--google-scholar-pages",
                 "7",
+                "--google-scholar-page-min",
+                "2",
+                "--google-scholar-page-max",
+                "20",
                 "--google-scholar-results-per-page",
                 "15",
                 "--no-include-pubmed",
@@ -390,7 +424,65 @@ class ConfigTests(unittest.TestCase):
 
         self.assertTrue(config.google_scholar_enabled)
         self.assertEqual(config.google_scholar_pages, 7)
+        self.assertEqual(config.google_scholar_page_min, 2)
+        self.assertEqual(config.google_scholar_page_max, 20)
         self.assertEqual(config.google_scholar_results_per_page, 15)
+
+    def test_cli_parses_persisted_ui_defaults(self) -> None:
+        parser = build_arg_parser()
+        args = parser.parse_args(
+            [
+                "--topic",
+                "AI governance",
+                "--research-question",
+                "How should the UI open?",
+                "--review-objective",
+                "Verify GUI defaults",
+                "--keywords",
+                "llm, policy",
+                "--inclusion-criteria",
+                "governance focus",
+                "--exclusion-criteria",
+                "none",
+                "--banned-topics",
+                "spam",
+                "--excluded-title-terms",
+                "correction;erratum;editorial;retraction",
+                "--boolean",
+                "AND",
+                "--pages",
+                "1",
+                "--threshold",
+                "70",
+                "--no-download-pdfs",
+                "--no-analyze-full-text",
+                "--citation-snowballing",
+                "--no-include-pubmed",
+                "--llm-provider",
+                "auto",
+                "--decision-mode",
+                "strict",
+                "--run-mode",
+                "analyze",
+                "--verbosity",
+                "verbose",
+                "--max-papers",
+                "5",
+                "--year-start",
+                "2020",
+                "--year-end",
+                "2026",
+                "--ui-settings-mode",
+                "advanced",
+                "--ui-show-advanced-settings",
+            ]
+        )
+
+        with patch("builtins.input", side_effect=AssertionError("input should not be called")):
+            config = ResearchConfig.from_cli(args)
+
+        self.assertEqual(config.ui_settings_mode, "advanced")
+        self.assertTrue(config.ui_show_advanced_settings)
 
     def test_config_properties_cover_query_variants_screening_brief_and_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

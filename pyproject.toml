@@ -27,6 +27,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "mypy>=1.15.0",
+  "pytest>=8.3.5",
+  "pytest-cov>=6.1.1",
   "ruff>=0.12.0",
   "types-requests>=2.32.0.20250328",
 ]
@@ -102,3 +104,9 @@ disallow_incomplete_defs = false
 no_implicit_optional = true
 disable_error_code = ["import-untyped"]
 pretty = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+junit_family = "xunit2"

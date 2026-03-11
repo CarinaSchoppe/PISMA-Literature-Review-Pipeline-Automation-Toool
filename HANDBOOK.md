@@ -16,6 +16,9 @@ Use it when you want one place that explains:
 The README stays the short project overview. This handbook is the practical reference.
 
 For the planned future feature direction, see [ROADMAP.md](ROADMAP.md).
+For setting-by-setting details, see [CONFIGURATION_REFERENCE.md](CONFIGURATION_REFERENCE.md).
+For command-line examples, see [CLI_REFERENCE.md](CLI_REFERENCE.md).
+For GUI-specific workflow notes, see [GUI_GUIDE.md](GUI_GUIDE.md).
 
 ## Core Idea
 
@@ -119,8 +122,10 @@ Important visibility behavior:
 - the run log, result tables, handbook tree and detail panel, artifact browser, chart preview, run history, and screening audit views all provide the scrollbars they need when the window is smaller than the content
 - `Compact` settings mode collapses longer section descriptions to reduce visual density
 - `Advanced` settings mode restores the full section helper text on the settings pages
+- saved profiles persist this preference through `ui_settings_mode`
 - `Connections and Keys` is the dedicated page for provider URLs, API keys, Crossref mailto, and Unpaywall email
 - `Advanced Runtime` stays hidden until `Show advanced settings` is enabled or a search jump opens one of its fields
+- saved profiles persist this advanced-page visibility through `ui_show_advanced_settings`
 - hover help, handbook entries, and focus help use expanded English explanations that describe the purpose of a setting, what happens when the setting is enabled or disabled, and a practical example where useful
 - text-entry fields for review brief, keywords, criteria, and filter terms use placeholders and helper text that show valid separators explicitly: commas, semicolons, and line breaks
 
@@ -306,6 +311,24 @@ Google Scholar live controls:
 - Retrieval volume grows roughly with `google_scholar_pages x google_scholar_results_per_page x generated query count`, before deduplication trims duplicates away.
 - GUI: numeric field on `Discovery` and slider + spinbox in `Quick Edit`
 - CLI: `--google-scholar-pages`
+
+`google_scholar_page_min`
+
+- Lower validation bound for `google_scholar_pages`.
+- Example:
+  `3` means saved configs and CLI overrides must request at least three Scholar pages.
+- Useful when a shared operator profile should never run an accidentally shallow Scholar crawl.
+- GUI: `Advanced Runtime`
+- CLI: `--google-scholar-page-min`
+
+`google_scholar_page_max`
+
+- Upper validation bound for `google_scholar_pages`.
+- Example:
+  `25` means saved configs and CLI overrides cannot request more than twenty-five Scholar pages.
+- Useful when a shared operator profile should cap runtime and HTML traversal cost.
+- GUI: `Advanced Runtime`
+- CLI: `--google-scholar-page-max`
 
 `google_scholar_results_per_page`
 
@@ -921,9 +944,8 @@ GUI stop feels delayed:
 
 Current verified baseline:
 
-- `242` tests passing
-- `99.58%` total coverage in the current full coverage report
-- `99.58%` current measured coverage for the generated full report bundle
+- generated verification artifacts under `results/coverage_report/` and `results/coverage_report_all/`
+- enforced production-code coverage gate at `99.5%`
 - `ruff` clean
 - `mypy` clean for the configured backend/tooling scope
 - `compileall` clean
@@ -933,11 +955,9 @@ Commands:
 
 ```powershell
 py -3 -m ruff check .
-py -3 -m unittest discover -s tests -v
+py -3 -m pytest -v
 py -3 -m compileall .
-py -3 -m coverage run -m unittest discover -s tests -v
-py -3 -m coverage report -m --precision=2 --omit "tests/*"
-py -3 -m coverage html -d results\coverage_html_app --omit "tests/*"
+py -3 -m pytest -v --cov=. --cov-config=pyproject.toml --cov-report=term-missing --cov-report=html:results\coverage_html_app --cov-report=json:results\coverage_html_app\coverage.json tests
 ```
 
 Detailed coverage bundle:
@@ -946,7 +966,7 @@ Detailed coverage bundle:
 py -3 coverage_report.py
 ```
 
-This helper reruns the test suite under coverage and writes a JaCoCo-style bundle with:
+This helper reruns the test suite under `pytest` and `pytest-cov` and writes a JaCoCo-style bundle with:
 
 - console summary
 - low-coverage file list
@@ -955,13 +975,15 @@ This helper reruns the test suite under coverage and writes a JaCoCo-style bundl
 - HTML report
 - JSON summary
 - Markdown report
+- JUnit XML test report
+- saved pytest terminal output
 
 Useful options:
 
 - `--results-dir results\coverage_report`
 - `--top-files 25`
-- `--fail-under 99`
-- `--include-tests`
+- `--fail-under 99.5`
+- `--include-tests` for an optional whole-tree reference report that counts test files too
 
 ## Benchmark Report Helper
 
@@ -1020,7 +1042,7 @@ Provider-contract tests keep discovery adapters aligned to the same normalized `
 Run them directly with:
 
 ```powershell
-py -3 -m unittest tests.test_provider_contracts -v
+py -3 -m pytest tests/test_provider_contracts.py -v
 ```
 
 They verify that providers return, at minimum:

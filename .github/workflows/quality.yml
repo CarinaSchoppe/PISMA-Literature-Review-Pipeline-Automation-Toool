@@ -39,13 +39,13 @@ jobs:
         run: python -m mypy
 
       - name: Provider contract tests
-        run: python -m unittest tests.test_provider_contracts -v
+        run: python -m pytest tests/test_provider_contracts.py -v
 
       - name: Full test suite
-        run: python -m unittest discover -s tests -v
+        run: python -m pytest -v
 
       - name: Coverage gate
-        run: python coverage_report.py --top-files 25 --fail-under 99
+        run: python coverage_report.py --results-dir results/coverage_report --top-files 25 --fail-under 99.5
 
       - name: Benchmark regression smoke
         run: python benchmark_report.py --fail-on-regression

@@ -26,6 +26,10 @@ class UIViewModelTests(unittest.TestCase):
                 "research_topic": "AI-assisted reviews",
                 "search_keywords": "llm, screening, evidence synthesis",
                 "discovery_strategy": "broad",
+                "ui_settings_mode": "advanced",
+                "ui_show_advanced_settings": True,
+                "google_scholar_page_min": 2,
+                "google_scholar_page_max": 40,
                 "max_discovered_records": "120",
                 "min_discovered_records": "10",
                 "skip_discovery": True,
@@ -76,6 +80,10 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(config.research_topic, "AI-assisted reviews")
         self.assertEqual(config.search_keywords, ["llm", "screening", "evidence synthesis"])
         self.assertEqual(config.discovery_strategy, "broad")
+        self.assertEqual(config.ui_settings_mode, "advanced")
+        self.assertTrue(config.ui_show_advanced_settings)
+        self.assertEqual(config.google_scholar_page_min, 2)
+        self.assertEqual(config.google_scholar_page_max, 40)
         self.assertEqual(config.max_discovered_records, 120)
         self.assertEqual(config.min_discovered_records, 10)
         self.assertTrue(config.skip_discovery)
@@ -128,12 +136,14 @@ class UIViewModelTests(unittest.TestCase):
             values = default_form_values()
             values.update(
                 {
-                    "research_topic": "Evidence discovery",
-                    "search_keywords": "llm, review",
-                    "profile_name": "demo-profile",
-                    "results_dir": "results/demo-profile",
-                }
-            )
+                "research_topic": "Evidence discovery",
+                "search_keywords": "llm, review",
+                "profile_name": "demo-profile",
+                "ui_settings_mode": "advanced",
+                "ui_show_advanced_settings": True,
+                "results_dir": "results/demo-profile",
+            }
+        )
 
             path = manager.save_profile("demo-profile", values)
             loaded = manager.load_profile("demo-profile")
@@ -141,6 +151,8 @@ class UIViewModelTests(unittest.TestCase):
             self.assertTrue(path.exists())
             self.assertEqual(loaded["research_topic"], "Evidence discovery")
             self.assertEqual(loaded["profile_name"], "demo-profile")
+            self.assertEqual(loaded["ui_settings_mode"], "advanced")
+            self.assertTrue(loaded["ui_show_advanced_settings"])
             self.assertEqual(Path(loaded["results_dir"]), Path("results/demo-profile"))
 
     def test_config_to_form_values_flattens_validated_config(self) -> None:
@@ -163,6 +175,10 @@ class UIViewModelTests(unittest.TestCase):
                         "min_input_score": 0,
                     }
                 ],
+                ui_settings_mode="advanced",
+                ui_show_advanced_settings=True,
+                google_scholar_page_min=3,
+                google_scholar_page_max=35,
                 discovery_workers=2,
                 io_workers=3,
                 screening_workers=4,
@@ -194,6 +210,10 @@ class UIViewModelTests(unittest.TestCase):
             self.assertEqual(values["search_keywords"], "llm, screening")
             self.assertEqual(values["max_discovered_records"], 75)
             self.assertEqual(values["min_discovered_records"], 5)
+            self.assertEqual(values["ui_settings_mode"], "advanced")
+            self.assertTrue(values["ui_show_advanced_settings"])
+            self.assertEqual(values["google_scholar_page_min"], 3)
+            self.assertEqual(values["google_scholar_page_max"], 35)
             self.assertEqual(values["discovery_workers"], 2)
             self.assertEqual(values["io_workers"], 3)
             self.assertEqual(values["screening_workers"], 4)
@@ -224,6 +244,10 @@ class UIViewModelTests(unittest.TestCase):
             "research_topic": "Systematic reviews",
             "search_keywords": ["llm", "screening"],
             "discovery_strategy": "broad",
+            "ui_settings_mode": "advanced",
+            "ui_show_advanced_settings": True,
+            "google_scholar_page_min": 2,
+            "google_scholar_page_max": 20,
             "max_discovered_records": 80,
             "min_discovered_records": 4,
             "discovery_workers": 2,
@@ -256,6 +280,10 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(values["research_topic"], "Systematic reviews")
         self.assertEqual(values["search_keywords"], "llm, screening")
         self.assertEqual(values["discovery_strategy"], "broad")
+        self.assertEqual(values["ui_settings_mode"], "advanced")
+        self.assertTrue(values["ui_show_advanced_settings"])
+        self.assertEqual(values["google_scholar_page_min"], 2)
+        self.assertEqual(values["google_scholar_page_max"], 20)
         self.assertEqual(values["max_discovered_records"], 80)
         self.assertEqual(values["min_discovered_records"], 4)
         self.assertEqual(values["discovery_workers"], 2)
