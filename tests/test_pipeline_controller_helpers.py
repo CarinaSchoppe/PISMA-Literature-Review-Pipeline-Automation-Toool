@@ -46,11 +46,16 @@ class PipelineControllerHelperTests(unittest.TestCase):
                     springer_enabled=True,
                     arxiv_enabled=True,
                     include_pubmed=True,
+                    europe_pmc_enabled=True,
+                    core_enabled=True,
                 )
             )
             try:
                 clients = controller._build_discovery_clients()
-                self.assertEqual(set(clients), {"openalex", "semantic_scholar", "crossref", "springer", "arxiv", "pubmed"})
+                self.assertEqual(
+                    set(clients),
+                    {"openalex", "semantic_scholar", "crossref", "springer", "arxiv", "pubmed", "europe_pmc", "core"},
+                )
             finally:
                 controller.close()
 

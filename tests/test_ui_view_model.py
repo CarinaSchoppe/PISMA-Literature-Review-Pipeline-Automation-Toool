@@ -52,10 +52,15 @@ class UIViewModelTests(unittest.TestCase):
                 "springer_calls_per_second": "0.8",
                 "arxiv_calls_per_second": "0.25",
                 "pubmed_calls_per_second": "2.8",
+                "europe_pmc_calls_per_second": "1.8",
+                "core_calls_per_second": "1.2",
                 "unpaywall_calls_per_second": "1.2",
                 "huggingface_model": "Qwen/Qwen3-14B",
                 "gemini_model": "gemini-2.5-flash",
                 "gemini_api_key": "gem-key",
+                "core_api_key": "core-key",
+                "europe_pmc_enabled": True,
+                "core_enabled": True,
                 "log_http_requests": True,
                 "log_screening_decisions": True,
             }
@@ -95,10 +100,15 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(config.api_settings.springer_calls_per_second, 0.8)
         self.assertEqual(config.api_settings.arxiv_calls_per_second, 0.25)
         self.assertEqual(config.api_settings.pubmed_calls_per_second, 2.8)
+        self.assertEqual(config.api_settings.europe_pmc_calls_per_second, 1.8)
+        self.assertEqual(config.api_settings.core_calls_per_second, 1.2)
         self.assertEqual(config.api_settings.unpaywall_calls_per_second, 1.2)
         self.assertEqual(config.api_settings.huggingface_model, "Qwen/Qwen3-14B")
         self.assertEqual(config.api_settings.gemini_model, "gemini-2.5-flash")
         self.assertEqual(config.api_settings.gemini_api_key, "gem-key")
+        self.assertEqual(config.api_settings.core_api_key, "core-key")
+        self.assertTrue(config.europe_pmc_enabled)
+        self.assertTrue(config.core_enabled)
         self.assertTrue(config.log_http_requests)
         self.assertTrue(config.log_screening_decisions)
 
@@ -159,10 +169,13 @@ class UIViewModelTests(unittest.TestCase):
                 reset_query_records=True,
                 clear_screening_cache=True,
                 include_pubmed=False,
+                europe_pmc_enabled=True,
+                core_enabled=True,
                 data_dir=root / "data",
                 papers_dir=root / "papers",
                 results_dir=root / "results",
                 database_path=root / "data" / "literature_review.db",
+                api_settings={"core_api_key": "core-key"},
             ).finalize()
 
             values = config_to_form_values(config)
@@ -184,9 +197,12 @@ class UIViewModelTests(unittest.TestCase):
             self.assertEqual(values["http_retry_base_delay_seconds"], 1.5)
             self.assertEqual(values["http_retry_max_delay_seconds"], 45.0)
             self.assertEqual(values["pdf_batch_size"], 8)
+            self.assertEqual(values["core_api_key"], "core-key")
             self.assertTrue(values["reset_query_records"])
             self.assertTrue(values["clear_screening_cache"])
             self.assertIn("Qwen/Qwen3-14B", values["analysis_passes"])
+            self.assertTrue(values["europe_pmc_enabled"])
+            self.assertTrue(values["core_enabled"])
 
     def test_config_payload_to_form_values_accepts_saved_json_shape(self) -> None:
         payload = {
@@ -212,7 +228,12 @@ class UIViewModelTests(unittest.TestCase):
                 "huggingface_model": "Qwen/Qwen3-14B",
                 "gemini_model": "gemini-2.5-flash",
                 "openalex_calls_per_second": 4.5,
+                "core_api_key": "core-key",
+                "europe_pmc_calls_per_second": 1.8,
+                "core_calls_per_second": 1.2,
             },
+            "europe_pmc_enabled": True,
+            "core_enabled": True,
         }
 
         values = config_payload_to_form_values(payload)
@@ -237,6 +258,11 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(values["pdf_batch_size"], 8)
         self.assertEqual(values["gemini_model"], "gemini-2.5-flash")
         self.assertEqual(values["openalex_calls_per_second"], 4.5)
+        self.assertEqual(values["core_api_key"], "core-key")
+        self.assertEqual(values["europe_pmc_calls_per_second"], 1.8)
+        self.assertEqual(values["core_calls_per_second"], 1.2)
+        self.assertTrue(values["europe_pmc_enabled"])
+        self.assertTrue(values["core_enabled"])
 
     def test_default_form_values_cover_all_runtime_config_fields(self) -> None:
         values = default_form_values()

@@ -44,6 +44,7 @@ class ApiSettings(BaseModel):
     crossref_mailto: str | None = Field(default_factory=lambda: os.getenv("CROSSREF_MAILTO"))
     unpaywall_email: str | None = Field(default_factory=lambda: os.getenv("UNPAYWALL_EMAIL"))
     springer_api_key: str | None = Field(default_factory=lambda: os.getenv("SPRINGER_API_KEY"))
+    core_api_key: str | None = Field(default_factory=lambda: os.getenv("CORE_API_KEY"))
     openai_api_key: str | None = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
     openai_base_url: str = Field(default_factory=lambda: os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"))
     openai_model: str = Field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-5.4"))
@@ -73,6 +74,10 @@ class ApiSettings(BaseModel):
     springer_calls_per_second: float = Field(default_factory=lambda: float(os.getenv("SPRINGER_CALLS_PER_SECOND", "1.0")))
     arxiv_calls_per_second: float = Field(default_factory=lambda: float(os.getenv("ARXIV_CALLS_PER_SECOND", "0.34")))
     pubmed_calls_per_second: float = Field(default_factory=lambda: float(os.getenv("PUBMED_CALLS_PER_SECOND", "3.0")))
+    europe_pmc_calls_per_second: float = Field(
+        default_factory=lambda: float(os.getenv("EUROPE_PMC_CALLS_PER_SECOND", "2.0"))
+    )
+    core_calls_per_second: float = Field(default_factory=lambda: float(os.getenv("CORE_CALLS_PER_SECOND", "1.5")))
     unpaywall_calls_per_second: float = Field(default_factory=lambda: float(os.getenv("UNPAYWALL_CALLS_PER_SECOND", "2.0")))
 
     @field_validator(
@@ -83,6 +88,8 @@ class ApiSettings(BaseModel):
         "springer_calls_per_second",
         "arxiv_calls_per_second",
         "pubmed_calls_per_second",
+        "europe_pmc_calls_per_second",
+        "core_calls_per_second",
         "unpaywall_calls_per_second",
     )
     @classmethod
@@ -164,6 +171,8 @@ class ResearchConfig(BaseModel):
     springer_enabled: bool = False
     arxiv_enabled: bool = False
     include_pubmed: bool | None = None
+    europe_pmc_enabled: bool = False
+    core_enabled: bool = False
     max_workers: int = 4
     discovery_workers: int = 0
     io_workers: int = 0
@@ -696,6 +705,7 @@ class ResearchConfig(BaseModel):
                 "crossref_mailto": getattr(args, "crossref_mailto", None),
                 "unpaywall_email": getattr(args, "unpaywall_email", None),
                 "springer_api_key": getattr(args, "springer_api_key", None),
+                "core_api_key": getattr(args, "core_api_key", None),
                 "openai_api_key": getattr(args, "openai_api_key", None),
                 "openai_base_url": getattr(args, "openai_base_url", None),
                 "openai_model": getattr(args, "openai_model", None),
@@ -719,6 +729,8 @@ class ResearchConfig(BaseModel):
                 "springer_calls_per_second": getattr(args, "springer_calls_per_second", None),
                 "arxiv_calls_per_second": getattr(args, "arxiv_calls_per_second", None),
                 "pubmed_calls_per_second": getattr(args, "pubmed_calls_per_second", None),
+                "europe_pmc_calls_per_second": getattr(args, "europe_pmc_calls_per_second", None),
+                "core_calls_per_second": getattr(args, "core_calls_per_second", None),
                 "unpaywall_calls_per_second": getattr(args, "unpaywall_calls_per_second", None),
             }.items()
             if value is not None
@@ -786,6 +798,8 @@ class ResearchConfig(BaseModel):
             springer_enabled=value_for("springer_enabled", getattr(args, "springer_enabled", None), False),
             arxiv_enabled=value_for("arxiv_enabled", getattr(args, "arxiv_enabled", None), False),
             include_pubmed=include_pubmed,
+            europe_pmc_enabled=value_for("europe_pmc_enabled", getattr(args, "europe_pmc_enabled", None), False),
+            core_enabled=value_for("core_enabled", getattr(args, "core_enabled", None), False),
             max_workers=value_for("max_workers", args.max_workers, 4),
             discovery_workers=value_for("discovery_workers", getattr(args, "discovery_workers", None), 0),
             io_workers=value_for("io_workers", getattr(args, "io_workers", None), 0),
@@ -1021,6 +1035,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Enable or disable arXiv API discovery",
     )
+    parser.add_argument(
+        "--europe-pmc-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable Europe PMC discovery",
+    )
+    parser.add_argument(
+        "--core-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable CORE discovery",
+    )
     parser.add_argument("--threshold", type=float, dest="relevance_threshold", help="Relevance score threshold from 0 to 100")
     parser.add_argument(
         "--run-mode",
@@ -1047,6 +1073,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--crossref-mailto", help="Contact email sent with Crossref requests")
     parser.add_argument("--unpaywall-email", help="Contact email required for Unpaywall PDF lookups")
     parser.add_argument("--springer-api-key", help="Springer Nature API key")
+    parser.add_argument("--core-api-key", help="Optional CORE API key")
     parser.add_argument("--openai-api-key", help="API key for OpenAI-compatible endpoints")
     parser.add_argument("--openai-base-url", help="OpenAI-compatible base URL")
     parser.add_argument("--openai-model", help="OpenAI model name, default gpt-5.4")
@@ -1061,6 +1088,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--springer-calls-per-second", type=float, dest="springer_calls_per_second", help="Rate limit for Springer requests")
     parser.add_argument("--arxiv-calls-per-second", type=float, dest="arxiv_calls_per_second", help="Rate limit for arXiv requests")
     parser.add_argument("--pubmed-calls-per-second", type=float, dest="pubmed_calls_per_second", help="Rate limit for PubMed requests")
+    parser.add_argument(
+        "--europe-pmc-calls-per-second",
+        type=float,
+        dest="europe_pmc_calls_per_second",
+        help="Rate limit for Europe PMC requests",
+    )
+    parser.add_argument("--core-calls-per-second", type=float, dest="core_calls_per_second", help="Rate limit for CORE requests")
     parser.add_argument("--unpaywall-calls-per-second", type=float, dest="unpaywall_calls_per_second", help="Rate limit for Unpaywall requests")
     parser.add_argument("--gemini-api-key", help="Google Gemini API key")
     parser.add_argument("--gemini-base-url", help="Gemini Generative Language API base URL")

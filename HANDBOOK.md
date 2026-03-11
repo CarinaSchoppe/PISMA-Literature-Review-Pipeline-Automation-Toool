@@ -255,6 +255,8 @@ Source toggles:
 - `springer_enabled` -> `--springer-enabled` / `--no-springer-enabled`
 - `arxiv_enabled` -> `--arxiv-enabled` / `--no-arxiv-enabled`
 - `include_pubmed` -> `--include-pubmed` / `--no-include-pubmed`
+- `europe_pmc_enabled` -> `--europe-pmc-enabled` / `--no-europe-pmc-enabled`
+- `core_enabled` -> `--core-enabled` / `--no-core-enabled`
 
 What each source is good for:
 
@@ -264,6 +266,8 @@ What each source is good for:
 - `Springer`: official Springer Nature metadata source, requires API key
 - `arXiv`: preprint-heavy discovery, useful for AI/ML topics
 - `PubMed`: biomedical and clinical coverage
+- `Europe PMC`: biomedical and life-science search, useful when you want another strong biomedical index beyond PubMed
+- `CORE`: open-access and repository-heavy discovery, useful for institutional repositories and broader full-text recall
 
 Import-only source paths:
 
@@ -710,6 +714,8 @@ Per-source request throttling:
 - `springer_calls_per_second` -> `--springer-calls-per-second`
 - `arxiv_calls_per_second` -> `--arxiv-calls-per-second`
 - `pubmed_calls_per_second` -> `--pubmed-calls-per-second`
+- `europe_pmc_calls_per_second` -> `--europe-pmc-calls-per-second`
+- `core_calls_per_second` -> `--core-calls-per-second`
 - `unpaywall_calls_per_second` -> `--unpaywall-calls-per-second`
 
 These live in the GUI on the `Discovery` page and let you slow only the provider that is rate-limiting instead of slowing the entire run.
@@ -794,9 +800,9 @@ GUI stop feels delayed:
 
 Current verified baseline:
 
-- `219` tests passing
-- `99.30%` app-code coverage excluding `tests/*`
-- `99.30%` full-repository coverage including `tests/*`
+- `220` tests passing
+- `99.18%` app-code coverage excluding `tests/*`
+- `99.18%` full-repository coverage including `tests/*`
 - `ruff` clean
 - `mypy` clean for the configured backend/tooling scope
 - `compileall` clean

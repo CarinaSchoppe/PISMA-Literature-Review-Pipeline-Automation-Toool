@@ -149,6 +149,8 @@ class ConfigTests(unittest.TestCase):
                 "--no-analyze-full-text",
                 "--springer-enabled",
                 "--arxiv-enabled",
+                "--europe-pmc-enabled",
+                "--core-enabled",
                 "--no-include-pubmed",
                 "--llm-provider",
                 "huggingface_local",
@@ -162,6 +164,8 @@ class ConfigTests(unittest.TestCase):
                 "carina@example.com",
                 "--springer-api-key",
                 "springer-key",
+                "--core-api-key",
+                "core-key",
                 "--openai-api-key",
                 "openai-key",
                 "--openai-model",
@@ -178,6 +182,10 @@ class ConfigTests(unittest.TestCase):
                 "0.25",
                 "--pubmed-calls-per-second",
                 "2.8",
+                "--europe-pmc-calls-per-second",
+                "1.8",
+                "--core-calls-per-second",
+                "1.2",
                 "--unpaywall-calls-per-second",
                 "1.2",
                 "--gemini-api-key",
@@ -252,11 +260,14 @@ class ConfigTests(unittest.TestCase):
 
         self.assertTrue(config.springer_enabled)
         self.assertTrue(config.arxiv_enabled)
+        self.assertTrue(config.europe_pmc_enabled)
+        self.assertTrue(config.core_enabled)
         self.assertEqual(config.llm_provider, "huggingface_local")
         self.assertEqual(config.api_settings.semantic_scholar_api_key, "sem-key")
         self.assertEqual(config.api_settings.crossref_mailto, "carina@example.com")
         self.assertEqual(config.api_settings.unpaywall_email, "carina@example.com")
         self.assertEqual(config.api_settings.springer_api_key, "springer-key")
+        self.assertEqual(config.api_settings.core_api_key, "core-key")
         self.assertEqual(config.api_settings.openai_api_key, "openai-key")
         self.assertEqual(config.api_settings.openai_model, "gpt-5.4")
         self.assertEqual(config.api_settings.openalex_calls_per_second, 4.5)
@@ -265,6 +276,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.api_settings.springer_calls_per_second, 0.8)
         self.assertEqual(config.api_settings.arxiv_calls_per_second, 0.25)
         self.assertEqual(config.api_settings.pubmed_calls_per_second, 2.8)
+        self.assertEqual(config.api_settings.europe_pmc_calls_per_second, 1.8)
+        self.assertEqual(config.api_settings.core_calls_per_second, 1.2)
         self.assertEqual(config.api_settings.unpaywall_calls_per_second, 1.2)
         self.assertEqual(config.api_settings.gemini_api_key, "gemini-key")
         self.assertEqual(config.api_settings.gemini_base_url, "https://generativelanguage.googleapis.com/v1beta")

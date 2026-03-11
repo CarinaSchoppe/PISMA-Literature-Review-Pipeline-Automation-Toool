@@ -244,6 +244,8 @@ class DesktopWorkbench:
                 "springer_enabled",
                 "arxiv_enabled",
                 "include_pubmed",
+                "europe_pmc_enabled",
+                "core_enabled",
             ],
         ),
         (
@@ -265,6 +267,8 @@ class DesktopWorkbench:
                 "springer_calls_per_second",
                 "arxiv_calls_per_second",
                 "pubmed_calls_per_second",
+                "europe_pmc_calls_per_second",
+                "core_calls_per_second",
                 "unpaywall_calls_per_second",
             ],
         ),
@@ -295,6 +299,7 @@ class DesktopWorkbench:
                 "ollama_api_key",
                 "semantic_scholar_api_key",
                 "springer_api_key",
+                "core_api_key",
                 "crossref_mailto",
                 "unpaywall_email",
             ],
@@ -367,6 +372,8 @@ class DesktopWorkbench:
         "springer_enabled": "Use Springer Nature API",
         "arxiv_enabled": "Use arXiv",
         "include_pubmed": "Use PubMed",
+        "europe_pmc_enabled": "Use Europe PMC",
+        "core_enabled": "Use CORE",
         "fixture_data_path": "Offline fixture file",
         "manual_source_path": "Manual import file",
         "google_scholar_import_path": "Google Scholar import file",
@@ -415,6 +422,7 @@ class DesktopWorkbench:
         "huggingface_cache_dir": "HF cache dir",
         "semantic_scholar_api_key": "Semantic Scholar API key",
         "springer_api_key": "Springer API key",
+        "core_api_key": "CORE API key",
         "crossref_mailto": "Crossref mailto",
         "unpaywall_email": "Unpaywall email",
         "download_pdfs": "Download paper PDFs",
@@ -450,6 +458,8 @@ class DesktopWorkbench:
         "springer_calls_per_second": "Springer calls / second",
         "arxiv_calls_per_second": "arXiv calls / second",
         "pubmed_calls_per_second": "PubMed calls / second",
+        "europe_pmc_calls_per_second": "Europe PMC calls / second",
+        "core_calls_per_second": "CORE calls / second",
         "unpaywall_calls_per_second": "Unpaywall calls / second",
         "huggingface_trust_remote_code": "Trust HF remote code",
     }
@@ -500,7 +510,8 @@ class DesktopWorkbench:
             "Where API keys and endpoint settings go",
             "Provider keys and endpoint URLs live on the dedicated 'Connections and Keys' settings page. "
             "OpenAI-compatible keys, Gemini base URL and API key, Ollama base URL and API key, Semantic Scholar API key, "
-            "Springer API key, Crossref mailto, and Unpaywall email are all editable in the GUI and saved into profiles.",
+            "Springer API key, CORE API key, Crossref mailto, and Unpaywall email are all editable in the GUI and saved "
+            "into profiles.",
         ),
         "guide:verbose": (
             "Guide",
@@ -554,7 +565,8 @@ class DesktopWorkbench:
         ),
         "Connections and Keys": (
             "Enter provider base URLs, API keys, and contact details here. This page is the single place for model "
-            "credentials and API connection settings."
+            "credentials and API connection settings. It also holds optional discovery-source keys such as Springer "
+            "and CORE."
         ),
         "Advanced Screening": (
             "Fine-tune local-model runtime behavior, full-text limits, temperature, and other screening options that "
@@ -656,6 +668,14 @@ class DesktopWorkbench:
             "Include PubMed for biomedical or clinical topics. It is usually not necessary for general AI reviews "
             "unless the question touches medicine, health, or life sciences."
         ),
+        "europe_pmc_enabled": (
+            "Include Europe PMC for biomedical, clinical, and life-science discovery. This can complement PubMed by "
+            "surfacing Europe PMC's aggregated metadata, citation counts, and full-text links."
+        ),
+        "core_enabled": (
+            "Include CORE for repository and open-access search results. This is useful when you want broader recall "
+            "from institutional repositories, preprint mirrors, and open full-text sources."
+        ),
         "fixture_data_path": (
             "Optional offline fixture file for deterministic testing. Use this when you want to validate the pipeline "
             "without live API calls."
@@ -738,6 +758,10 @@ class DesktopWorkbench:
         ),
         "semantic_scholar_api_key": "Optional Semantic Scholar API key for higher limits or authenticated access.",
         "springer_api_key": "API key for Springer Nature requests when you want live Springer discovery.",
+        "core_api_key": (
+            "Optional API key for CORE. Public requests can work without a key, but a configured key makes the source "
+            "ready for environments or accounts that require authenticated access."
+        ),
         "download_pdfs": (
             "Download PDFs when open-access links are available. If disabled, the run keeps only metadata and screening output."
         ),
@@ -883,6 +907,14 @@ class DesktopWorkbench:
         "pubmed_calls_per_second": (
             "Maximum request rate for PubMed API calls."
         ),
+        "europe_pmc_calls_per_second": (
+            "Maximum request rate for Europe PMC API calls. Lower this if Europe PMC begins to throttle or if you want "
+            "a gentler biomedical discovery pass."
+        ),
+        "core_calls_per_second": (
+            "Maximum request rate for CORE API calls. Lower this when you want a slower, more conservative repository "
+            "search profile."
+        ),
         "unpaywall_calls_per_second": (
             "Maximum request rate for Unpaywall open-access lookups when resolving or downloading PDFs."
         ),
@@ -896,6 +928,7 @@ class DesktopWorkbench:
         "manual_source_path": "C:/imports/manual_records.csv",
         "google_scholar_import_path": "C:/imports/google_scholar_export.csv",
         "researchgate_import_path": "C:/imports/researchgate_export.json",
+        "core_api_key": "Paste your CORE API key here if your account or deployment requires one.",
         "openai_model": "gpt-5.4",
         "gemini_model": "gemini-2.5-flash",
         "ollama_model": "qwen3:8b",
@@ -908,6 +941,8 @@ class DesktopWorkbench:
         "openai_api_key": "Paste the provider key from your OpenAI-compatible dashboard.",
         "gemini_api_key": "Paste the API key from Google AI Studio or your Gemini deployment.",
         "semantic_scholar_api_key": "Paste the authenticated key when you want higher limits than anonymous access.",
+        "europe_pmc_enabled": "Turn this on for biomedical or life-science reviews that need Europe PMC in addition to PubMed.",
+        "core_enabled": "Turn this on when you want open-access and repository-heavy discovery from CORE.",
     }
 
     BOOLEAN_HELP_OVERRIDES = {
@@ -3063,6 +3098,13 @@ class DesktopWorkbench:
             ),
             ("arXiv", bool(values.get("arxiv_enabled")), True, "Public API source."),
             ("PubMed", bool(values.get("include_pubmed")), True, "Optional biomedical source."),
+            ("Europe PMC", bool(values.get("europe_pmc_enabled")), True, "Public biomedical and life-science source."),
+            (
+                "CORE",
+                bool(values.get("core_enabled")),
+                True,
+                "Optional API key can be entered on Connections and Keys.",
+            ),
             (
                 "Unpaywall",
                 bool(values.get("download_pdfs")),

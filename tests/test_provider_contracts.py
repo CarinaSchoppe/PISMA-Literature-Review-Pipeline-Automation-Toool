@@ -9,7 +9,9 @@ from unittest.mock import Mock, patch
 
 from config import ResearchConfig
 from discovery.arxiv_client import ArxivClient
+from discovery.core_client import COREClient
 from discovery.crossref_client import CrossrefClient
+from discovery.europe_pmc_client import EuropePMCClient
 from discovery.fixture_client import FixtureDiscoveryClient
 from discovery.manual_import_client import ManualImportClient
 from discovery.openalex_client import OpenAlexClient
@@ -36,6 +38,7 @@ class ProviderContractTests(unittest.TestCase):
             disable_progress_bars=True,
             api_settings={
                 "springer_api_key": "springer-key",
+                "core_api_key": "core-key",
             },
         ).finalize()
 
@@ -98,6 +101,43 @@ class ProviderContractTests(unittest.TestCase):
                 }
             ]
         }
+        europe_pmc_payload = {
+            "resultList": {
+                "result": [
+                    {
+                        "id": "EPMC1",
+                        "pmid": "123456",
+                        "doi": "10.1000/europepmc",
+                        "title": "Europe PMC Paper",
+                        "authorList": {"author": [{"fullName": "Rosalind Franklin"}]},
+                        "journalInfo": {"journal": {"title": "Europe PMC Venue"}},
+                        "pubYear": "2024",
+                        "abstractText": "Europe PMC abstract",
+                        "citedByCount": 3,
+                        "isOpenAccess": True,
+                        "hasPDF": True,
+                        "fullTextUrlList": {"fullTextUrl": [{"url": "https://example.org/europepmc.pdf"}]},
+                    }
+                ]
+            }
+        }
+        core_payload = {
+            "results": [
+                {
+                    "id": 99,
+                    "title": "CORE Paper",
+                    "authors": [{"name": "Katherine Johnson"}],
+                    "abstract": "CORE abstract",
+                    "yearPublished": 2024,
+                    "publisher": "CORE Venue",
+                    "doi": "10.1000/core",
+                    "citationCount": 5,
+                    "references": ["10.1000/core-ref"],
+                    "downloadUrl": "https://example.org/core.pdf",
+                    "identifiers": [{"type": "CORE_ID", "identifier": "99"}],
+                }
+            ]
+        }
 
         with patch("discovery.openalex_client.request_json", return_value=openalex_payload):
             openalex_results = OpenAlexClient(self.config).search()
@@ -107,12 +147,18 @@ class ProviderContractTests(unittest.TestCase):
             semantic_results = SemanticScholarClient(self.config).search()
         with patch("discovery.springer_client.request_json", return_value=springer_payload):
             springer_results = SpringerClient(self.config).search()
+        with patch("discovery.europe_pmc_client.request_json", return_value=europe_pmc_payload):
+            europe_pmc_results = EuropePMCClient(self.config).search()
+        with patch("discovery.core_client.request_json", return_value=core_payload):
+            core_results = COREClient(self.config).search()
 
         for expected_source, results in {
             "openalex": openalex_results,
             "crossref": crossref_results,
             "semantic_scholar": semantic_results,
             "springer": springer_results,
+            "europe_pmc": europe_pmc_results,
+            "core": core_results,
         }.items():
             with self.subTest(source=expected_source):
                 self.assert_provider_contract(results[0], expected_source)

@@ -8,7 +8,9 @@ from unittest.mock import Mock, patch
 
 from config import ResearchConfig
 from discovery.arxiv_client import ArxivClient
+from discovery.core_client import COREClient
 from discovery.crossref_client import CrossrefClient
+from discovery.europe_pmc_client import EuropePMCClient
 from discovery.openalex_client import OpenAlexClient
 from discovery.pubmed_client import PubMedClient
 from discovery.semantic_scholar_client import SemanticScholarClient
@@ -194,6 +196,57 @@ class DiscoveryClientsExtendedTests(unittest.TestCase):
         self.assertEqual(semantic_results[0].doi, "10.1000/semantic")
         self.assertTrue(semantic_results[0].open_access)
 
+    def test_europe_pmc_and_core_search_parse_expected_fields(self) -> None:
+        europe_pmc_payload = {
+            "resultList": {
+                "result": [
+                    {
+                        "id": "EPMC1",
+                        "pmid": "123456",
+                        "doi": "10.1000/europepmc",
+                        "title": "Europe PMC Paper",
+                        "authorList": {"author": [{"fullName": "Rosalind Franklin"}]},
+                        "journalInfo": {"journal": {"title": "Europe PMC Venue"}},
+                        "pubYear": "2024",
+                        "abstractText": "Europe PMC abstract",
+                        "citedByCount": 3,
+                        "isOpenAccess": True,
+                        "hasPDF": True,
+                        "fullTextUrlList": {"fullTextUrl": [{"url": "https://example.org/europepmc.pdf"}]},
+                    }
+                ]
+            }
+        }
+        core_payload = {
+            "results": [
+                {
+                    "id": 99,
+                    "title": "CORE Paper",
+                    "authors": [{"name": "Katherine Johnson"}],
+                    "abstract": "CORE abstract",
+                    "yearPublished": 2024,
+                    "publisher": "CORE Venue",
+                    "doi": "10.1000/core",
+                    "citationCount": 5,
+                    "references": ["10.1000/core-ref"],
+                    "downloadUrl": "https://example.org/core.pdf",
+                    "identifiers": [{"type": "CORE_ID", "identifier": "99"}],
+                }
+            ]
+        }
+
+        with patch("discovery.europe_pmc_client.request_json", return_value=europe_pmc_payload):
+            europe_pmc_results = EuropePMCClient(
+                self.config.model_copy(update={"europe_pmc_enabled": True, "pages_to_retrieve": 1})
+            ).search()
+        with patch("discovery.core_client.request_json", return_value=core_payload):
+            core_results = COREClient(self.config.model_copy(update={"core_enabled": True, "pages_to_retrieve": 1})).search()
+
+        self.assertEqual(europe_pmc_results[0].authors, ["Rosalind Franklin"])
+        self.assertEqual(europe_pmc_results[0].pdf_link, "https://example.org/europepmc.pdf")
+        self.assertEqual(core_results[0].doi, "10.1000/core")
+        self.assertTrue(core_results[0].open_access)
+
     def test_semantic_scholar_api_key_headers_and_per_source_limit_breaks(self) -> None:
         config = self.config.model_copy(
             update={
@@ -238,6 +291,8 @@ class DiscoveryClientsExtendedTests(unittest.TestCase):
                         "springer_calls_per_second": 0.8,
                         "arxiv_calls_per_second": 0.25,
                         "pubmed_calls_per_second": 2.8,
+                        "europe_pmc_calls_per_second": 1.8,
+                        "core_calls_per_second": 1.2,
                     }
                 )
             }
@@ -249,6 +304,8 @@ class DiscoveryClientsExtendedTests(unittest.TestCase):
         self.assertAlmostEqual(SpringerClient(tuned).limiter.min_interval, 1 / 0.8)
         self.assertAlmostEqual(ArxivClient(tuned).limiter.min_interval, 1 / 0.25)
         self.assertAlmostEqual(PubMedClient(tuned).limiter.min_interval, 1 / 2.8)
+        self.assertAlmostEqual(EuropePMCClient(tuned).limiter.min_interval, 1 / 1.8)
+        self.assertAlmostEqual(COREClient(tuned).limiter.min_interval, 1 / 1.2)
 
     def test_pubmed_search_and_xml_parsing(self) -> None:
         client = PubMedClient(self.config)

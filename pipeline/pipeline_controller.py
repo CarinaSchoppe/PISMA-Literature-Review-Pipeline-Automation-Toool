@@ -20,7 +20,9 @@ from citation.citation_expander import CitationExpander
 from config import AnalysisPassConfig, ResearchConfig
 from database import DatabaseManager
 from discovery.arxiv_client import ArxivClient
+from discovery.core_client import COREClient
 from discovery.crossref_client import CrossrefClient
+from discovery.europe_pmc_client import EuropePMCClient
 from discovery.fixture_client import FixtureDiscoveryClient
 from discovery.manual_import_client import ManualImportClient
 from discovery.null_citation_provider import NullCitationProvider
@@ -76,6 +78,8 @@ class PipelineController:
         self.springer_client = SpringerClient(self.config)
         self.arxiv_client = ArxivClient(self.config)
         self.pubmed_client = PubMedClient(self.config)
+        self.europe_pmc_client = EuropePMCClient(self.config)
+        self.core_client = COREClient(self.config)
         self.pdf_fetcher = PDFFetcher(self.config)
         self.full_text_extractor = FullTextExtractor(max_chars=self.config.full_text_max_chars)
         self.pass_screeners = self._build_pass_screeners()
@@ -489,6 +493,10 @@ class PipelineController:
             clients["arxiv"] = self.arxiv_client.search
         if self.config.include_pubmed:
             clients["pubmed"] = self.pubmed_client.search
+        if self.config.europe_pmc_enabled:
+            clients["europe_pmc"] = self.europe_pmc_client.search
+        if self.config.core_enabled:
+            clients["core"] = self.core_client.search
         if not clients and not allow_empty:
             raise ValueError("At least one discovery source must be enabled")
         return clients

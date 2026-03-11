@@ -76,6 +76,8 @@ input -> discovery -> deduplication -> database storage -> citation expansion ->
 * Springer Nature Metadata API
 * arXiv API
 * PubMed
+* Europe PMC
+* CORE
 
 ### Manual import sources
 
@@ -323,7 +325,9 @@ project_root/
 |   `-- citation_expander.py
 |-- discovery/
 |   |-- arxiv_client.py
+|   |-- core_client.py
 |   |-- crossref_client.py
+|   |-- europe_pmc_client.py
 |   |-- fixture_client.py
 |   |-- manual_import_client.py
 |   |-- null_citation_provider.py
@@ -559,7 +563,7 @@ The main SQLite database stores:
 
 ### Discovery
 
-* source toggles for OpenAlex, Semantic Scholar, Crossref, Springer, arXiv, and PubMed
+* source toggles for OpenAlex, Semantic Scholar, Crossref, Springer, arXiv, PubMed, Europe PMC, and CORE
 * per-source rate limits
 * `pages_to_retrieve`
 * `results_per_page`
@@ -634,9 +638,9 @@ The GUI surfaces operational issues through:
 
 Current tested baseline:
 
-* `219` passing tests
-* `99.30%` app-code coverage excluding `tests/*`
-* `99.30%` full-repository coverage including `tests/*`
+* `220` passing tests
+* `99.18%` app-code coverage excluding `tests/*`
+* `99.18%` full-repository coverage including `tests/*`
 * clean `ruff` lint
 * clean `mypy` type-checking for the configured backend/tooling scope
 * clean `compileall`
