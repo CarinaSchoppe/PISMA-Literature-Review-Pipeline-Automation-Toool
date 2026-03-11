@@ -952,6 +952,12 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
 
         self.workbench.current_controller = controller
         with patch.object(self.workbench.root_logger, "removeHandler") as remove_handler, patch.object(
+                self.workbench.root, "withdraw"
+        ) as withdraw, patch.object(
+                self.workbench.root, "update_idletasks"
+        ) as update_idletasks, patch.object(
+                self.workbench.root, "quit"
+        ) as quit_mock, patch.object(
                 self.workbench.root, "destroy"
         ) as destroy, patch.object(
             self.workbench.root,
@@ -961,8 +967,31 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             self.workbench._on_close()
         controller.request_stop.assert_called_once()
         remove_handler.assert_called_once()
+        withdraw.assert_called_once()
+        update_idletasks.assert_called_once()
+        quit_mock.assert_called_once()
         self.assertEqual(unbind_all.call_count, 4)
         destroy.assert_called_once()
+
+        self.workbench.current_controller = controller
+        with patch.object(self.workbench.root_logger, "removeHandler"), patch.object(
+                self.workbench.root, "withdraw", side_effect=tk.TclError("broken withdraw")
+        ) as withdraw_error, patch.object(
+                self.workbench.root, "update_idletasks"
+        ) as update_idletasks_error, patch.object(
+                self.workbench.root, "quit"
+        ) as quit_error, patch.object(
+                self.workbench.root, "destroy"
+        ) as destroy_error, patch.object(
+            self.workbench.root,
+            "unbind_all",
+            side_effect=[tk.TclError("x"), tk.TclError("shift"), tk.TclError("y"), tk.TclError("z")],
+        ):
+            self.workbench._on_close()
+        withdraw_error.assert_called_once()
+        update_idletasks_error.assert_not_called()
+        quit_error.assert_not_called()
+        destroy_error.assert_called_once()
         del self.workbench
 
     def test_launch_desktop_app_wrapper(self) -> None:
