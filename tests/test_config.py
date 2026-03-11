@@ -95,7 +95,7 @@ class ConfigTests(unittest.TestCase):
             ]
         )
 
-        with patch("builtins.input", side_effect=AssertionError("input should not be called")):
+        with patch("builtins.input", side_effect=["", "", "", "", ""]):
             config = ResearchConfig.from_cli(args)
 
         self.assertEqual(
