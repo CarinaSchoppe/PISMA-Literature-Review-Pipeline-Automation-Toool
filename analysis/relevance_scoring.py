@@ -7,6 +7,7 @@ from typing import cast
 
 from models.paper import DecisionLabel, PaperMetadata, ScreeningResult
 
+from analysis.topic_prefilter import BaseTopicMatcher, TopicMatchResult
 from config import ResearchConfig
 from utils.text_processing import extract_salient_sentence, keyword_overlap_score, normalize_title
 
@@ -42,8 +43,9 @@ THEORY_TERMS = {
 class RelevanceScorer:
     """Score papers against the review brief using transparent heuristic criteria."""
 
-    def __init__(self, config: ResearchConfig) -> None:
+    def __init__(self, config: ResearchConfig, topic_matcher: BaseTopicMatcher | None = None) -> None:
         self.config = config
+        self.topic_matcher = topic_matcher
 
     def has_hard_exclusion(self, paper: PaperMetadata) -> bool:
         """Return whether banned themes or excluded title markers force rejection."""
@@ -53,7 +55,12 @@ class RelevanceScorer:
             self._matched_terms(paper.title, self.config.excluded_title_terms)
         )
 
-    def quick_screen(self, paper: PaperMetadata) -> str:
+    def quick_screen(
+        self,
+        paper: PaperMetadata,
+        *,
+        topic_match: TopicMatchResult | None = None,
+    ) -> str:
         """Return a fast include/maybe/exclude triage decision from lightweight signals."""
 
         combined_text = f"{paper.title}. {paper.abstract}"
@@ -70,13 +77,21 @@ class RelevanceScorer:
         score = overlap + year_bonus - exclusion_penalty
         if self.has_hard_exclusion(paper):
             return "exclude"
+        if topic_match and topic_match.should_exclude:
+            return "exclude"
         if overlap >= 0.55:
             return "include"
         if score >= 0.22:
             return "maybe"
         return "exclude"
 
-    def deep_score(self, paper: PaperMetadata, stage_one_decision: str | None = None) -> ScreeningResult:
+    def deep_score(
+        self,
+        paper: PaperMetadata,
+        stage_one_decision: str | None = None,
+        *,
+        topic_match: TopicMatchResult | None = None,
+    ) -> ScreeningResult:
         """Compute the final relevance score, explanation, and structured decision payload."""
 
         combined_text = normalize_title(f"{paper.title}. {paper.abstract}")
@@ -86,7 +101,7 @@ class RelevanceScorer:
         matched_exclusion = self._matched_terms(combined_text, self.config.exclusion_criteria)
         matched_banned = self._matched_terms(combined_text, self.config.banned_topics)
         matched_excluded_title_terms = self._matched_terms(paper.title, self.config.excluded_title_terms)
-        topic_score = keyword_overlap_score(
+        keyword_topic_score = keyword_overlap_score(
             combined_text,
             [
                 self.config.research_topic,
@@ -96,6 +111,11 @@ class RelevanceScorer:
                 *self.config.inclusion_criteria,
             ],
         ) * 100
+        semantic_topic_score = topic_match.score if topic_match else None
+        if semantic_topic_score is not None:
+            topic_score = 0.65 * keyword_topic_score + 0.35 * semantic_topic_score
+        else:
+            topic_score = keyword_topic_score
         exclusion_penalty = keyword_overlap_score(combined_text, self.config.exclusion_criteria) * 20
         banned_penalty = 100.0 if matched_banned else 0.0
         excluded_title_penalty = 100.0 if matched_excluded_title_terms else 0.0
@@ -120,6 +140,7 @@ class RelevanceScorer:
                 stage_one,
                 matched_banned=bool(matched_banned),
                 matched_excluded_title_terms=bool(matched_excluded_title_terms),
+                topic_prefilter_blocked=bool(topic_match and topic_match.should_exclude),
             ),
         )
         retain_reason = (
@@ -137,6 +158,11 @@ class RelevanceScorer:
                     "Excluded because title markers indicate a non-target publication type: "
                     f"{', '.join(matched_excluded_title_terms)}."
                 )
+            elif topic_match and topic_match.should_exclude:
+                exclusion_reason = (
+                    f"Excluded because the local topic prefilter scored {topic_match.score:.1f}/100, below the "
+                    f"{topic_match.threshold:.1f} threshold using {topic_match.model_name}."
+                )
             elif matched_exclusion:
                 exclusion_reason = (
                     f"Excluded because exclusion criteria matched: {', '.join(matched_exclusion)}."
@@ -148,15 +174,22 @@ class RelevanceScorer:
                 )
 
         explanation = (
-            f"Topic match {topic_score:.1f}/100, methodology {methodology_score:.1f}/100, "
+            f"Topic match {topic_score:.1f}/100, keyword topic score {keyword_topic_score:.1f}/100, "
+            f"semantic topic score {(semantic_topic_score if semantic_topic_score is not None else 'n/a')}/100, "
+            f"methodology {methodology_score:.1f}/100, "
             f"theory contribution {theoretical_score:.1f}/100, recency {recency_score:.1f}/100, "
             f"citation strength {citation_score:.1f}/100, exclusion penalty {exclusion_penalty:.1f}, "
             f"banned penalty {banned_penalty:.1f}, title penalty {excluded_title_penalty:.1f}. "
             f"Stage 1 decision: {stage_one}."
         )
+        if topic_match:
+            explanation += f" {topic_match.explanation}"
         return ScreeningResult(
             stage_one_decision=stage_one,
             relevance_score=round(relevance_score, 2),
+            topic_prefilter_score=topic_match.score if topic_match else None,
+            topic_prefilter_model=topic_match.model_name if topic_match else None,
+            topic_prefilter_threshold=topic_match.threshold if topic_match else None,
             explanation=explanation,
             extracted_passage=extracted_passage,
             methodology_category=methodology_category,
@@ -171,6 +204,7 @@ class RelevanceScorer:
             screening_context_key=self.config.screening_context_key,
             evaluation_breakdown={
                 "topical_match": round(topic_score, 2),
+                "keyword_topical_match": round(keyword_topic_score, 2),
                 "methodological_relevance": round(methodology_score, 2),
                 "theoretical_contribution": round(theoretical_score, 2),
                 "recency": round(recency_score, 2),
@@ -178,8 +212,20 @@ class RelevanceScorer:
                 "exclusion_penalty": round(exclusion_penalty, 2),
                 "banned_penalty": round(banned_penalty, 2),
                 "excluded_title_penalty": round(excluded_title_penalty, 2),
+                **(
+                    {"semantic_topic_match": round(semantic_topic_score, 2)}
+                    if semantic_topic_score is not None
+                    else {}
+                ),
             },
         )
+
+    def evaluate_topic_match(self, paper: PaperMetadata) -> TopicMatchResult | None:
+        """Return the optional semantic topic-prefilter result for one paper."""
+
+        if self.topic_matcher is None:
+            return None
+        return self.topic_matcher.score_paper(paper)
 
     def _classify_methodology(self, text: str) -> str:
         for label, patterns in METHODOLOGY_PATTERNS.items():
@@ -211,10 +257,11 @@ class RelevanceScorer:
             *,
             matched_banned: bool = False,
             matched_excluded_title_terms: bool = False,
+            topic_prefilter_blocked: bool = False,
     ) -> str:
         """Translate score and gating signals into the configured decision mode."""
 
-        if matched_banned or matched_excluded_title_terms:
+        if matched_banned or matched_excluded_title_terms or topic_prefilter_blocked:
             return "exclude"
         if self.config.decision_mode == "strict":
             return "include" if score >= self.config.relevance_threshold else "exclude"
