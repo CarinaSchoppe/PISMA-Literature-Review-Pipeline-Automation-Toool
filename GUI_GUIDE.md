@@ -48,6 +48,13 @@ The `Settings` tab uses a three-pane layout:
 - center settings editor
 - right inspector
 
+The workbench also includes two large overview sections:
+
+- a workspace overview near the top of the window
+- a settings overview inside the `Settings` tab
+
+Both overview sections can be collapsed manually so the actual working area gets more room.
+
 Settings pages:
 
 - `Review Setup`
@@ -82,6 +89,13 @@ Scrollable areas include:
 - screening audit
 
 If a page grows beyond the visible window size, vertical scrolling keeps the content reachable. Wide tables and wide content areas also expose horizontal scrolling where needed.
+
+Non-fullscreen usability:
+
+- when the window becomes smaller, the workbench automatically switches into a more compact layout
+- pane defaults narrow so the center editing canvas gets more room
+- oversized overview blocks are hidden automatically in compact-window situations
+- the pages themselves remain scrollable, so you can keep working without maximizing the app
 
 ## Compact And Advanced Modes
 
@@ -234,6 +248,15 @@ Toolbar actions:
 
 - requests a controlled stop
 - stops at safe boundaries rather than killing the process instantly
+
+## Window-Size Tips
+
+If the workbench feels crowded:
+
+1. Collapse the workspace overview.
+2. Collapse the settings overview.
+3. Keep the app in `Compact` mode.
+4. Use the scrollable `Quick Edit` panel for frequent changes instead of expanding every settings page.
 
 ## Result Tabs
 

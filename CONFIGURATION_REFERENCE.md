@@ -204,6 +204,8 @@ These settings are persisted with saved GUI profiles so the desktop workbench op
 - Supported values:
   - `compact`
   - `advanced`
+- `compact` keeps longer helper sections collapsed by default and fits better on smaller windows
+- `advanced` keeps more section guidance visible for deeper orientation
 
 `ui_show_advanced_settings`
 
@@ -212,6 +214,12 @@ These settings are persisted with saved GUI profiles so the desktop workbench op
   - advanced runtime pages open without an extra toggle
 - `false`
   - the workbench starts in the simpler view and reveals advanced pages only when requested
+
+Practical GUI behavior:
+
+- these fields control the startup state of the workbench
+- the workbench also applies responsive compact-window behavior automatically when the window is too small for the larger overview panels
+- the large workspace overview and the large settings overview can both be collapsed manually at runtime
 
 ## Local MiniLM Semantic Topic Prefilter
 
@@ -404,7 +412,10 @@ Practical PDF routing:
 - `verbose`
 - `ultra_verbose`
 
-Backward-compatible aliases still exist internally, but the user-facing modes are the three above.
+Compatibility note:
+
+- `debug` and `quiet` are still accepted by the parser and config model
+- the primary documented operating modes remain `normal`, `verbose`, and `ultra_verbose`
 
 `max_workers`
 
@@ -513,6 +524,19 @@ Per-source request pacing is also available for:
 `pdf_batch_size`
 
 - Size of each PDF processing batch.
+
+## Coverage Scope
+
+Project coverage is intentionally split into two modes:
+
+- production-code coverage
+  - the default configuration omits `tests/*`
+  - this is the enforced release gate
+- whole-tree reference coverage
+  - includes test modules too
+  - useful when you explicitly want every Python file in one report
+
+That is why a plain `python -m coverage report` usually shows production files only unless the run was created with `--include-tests`.
 
 ## Environment Variables
 

@@ -118,7 +118,7 @@ The same controls should remain available through:
 ### Supported by live bounded traversal or import adapters
 
 - Google Scholar live result traversal with explicit page-depth controls
-- Google Scholar live traversal or exports
+- Google Scholar exports
 - ResearchGate exports
 - RIS exports
 - BibTeX exports
@@ -223,6 +223,8 @@ Already present:
 - screening audit tab
 - provider health indicators
 - scrollable settings pages and scrollable inspector tabs
+- collapsible workspace and settings overview blocks for smaller windows
+- responsive compact-window behavior so the workbench remains usable without fullscreen
 
 Next GUI improvements:
 
@@ -276,6 +278,7 @@ Future quality additions:
 - broader source-fixture matrices for provider-edge-case parsing
 - stricter mutation-style checks on screening and export invariants
 - richer screenshot-style GUI regression checks where practical
+- clearer operator-facing guidance around production-only versus whole-tree coverage reports so coverage output is harder to misread
 
 ## Provider Strategy
 

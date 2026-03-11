@@ -123,6 +123,9 @@ Important visibility behavior:
 - `Compact` settings mode collapses longer section descriptions to reduce visual density
 - `Advanced` settings mode restores the full section helper text on the settings pages
 - saved profiles persist this preference through `ui_settings_mode`
+- the large workspace overview can be collapsed when you need more room for the notebook and settings content
+- the large settings overview inside the `Settings` tab can also be collapsed independently
+- compact-window behavior automatically hides those large overview sections when the window is too small to show them comfortably
 - `Connections and Keys` is the dedicated page for provider URLs, API keys, Crossref mailto, and Unpaywall email
 - `Advanced Runtime` stays hidden until `Show advanced settings` is enabled or a search jump opens one of its fields
 - saved profiles persist this advanced-page visibility through `ui_show_advanced_settings`
@@ -719,6 +722,7 @@ What the SQLite files mean:
 - `normal`: important-only logging for major stages, outcomes, and warnings
 - `verbose`: all major pipeline steps, source activity, screening activity, and output writes
 - `ultra_verbose`: verbose logging plus detailed request, parsing, retry, threshold, and timing traces
+- `debug` and `quiet` are still accepted for compatibility, but the primary documented operating modes are the three above
 - GUI: `Advanced Runtime`
 - CLI: `--verbosity`
 - Flags:
@@ -984,6 +988,12 @@ Useful options:
 - `--top-files 25`
 - `--fail-under 99.5`
 - `--include-tests` for an optional whole-tree reference report that counts test files too
+
+Coverage scope reminder:
+
+- the default project coverage configuration omits `tests/*`
+- this is why a plain `coverage report` usually lists production modules only
+- rerun coverage with `coverage_report.py --include-tests ...` when you explicitly want all Python modules, including tests, in the same report
 
 ## Benchmark Report Helper
 

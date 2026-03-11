@@ -188,6 +188,8 @@ The guided workbench includes:
 - a resizable three-pane settings shell, so you can widen the editor or the inspector instead of being stuck with one fixed layout
 - a right-hand inspector with dedicated `Find`, `Quick Edit`, `Guides`, and `Summary` tabs
 - compact and advanced settings modes so you can collapse or reveal explanatory section text depending on how dense you want the workspace to be
+- collapsible workspace and settings overview blocks so the real editing area stays usable without fullscreen
+- responsive compact-window behavior that automatically trims oversized overview sections and tightens pane defaults on smaller windows
 - scrollable settings pages, a scrollable quick-edit panel, and a scrollable summary inspector so the window stays usable on smaller screens
 - scrollable logs, result tables, handbook content, artifact browser tables, chart previews, run history, and screening audit views so no important content is trapped off-screen on smaller windows
 - `Show advanced settings` toggle so lower-level runtime options stay out of the way until needed
@@ -216,6 +218,8 @@ The guided workbench includes:
 - error pop-ups for invalid configuration, failed runs, stopped runs, and invalid paths
 
 The GUI is not a separate implementation. It edits the same validated runtime configuration used by the CLI.
+
+For the current page-by-page workbench behavior, including compact-window usage, see [GUI_GUIDE.md](GUI_GUIDE.md).
 
 ---
 
@@ -790,6 +794,12 @@ Generate a JaCoCo-style coverage bundle with `pytest` and `pytest-cov`:
 ```powershell
 py -3 coverage_report.py
 ```
+
+Coverage scope note:
+
+* the default project coverage configuration omits `tests/*`
+* a plain `python -m coverage report` therefore describes production-code coverage unless the run was generated with `--include-tests`
+* use `coverage_report.py --include-tests ...` only when you explicitly want a whole-tree reference report that includes test modules too
 
 Generate the production-code release gate:
 

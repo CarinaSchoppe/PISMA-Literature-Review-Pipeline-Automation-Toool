@@ -127,6 +127,11 @@ Meaning:
 - threshold comparisons
 - timing-oriented diagnostics where implemented
 
+Compatibility note:
+
+- `debug` and `quiet` are still accepted by the parser
+- the recommended operator-facing modes remain `normal`, `verbose`, and `ultra_verbose`
+
 ## Local MiniLM Semantic Relevance
 
 Enable the local semantic topic gate:
@@ -272,3 +277,9 @@ Generate the optional whole-tree reference report:
 ```powershell
 py -3 coverage_report.py --include-tests --results-dir results\coverage_report_all --top-files 25
 ```
+
+Why the file list can differ:
+
+- `python -m coverage report` follows the coverage configuration in `pyproject.toml`
+- by default that configuration omits `tests/*`
+- if you want test modules to appear too, rerun coverage with `coverage_report.py --include-tests ...`
