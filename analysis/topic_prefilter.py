@@ -81,6 +81,10 @@ class LocalTopicMatcher(BaseTopicMatcher):
         self._device: Any | None = None
         self._review_text = self._build_review_text()
         try:
+            LOGGER.info(
+                "Initializing local topic prefilter model '%s'. The first run can take longer while loading local model files.",
+                self.model_name,
+            )
             torch, auto_tokenizer, auto_model = load_embedding_runtime()
             self._torch = torch
             self._device = self._resolve_device(torch, config.api_settings.huggingface_device)
@@ -88,6 +92,7 @@ class LocalTopicMatcher(BaseTopicMatcher):
             self._model.to(self._device)
             self._model.eval()
             self.enabled = True
+            LOGGER.info("Local topic prefilter model '%s' is ready on device '%s'.", self.model_name, self._device)
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("Could not initialize local topic prefilter model '%s': %s", self.model_name, exc)
 

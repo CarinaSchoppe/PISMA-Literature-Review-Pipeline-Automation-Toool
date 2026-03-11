@@ -98,6 +98,10 @@ class DiscoveryClientsExtendedTests(unittest.TestCase):
             resolved = client.resolve_work(PaperMetadata(title="Paper A", doi="10.1000/a", source="test"))
             references = client.fetch_references(PaperMetadata(title="Paper A", doi="10.1000/a", source="test"))
             citations = client.fetch_citations(PaperMetadata(title="Paper A", doi="10.1000/a", source="test"))
+            self.assertEqual(
+                fake_request_json(None, None, "https://api.openalex.org/works/W1")["display_name"],
+                "Paper A",
+            )
 
         self.assertGreaterEqual(len(papers), 1)
         self.assertIsNotNone(resolved)

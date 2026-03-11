@@ -112,6 +112,7 @@ class LLMClientTests(unittest.TestCase):
         with patch("builtins.__import__", side_effect=fake_import):
             with self.assertRaisesRegex(RuntimeError, "requires 'transformers'"):
                 load_transformers_runtime()
+            self.assertIs(fake_import("json"), original_import("json"))
 
     def test_load_transformers_runtime_can_import_fake_runtime(self) -> None:
         original_import = builtins.__import__
@@ -127,6 +128,7 @@ class LLMClientTests(unittest.TestCase):
 
         with patch("builtins.__import__", side_effect=fake_import):
             torch_module, pipeline_func = load_transformers_runtime()
+            self.assertIs(fake_import("json"), original_import("json"))
 
         self.assertIs(torch_module, fake_torch)
         self.assertEqual(pipeline_func, "pipeline")

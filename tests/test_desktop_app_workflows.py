@@ -70,6 +70,10 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
         self.assertEqual(self.workbench.scalar_vars["log_file_path"].get(), "results/pipeline.log")
         self.assertEqual(self.workbench.scalar_vars["manual_source_path"].get(), "imports/manual.csv")
 
+    def test_find_button_raises_for_missing_text(self) -> None:
+        with self.assertRaisesRegex(AssertionError, "Button with text 'definitely missing' not found"):
+            _find_button(self.workbench.root, "definitely missing")
+
     def test_load_config_save_profile_and_load_profile_flows(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -258,6 +262,10 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
             def request_stop(self):
                 self.stop_called = True
 
+        direct_controller = FakeController(SimpleNamespace())
+        direct_controller.request_stop()
+        self.assertTrue(direct_controller.stop_called)
+
         with patch("ui.desktop_app.PipelineController", FakeController), patch("ui.desktop_app.threading.Thread", FakeThread), patch.object(
                 self.workbench, "_load_dataframe_into_tree"
         ) as load_table, patch.object(self.workbench, "_load_outputs") as load_outputs:
@@ -358,16 +366,32 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
 
             existing = results_dir / "file.txt"
             existing.write_text("x", encoding="utf-8")
-            if hasattr(__import__("os"), "startfile"):
-                with patch("os.startfile") as startfile:
-                    self.workbench._open_path(existing)
-                startfile.assert_called_once()
-            else:
-                with patch("ui.desktop_app.subprocess.run") as run_mock, patch("ui.desktop_app.os.name", "posix"), patch(
-                        "ui.desktop_app.sys.platform", "linux"
-                ):
-                    self.workbench._open_path(existing)
-                run_mock.assert_called_once()
+            with patch("os.startfile", create=True) as startfile:
+                self.workbench._open_path(existing)
+            startfile.assert_called_once()
+
+    def test_force_stop_and_linux_open_path_branches_are_explicitly_covered(self) -> None:
+        class FakeController:
+            def __init__(self) -> None:
+                self.stop_called = False
+
+            def request_stop(self) -> None:
+                self.stop_called = True
+
+        controller = FakeController()
+        self.workbench.current_controller = controller
+        self.workbench.run_thread = SimpleNamespace(is_alive=lambda: True)
+        self.workbench._force_stop()
+        self.assertTrue(controller.stop_called)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            existing = Path(temp_dir) / "file.txt"
+            existing.write_text("x", encoding="utf-8")
+            with patch("ui.desktop_app.subprocess.run") as run_mock, patch("ui.desktop_app.os.name", "posix"), patch(
+                "ui.desktop_app.sys.platform", "linux"
+            ), patch("os.startfile", create=True):
+                self.workbench._open_path(existing)
+            run_mock.assert_called_once()
 
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper

@@ -280,7 +280,9 @@ class PipelineControllerHelperTests(unittest.TestCase):
     def test_screen_papers_handles_no_passes_no_candidates_and_cached_results(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            no_pass_controller = PipelineController(self._config(root, run_mode="collect"))
+            no_pass_controller = PipelineController(
+                self._config(root, run_mode="collect", verbosity="normal")
+            )
             try:
                 self.assertEqual(no_pass_controller._screen_papers(), {"screened_count": 0, "full_text_screened_count": 0})
             finally:
@@ -312,6 +314,20 @@ class PipelineControllerHelperTests(unittest.TestCase):
                 self.assertEqual(stats["full_text_screened_count"], 0)
                 controller.database.cache_screening_result.assert_called_once()
                 self.assertEqual(controller.database.update_screening_result.call_count, 2)
+
+                controller.database.get_papers_for_analysis = Mock(return_value=[paper_cached])
+                controller.database.get_cached_screening_entry = Mock(return_value=(cached_result, {"cached": True}))
+                controller.database.update_screening_result = Mock()
+                controller.database.cache_screening_result = Mock()
+                controller._screen_paper_with_passes = Mock()
+
+                cached_only_stats = controller._screen_papers()
+
+                self.assertEqual(cached_only_stats["screened_count"], 1)
+                self.assertEqual(cached_only_stats["full_text_screened_count"], 0)
+                controller.database.update_screening_result.assert_called_once()
+                controller.database.cache_screening_result.assert_not_called()
+                controller._screen_paper_with_passes.assert_not_called()
             finally:
                 controller.close()
 

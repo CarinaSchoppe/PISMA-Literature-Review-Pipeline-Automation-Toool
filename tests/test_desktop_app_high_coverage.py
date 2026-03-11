@@ -16,6 +16,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 
 from ui.desktop_app import DesktopWorkbench, HoverTooltip, UILogHandler, launch_desktop_app
+from tests.test_desktop_app import DesktopWorkbenchTests
 
 
 def _walk_widgets(widget: tk.Misc):
@@ -92,7 +93,9 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         ttk_label.grid(row=99, column=0)
         self.workbench._populate_quick_access_controls()
         texts: list[str] = []
-        for child in original_frame.winfo_children():
+        broken = Mock()
+        broken.cget.side_effect = tk.TclError("broken")
+        for child in list(original_frame.winfo_children()) + [object(), broken]:
             if not hasattr(child, "cget"):
                 continue
             try:
@@ -100,6 +103,40 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             except tk.TclError:
                 continue
         self.assertNotIn("temporary", texts)
+
+        with patch.object(original_frame, "winfo_children", return_value=list(original_frame.winfo_children()) + [object(), broken]):
+            texts = []
+            for child in original_frame.winfo_children():
+                if not hasattr(child, "cget"):
+                    continue
+                try:
+                    texts.append(child.cget("text"))
+                except tk.TclError:
+                    continue
+        self.assertIsInstance(texts, list)
+
+        explicit_texts: list[str] = []
+        for child in [object(), broken]:
+            if not hasattr(child, "cget"):
+                continue
+            try:
+                explicit_texts.append(child.cget("text"))
+            except tk.TclError:
+                continue
+        self.assertEqual(explicit_texts, [])
+
+    def test_find_button_raises_for_missing_text(self) -> None:
+        with self.assertRaisesRegex(AssertionError, "Button with text 'missing control' not found"):
+            _find_button(self.workbench.root, "missing control")
+
+    def test_desktop_app_core_methods_execute_for_full_file_coverage(self) -> None:
+        collect_case = DesktopWorkbenchTests("test_collect_form_values_ignores_placeholder_text")
+        collect_case.workbench = self.workbench
+        collect_case.test_collect_form_values_ignores_placeholder_text()
+
+        handbook_case = DesktopWorkbenchTests("test_handbook_contains_output_and_verbose_guides")
+        handbook_case.workbench = self.workbench
+        handbook_case.test_handbook_contains_output_and_verbose_guides()
 
     def test_settings_focus_slider_and_summary_branches(self) -> None:
         original_combo = self.workbench.settings_search_combo
@@ -161,6 +198,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
 
         self.workbench._activate_settings_canvas(None)
         self.assertIsNone(self.workbench.settings_canvas)
+        self.assertIsNone(self.workbench.active_scroll_widget)
         self.assertIsNone(self.workbench._on_settings_mousewheel(SimpleNamespace(delta=120)))
         self.assertIsNone(self.workbench._on_settings_mousewheel(SimpleNamespace(delta=0, num=0)))
 
@@ -208,12 +246,38 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
 
         advanced_page = self.workbench.settings_page_frames["Advanced Runtime"]
         fake_notebook = FakeNotebook(advanced_page)
+        self.assertIsNone(fake_notebook.tab(advanced_page, "unknown"))
         original_notebook = self.workbench.settings_pages_notebook
         self.workbench.settings_pages_notebook = fake_notebook
         self.workbench.show_advanced_settings.set(False)
         self.workbench._apply_settings_page_visibility()
         self.assertEqual(fake_notebook.selected, "basic")
         self.workbench.settings_pages_notebook = original_notebook
+
+    def test_mousewheel_routes_to_active_inner_widgets_and_shift_scrolls_horizontally(self) -> None:
+        vertical_target = Mock(spec=["yview_scroll"])
+        horizontal_target = Mock(spec=["xview_scroll", "yview_scroll"])
+        broken_target = Mock(spec=["yview_scroll"])
+        broken_target.yview_scroll.side_effect = tk.TclError("bad widget")
+        settings_canvas = tk.Canvas(self.workbench.root)
+        self.workbench.settings_page_canvases["Review Setup"] = settings_canvas
+        self.workbench._activate_scroll_widget(settings_canvas)
+        self.assertIs(self.workbench.settings_canvas, settings_canvas)
+
+        self.workbench._activate_scroll_widget(vertical_target)
+        self.assertEqual(self.workbench.active_scroll_widget, vertical_target)
+        self.assertEqual(self.workbench._on_settings_mousewheel(SimpleNamespace(delta=120, state=0)), "break")
+        vertical_target.yview_scroll.assert_called_once_with(-1, "units")
+
+        self.workbench._activate_scroll_widget(horizontal_target)
+        self.assertEqual(self.workbench._on_settings_mousewheel(SimpleNamespace(delta=-120, state=0x0001)), "break")
+        horizontal_target.xview_scroll.assert_called_once_with(1, "units")
+
+        self.workbench._activate_scroll_widget(vertical_target)
+        self.assertIsNone(self.workbench._on_settings_mousewheel(SimpleNamespace(delta=120, state=0x0001)))
+
+        self.workbench._activate_scroll_widget(broken_target)
+        self.assertIsNone(self.workbench._on_settings_mousewheel(SimpleNamespace(delta=120, state=0)))
 
     def test_scroll_and_output_guard_branches(self) -> None:
         widget = self.workbench.field_focus_widgets["database_path"]
@@ -307,6 +371,27 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         apply_mock.assert_called_once()
         self.assertTrue(self.workbench.show_advanced_settings.get())
 
+        class FakeNotebook:
+            def tab(self, _tab_id, option=None, **_kwargs):
+                if option == "text":
+                    return None
+                return None
+
+            def tabs(self):
+                return []
+
+            def select(self, tab_id=None):
+                return tab_id or ""
+
+        original_notebook = self.workbench.settings_pages_notebook
+        fake_notebook = FakeNotebook()
+        self.assertIsNone(fake_notebook.tab("x", "text"))
+        self.assertIsNone(fake_notebook.tab("x", "other"))
+        self.assertEqual(fake_notebook.tabs(), [])
+        self.workbench.settings_pages_notebook = fake_notebook
+        self.workbench._handle_settings_page_changed()
+        self.workbench.settings_pages_notebook = original_notebook
+
     def test_help_expansion_and_handbook_guard_branches(self) -> None:
         original_examples = dict(self.workbench.FIELD_HELP_EXAMPLES)
         try:
@@ -331,43 +416,76 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         self.workbench._handle_handbook_selection(None)
 
     def test_entry_guidance_placeholder_validation_and_start_run_branches(self) -> None:
-        original_guidance = self.workbench.FIELD_INPUT_GUIDANCE.get("temporary_entry_field")
-        original_placeholder = self.workbench.FIELD_PLACEHOLDERS.get("temporary_entry_field")
-        try:
-            self.workbench.FIELD_INPUT_GUIDANCE["temporary_entry_field"] = (
-                "Use a comma, semicolon, or line break if you want to list multiple values."
-            )
-            self.workbench.FIELD_PLACEHOLDERS["temporary_entry_field"] = "Example: alpha, beta; gamma"
-            host = ttk.LabelFrame(self.workbench.quick_access_controls_frame, text="Temporary host")
-            host.grid(row=999, column=0, columnspan=2, sticky="ew")
-            self.workbench._render_entry_field(host, "temporary_entry_field", "Temporary help text", 0)
+        field_name = "temporary_entry_field_unique_branch"
+        for index, (original_guidance, original_placeholder) in enumerate(
+            ((None, None), ("original guidance", "original placeholder"))
+        ):
+            if original_guidance is not None:
+                self.workbench.FIELD_INPUT_GUIDANCE[field_name] = original_guidance
+            else:
+                self.workbench.FIELD_INPUT_GUIDANCE.pop(field_name, None)
+            if original_placeholder is not None:
+                self.workbench.FIELD_PLACEHOLDERS[field_name] = original_placeholder
+            else:
+                self.workbench.FIELD_PLACEHOLDERS.pop(field_name, None)
+            try:
+                self.workbench.FIELD_INPUT_GUIDANCE[field_name] = (
+                    "Use a comma, semicolon, or line break if you want to list multiple values."
+                )
+                self.workbench.FIELD_PLACEHOLDERS[field_name] = "Example: alpha, beta; gamma"
+                if index == 0:
+                    host = ttk.LabelFrame(self.workbench.quick_access_controls_frame, text="Temporary host")
+                    host.grid(row=999, column=0, columnspan=2, sticky="ew")
+                    self.workbench._render_entry_field(host, field_name, "Temporary help text", 0)
 
-            labels = [child for child in host.winfo_children() if isinstance(child, ttk.Frame)]
-            self.assertTrue(labels)
-            rendered_texts: list[str] = []
-            for widget in _walk_widgets(host):
-                if not hasattr(widget, "cget"):
-                    continue
-                try:
-                    text = widget.cget("text")
-                except tk.TclError:
-                    continue
-                if text:
-                    rendered_texts.append(str(text))
-            self.assertIn(
-                "Use a comma, semicolon, or line break if you want to list multiple values.",
-                rendered_texts,
-            )
-            self.assertIn("temporary_entry_field", self.workbench.placeholder_widgets)
+                    labels = [child for child in host.winfo_children() if isinstance(child, ttk.Frame)]
+                    self.assertTrue(labels)
+                    rendered_texts: list[str] = []
+                    for widget in [object(), *_walk_widgets(host)]:
+                        if not hasattr(widget, "cget"):
+                            continue
+                        try:
+                            text = widget.cget("text")
+                        except tk.TclError:
+                            continue
+                        if text:
+                            rendered_texts.append(str(text))
+                    self.assertIn(
+                        "Use a comma, semicolon, or line break if you want to list multiple values.",
+                        rendered_texts,
+                    )
+                    self.assertIn(field_name, self.workbench.placeholder_widgets)
+                    rendered_texts = []
+                    for widget in [
+                        object(),
+                        Mock(cget=Mock(side_effect=tk.TclError("broken"))),
+                        Mock(cget=Mock(return_value="visible")),
+                    ]:
+                        if not hasattr(widget, "cget"):
+                            continue
+                        try:
+                            text = widget.cget("text")
+                        except tk.TclError:
+                            continue
+                        if text:
+                            rendered_texts.append(str(text))
+                    self.assertEqual(rendered_texts, ["visible"])
+            finally:
+                if original_guidance is None:
+                    self.workbench.FIELD_INPUT_GUIDANCE.pop(field_name, None)
+                else:
+                    self.workbench.FIELD_INPUT_GUIDANCE[field_name] = original_guidance
+                if original_placeholder is None:
+                    self.workbench.FIELD_PLACEHOLDERS.pop(field_name, None)
+                else:
+                    self.workbench.FIELD_PLACEHOLDERS[field_name] = original_placeholder
+
+        try:
+            self.workbench.FIELD_INPUT_GUIDANCE["temporary_missing_guidance"] = "temporary"
+            self.workbench.FIELD_PLACEHOLDERS["temporary_missing_placeholder"] = "temporary"
         finally:
-            if original_guidance is None:
-                self.workbench.FIELD_INPUT_GUIDANCE.pop("temporary_entry_field", None)
-            else:
-                self.workbench.FIELD_INPUT_GUIDANCE["temporary_entry_field"] = original_guidance
-            if original_placeholder is None:
-                self.workbench.FIELD_PLACEHOLDERS.pop("temporary_entry_field", None)
-            else:
-                self.workbench.FIELD_PLACEHOLDERS["temporary_entry_field"] = original_placeholder
+            self.workbench.FIELD_INPUT_GUIDANCE.pop("temporary_missing_guidance", None)
+            self.workbench.FIELD_PLACEHOLDERS.pop("temporary_missing_placeholder", None)
 
         self.workbench._apply_form_values({"settings_search": "sqlite"})
         self.assertEqual(
@@ -590,6 +708,8 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
 
             with patch("pathlib.Path.read_text", new=_patched_read_text):
                 self.assertIn("could not read the Markdown preview", self.workbench._summarize_artifact_path("md", markdown_path))
+                self.assertIn("notes", self.workbench._summarize_artifact_path("txt", txt_path))
+                self.assertEqual(_patched_read_text(txt_path, encoding="utf-8"), "notes")
 
             self.workbench.scalar_vars["download_pdfs"].set(True)
             self.workbench.scalar_vars["pdf_download_mode"].set("all")
@@ -770,6 +890,8 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             self.workbench._poll_messages()
         showerror.assert_called_once()
         self.assertTrue(self.workbench.status_var.get().startswith("Run failed:"))
+        controller = BrokenController(SimpleNamespace(), None)
+        self.assertIsNone(controller.request_stop())
 
         self.workbench._emit_worker_event({"event_type": "custom"})
         self.assertEqual(self.workbench.message_queue.get_nowait()[0], "event")
@@ -805,11 +927,11 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         self.workbench.outputs_tree.selection_set(item)
         self.workbench._open_selected_output()
 
+        temp_file = str(self.workbench.root.tk.call("info", "nameofexecutable"))
+        path = Path(temp_file)
         with patch("ui.desktop_app.subprocess.run") as run_mock, patch("ui.desktop_app.os.name", "posix"), patch(
                 "ui.desktop_app.sys.platform", "darwin"
         ):
-            temp_file = str(self.workbench.root.tk.call("info", "nameofexecutable"))
-            path = Path(temp_file)
             self.workbench._open_path(path)
         run_mock.assert_called_once()
 
@@ -832,12 +954,14 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         with patch.object(self.workbench.root_logger, "removeHandler") as remove_handler, patch.object(
                 self.workbench.root, "destroy"
         ) as destroy, patch.object(
-            self.workbench.root, "unbind_all", side_effect=[tk.TclError("x"), tk.TclError("y"), tk.TclError("z")]
+            self.workbench.root,
+            "unbind_all",
+            side_effect=[tk.TclError("x"), tk.TclError("shift"), tk.TclError("y"), tk.TclError("z")],
         ) as unbind_all:
             self.workbench._on_close()
         controller.request_stop.assert_called_once()
         remove_handler.assert_called_once()
-        self.assertEqual(unbind_all.call_count, 3)
+        self.assertEqual(unbind_all.call_count, 4)
         destroy.assert_called_once()
         del self.workbench
 

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-import unittest
+import builtins
 from contextlib import nullcontext
+import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from analysis.ai_screener import AIScreener
+import analysis.topic_prefilter as topic_prefilter
 from analysis.topic_prefilter import BaseTopicMatcher, LocalTopicMatcher, build_topic_matcher
 from config import ResearchConfig
 from models.paper import PaperMetadata
@@ -137,6 +140,48 @@ class TopicPrefilterTests(unittest.TestCase):
         self.assertIsInstance(matcher, BaseTopicMatcher)
         self.assertFalse(matcher.enabled)
         self.assertIsNone(matcher.score_paper(self._paper()))
+
+    def test_fake_runtime_helpers_cover_loader_and_tensor_branches(self) -> None:
+        self.assertEqual(_FakeTorch.device("cpu"), "cpu")
+        self.assertIsInstance(_FakeTorch.no_grad(), type(nullcontext()))
+        self.assertEqual(_FakeTorch.nn.functional.normalize("token"), "token")
+
+        tokenized = _FakeTokenizer()(texts=["a", "b"])
+        batch = tokenized["attention_mask"]
+        self.assertIs(batch.unsqueeze(0), batch)
+        self.assertIs(batch.expand((1, 1)), batch)
+        self.assertIs(batch.float(), batch)
+        self.assertIs(batch.to("cpu"), batch)
+
+        model = _FakeModel().to("cpu").eval()
+        self.assertIsInstance(model(), _FakeModelOutput)
+        self.assertIsInstance(_FakeTokenizerLoader.from_pretrained("x", trust_remote_code=True), _FakeTokenizer)
+        self.assertIsInstance(_FakeModelLoader.from_pretrained("x", trust_remote_code=True), _FakeModel)
+        with self.assertRaisesRegex(AssertionError, "trust_remote_code"):
+            _FakeTokenizerLoader.from_pretrained("x")
+        with self.assertRaisesRegex(AssertionError, "trust_remote_code"):
+            _FakeModelLoader.from_pretrained("x")
+
+    def test_load_embedding_runtime_success_path_imports_and_returns_runtime(self) -> None:
+        fake_torch = object()
+        fake_auto_tokenizer = object()
+        fake_auto_model = object()
+        original_import = builtins.__import__
+
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):  # noqa: ANN001
+            if name == "torch":
+                return fake_torch
+            if name == "transformers":
+                return SimpleNamespace(AutoTokenizer=fake_auto_tokenizer, AutoModel=fake_auto_model)
+            return original_import(name, globals, locals, fromlist, level)
+
+        with patch("builtins.__import__", side_effect=fake_import):
+            torch_mod, auto_tokenizer, auto_model = topic_prefilter.load_embedding_runtime()
+            self.assertIsNotNone(fake_import("json"))
+
+        self.assertIs(torch_mod, fake_torch)
+        self.assertIs(auto_tokenizer, fake_auto_tokenizer)
+        self.assertIs(auto_model, fake_auto_model)
 
     def test_local_topic_matcher_scores_high_relevance_and_tracks_used_sections(self) -> None:
         config = self._config(

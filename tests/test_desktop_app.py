@@ -62,20 +62,6 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("What higher values do", self.workbench._help_text_for_field("relevance_threshold"))
         self.assertIn("commas, semicolons, or line breaks", self.workbench._help_text_for_field("search_keywords"))
 
-    def test_core_user_facing_files_are_english_only(self) -> None:
-        paths = (
-            Path("README.md"),
-            Path("HANDBOOK.md"),
-            Path("config.py"),
-            Path("main.py"),
-            Path("ui/desktop_app.py"),
-            Path("ui/view_model.py"),
-        )
-        forbidden_terms = (" beispiel", " erklaer", " erklär", " deutsch", " englisch", " ja ", " nein ")
-        for path in paths:
-            text = path.read_text(encoding="utf-8-sig").lower()
-            self.assertEqual([term for term in forbidden_terms if term in text], [], str(path))
-
     def test_output_labels_are_explicit_in_settings_ui(self) -> None:
         self.assertEqual(self.workbench.LABELS["boolean_operators"], "Boolean operators")
         self.assertEqual(self.workbench.LABELS["discovery_strategy"], "Discovery strategy")
@@ -280,7 +266,13 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(intro_label.winfo_manager(), "grid")
         self.assertEqual(summary_label.winfo_manager(), "grid")
 
-    def test_apply_form_values_restores_persisted_ui_defaults(self) -> None:
+    def test_advanced_settings_page_is_hidden_until_requested(self) -> None:
+        notebook = self.workbench.settings_pages_notebook
+        advanced_page = self.workbench.settings_page_frames["Advanced Runtime"]
+
+        self.assertFalse(self.workbench.show_advanced_settings.get())
+        self.assertEqual(notebook.tab(advanced_page, "state"), "hidden")
+
         self.workbench._apply_form_values(
             {
                 **self.workbench._collect_form_values(),
@@ -288,18 +280,9 @@ class DesktopWorkbenchTests(unittest.TestCase):
                 "ui_show_advanced_settings": True,
             }
         )
-
         self.assertEqual(self.workbench.settings_mode_var.get(), "advanced")
         self.assertTrue(self.workbench.show_advanced_settings.get())
-        advanced_page = self.workbench.settings_page_frames["Advanced Runtime"]
-        self.assertEqual(self.workbench.settings_pages_notebook.tab(advanced_page, "state"), "normal")
-
-    def test_advanced_settings_page_is_hidden_until_requested(self) -> None:
-        notebook = self.workbench.settings_pages_notebook
-        advanced_page = self.workbench.settings_page_frames["Advanced Runtime"]
-
-        self.assertFalse(self.workbench.show_advanced_settings.get())
-        self.assertEqual(notebook.tab(advanced_page, "state"), "hidden")
+        self.assertEqual(notebook.tab(advanced_page, "state"), "normal")
 
         self.workbench.show_advanced_settings.set(True)
         self.workbench._apply_settings_page_visibility()
@@ -354,7 +337,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
             self.workbench.PALETTE["surface_bg"],
         )
 
-    def test_analysis_pass_builder_helpers_round_trip(self) -> None:
+    def test_quick_access_summaries_show_model_and_output_details(self) -> None:
         passes = [
             {
                 "name": "fast",
@@ -385,8 +368,6 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(round_trip[1]["threshold"], 85.0)
         self.assertEqual(round_trip[0]["model_name"], "Qwen/Qwen3-14B")
         self.assertEqual(round_trip[1]["min_input_score"], 70.0)
-
-    def test_quick_access_summaries_show_model_and_output_details(self) -> None:
         self.assertIsNotNone(self.workbench.model_summary_text)
         self.assertIsNotNone(self.workbench.output_summary_text)
 

@@ -130,6 +130,11 @@ class HTTPUtilsTests(unittest.TestCase):
         self.assertEqual(session.headers["Accept"], "application/json")
         self.assertEqual(session.headers["X-Test"], "yes")
 
+    def test_fake_response_iter_content_yields_chunks(self) -> None:
+        response = FakeResponse(chunks=[b"a", b"b"])
+
+        self.assertEqual(list(response.iter_content()), [b"a", b"b"])
+
     def test_configure_http_runtime_updates_cache_and_retry_settings(self) -> None:
         http.configure_http_runtime(
             cache_enabled=True,

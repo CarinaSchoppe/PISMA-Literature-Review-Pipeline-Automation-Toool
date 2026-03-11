@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 import tempfile
 import types
 import unittest
@@ -25,6 +26,7 @@ from discovery.pubmed_client import PubMedClient
 from discovery.semantic_scholar_client import SemanticScholarClient
 from models.paper import PaperMetadata, ScreeningResult
 from reporting.report_generator import ReportGenerator
+from ui.desktop_app import DesktopWorkbench
 from utils.text_processing import extract_salient_sentence, reconstruct_inverted_abstract, safe_year
 
 
@@ -139,6 +141,66 @@ class MiscHighCoverageTests(unittest.TestCase):
         self.assertIn("Please enter a valid number.", printed)
         self.assertIn("Please answer yes or no.", printed)
         self.assertTrue(config.include_pubmed)
+
+    def test_desktop_workbench_guard_branches_without_tk_root(self) -> None:
+        workbench = DesktopWorkbench.__new__(DesktopWorkbench)
+        workbench.handbook_entries = {}
+        workbench.handbook_tree = None
+        workbench.handbook_text = None
+        workbench.notebook = None
+        workbench.handbook_tab = object()
+        workbench.text_widgets = {}
+        workbench._refresh_handbook_tree = Mock()
+        workbench._set_status = Mock()
+        workbench.LABELS = DesktopWorkbench.LABELS
+        workbench.PATH_FIELD_MODES = DesktopWorkbench.PATH_FIELD_MODES
+
+        workbench._handle_handbook_selection(None)
+        workbench._render_handbook_entry("missing")
+        workbench._open_handbook_entry("missing")
+        workbench._render_handbook_text("ignored")
+        self.assertEqual(workbench._current_analysis_passes(), [])
+        workbench._write_analysis_passes([])
+
+        tree_without_selection = Mock()
+        tree_without_selection.selection.return_value = ()
+        workbench.handbook_tree = tree_without_selection
+        workbench._handle_handbook_selection(None)
+
+        text_widget = Mock()
+        workbench.handbook_text = text_widget
+        workbench._render_handbook_entry("missing")
+        text_widget.configure.assert_any_call(state="normal")
+
+        notebook = Mock()
+        tree = Mock()
+        search_var = Mock()
+        workbench.notebook = notebook
+        workbench.handbook_tree = tree
+        workbench.handbook_search_var = search_var
+        workbench.handbook_entries = {
+            "guide": {"title": "Guide", "group": "General", "body": "Body"},
+        }
+        workbench._render_handbook_entry = Mock()
+        workbench._open_handbook_entry("missing")
+        workbench._open_handbook_entry("guide")
+        notebook.select.assert_called()
+        search_var.set.assert_called_with("")
+        tree.selection_set.assert_called_with("guide")
+        tree.focus.assert_called_with("guide")
+        workbench._render_handbook_entry.assert_called_with("guide")
+
+    def test_test_module_main_blocks_can_execute_without_running_full_suites(self) -> None:
+        targets = [
+            Path("tests/test_ai_screener.py"),
+            Path("tests/test_pipeline_controller_helpers.py"),
+            Path(__file__),
+        ]
+
+        for target in targets:
+            with self.subTest(target=target.name), patch("unittest.main") as main_mock:
+                runpy.run_path(str(target), run_name="__main__")
+            main_mock.assert_called_once()
 
     def test_small_model_and_text_helpers_cover_remaining_edges(self) -> None:
         with self.assertRaisesRegex(ValueError, "Paper title cannot be empty"):

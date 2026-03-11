@@ -100,24 +100,24 @@ class DesktopWorkbench:
     RUN_HISTORY_FILENAME = "ui_run_history.json"
 
     PALETTE = {
-        "window_bg": "#edf2f9",
-        "shell_bg": "#e8eef7",
+        "window_bg": "#f7f8fc",
+        "shell_bg": "#eef2f8",
         "surface_bg": "#ffffff",
-        "surface_alt": "#f7faff",
-        "muted_surface": "#edf3fb",
-        "sidebar_bg": "#f2f6fd",
-        "inspector_bg": "#f8fbff",
-        "border": "#d2ddeb",
-        "border_strong": "#bfd0e6",
-        "shadow": "#dde8f6",
-        "text": "#18324d",
-        "muted_text": "#5e738b",
-        "accent": "#2563eb",
-        "accent_active": "#1d4ed8",
-        "accent_soft": "#dce8ff",
-        "danger": "#c0392b",
-        "danger_active": "#992d22",
-        "selection": "#e4eeff",
+        "surface_alt": "#f8faff",
+        "muted_surface": "#eef2ff",
+        "sidebar_bg": "#f4f7fb",
+        "inspector_bg": "#f6f9fd",
+        "border": "#d9e2ef",
+        "border_strong": "#c7d4e5",
+        "shadow": "#cfd9e8",
+        "text": "#0f172a",
+        "muted_text": "#607086",
+        "accent": "#5b6cff",
+        "accent_active": "#4756eb",
+        "accent_soft": "#e7ebff",
+        "danger": "#ef4444",
+        "danger_active": "#dc2626",
+        "selection": "#eef2ff",
     }
 
     SETTINGS_PAGES = [
@@ -1230,6 +1230,7 @@ class DesktopWorkbench:
         self.settings_page_canvases: dict[str, tk.Canvas] = {}
         self.settings_nav_buttons: dict[str, ttk.Button] = {}
         self.settings_canvas: tk.Canvas | None = None
+        self.active_scroll_widget: tk.Widget | None = None
         self.settings_search_choice_var = tk.StringVar(value="")
         self.settings_search_var = tk.StringVar(value="")
         self.quick_destination_var = tk.StringVar(value="")
@@ -1282,6 +1283,7 @@ class DesktopWorkbench:
         self._refresh_profile_choices()
         self._refresh_run_history_tab()
         self.root.bind_all("<MouseWheel>", self._on_settings_mousewheel, add="+")
+        self.root.bind_all("<Shift-MouseWheel>", self._on_settings_mousewheel, add="+")
         self.root.bind_all("<Button-4>", self._on_settings_mousewheel, add="+")
         self.root.bind_all("<Button-5>", self._on_settings_mousewheel, add="+")
         self.root.after(100, self._poll_messages)
@@ -1319,6 +1321,12 @@ class DesktopWorkbench:
             borderwidth=1,
         )
         self.style.configure(
+            "ToolbarGroup.TFrame",
+            background=self.PALETTE["surface_bg"],
+            relief="solid",
+            borderwidth=1,
+        )
+        self.style.configure(
             "Sidebar.TFrame",
             background=self.PALETTE["sidebar_bg"],
         )
@@ -1340,7 +1348,7 @@ class DesktopWorkbench:
             "HeroTitle.TLabel",
             background=self.PALETTE["surface_bg"],
             foreground=self.PALETTE["text"],
-            font=("Segoe UI Semibold", 18),
+            font=("Segoe UI Semibold", 19),
         )
         self.style.configure(
             "HeroSubtitle.TLabel",
@@ -1358,7 +1366,7 @@ class DesktopWorkbench:
             "PageTitle.TLabel",
             background=self.PALETTE["surface_alt"],
             foreground=self.PALETTE["text"],
-            font=("Segoe UI Semibold", 14),
+            font=("Segoe UI Semibold", 15),
         )
         self.style.configure(
             "PageBody.TLabel",
@@ -1377,13 +1385,13 @@ class DesktopWorkbench:
             background=self.PALETTE["accent_soft"],
             foreground=self.PALETTE["accent_active"],
             font=("Segoe UI Semibold", 9),
-            padding=(10, 6),
+            padding=(12, 7),
         )
         self.style.configure(
             "Status.TLabel",
-            background=self.PALETTE["surface_bg"],
+            background=self.PALETTE["surface_alt"],
             foreground=self.PALETTE["text"],
-            padding=10,
+            padding=12,
             relief="solid",
             borderwidth=1,
         )
@@ -1447,13 +1455,13 @@ class DesktopWorkbench:
             "Workbench.TNotebook",
             background=self.PALETTE["shell_bg"],
             borderwidth=0,
-            tabmargins=(0, 6, 0, 0),
+            tabmargins=(0, 8, 0, 0),
         )
         self.style.configure(
             "Workbench.TNotebook.Tab",
             background=self.PALETTE["muted_surface"],
             foreground=self.PALETTE["muted_text"],
-            padding=(16, 10),
+            padding=(18, 12),
             font=("Segoe UI Semibold", 10),
         )
         self.style.map(
@@ -1463,7 +1471,7 @@ class DesktopWorkbench:
         )
         self.style.configure(
             "TButton",
-            padding=(12, 8),
+            padding=(14, 10),
             relief="flat",
             borderwidth=0,
             background=self.PALETTE["muted_surface"],
@@ -1479,7 +1487,7 @@ class DesktopWorkbench:
             "Accent.TButton",
             background=self.PALETTE["accent"],
             foreground="#ffffff",
-            padding=(14, 9),
+            padding=(16, 11),
         )
         self.style.map(
             "Accent.TButton",
@@ -1492,7 +1500,7 @@ class DesktopWorkbench:
             foreground=self.PALETTE["text"],
             borderwidth=1,
             relief="solid",
-            padding=(12, 8),
+            padding=(14, 10),
         )
         self.style.map(
             "Secondary.TButton",
@@ -1502,7 +1510,7 @@ class DesktopWorkbench:
             "Nav.TButton",
             background=self.PALETTE["sidebar_bg"],
             foreground=self.PALETTE["text"],
-            padding=(14, 11),
+            padding=(16, 12),
             borderwidth=1,
             relief="solid",
         )
@@ -1514,7 +1522,7 @@ class DesktopWorkbench:
             "SelectedNav.TButton",
             background=self.PALETTE["accent"],
             foreground="#ffffff",
-            padding=(14, 11),
+            padding=(16, 12),
             borderwidth=0,
         )
         self.style.map(
@@ -1526,7 +1534,7 @@ class DesktopWorkbench:
             "Danger.TButton",
             background=self.PALETTE["danger"],
             foreground="#ffffff",
-            padding=(14, 9),
+            padding=(16, 11),
         )
         self.style.map(
             "Danger.TButton",
@@ -1553,6 +1561,12 @@ class DesktopWorkbench:
             arrowsize=14,
         )
         self.style.configure(
+            "TEntry",
+            fieldbackground=self.PALETTE["surface_bg"],
+            foreground=self.PALETTE["text"],
+            insertcolor=self.PALETTE["text"],
+        )
+        self.style.configure(
             "TSpinbox",
             fieldbackground=self.PALETTE["surface_bg"],
             background=self.PALETTE["surface_bg"],
@@ -1565,7 +1579,7 @@ class DesktopWorkbench:
             fieldbackground=self.PALETTE["surface_bg"],
             foreground=self.PALETTE["text"],
             bordercolor=self.PALETTE["border"],
-            rowheight=28,
+            rowheight=32,
         )
         self.style.map("Treeview", background=[("selected", self.PALETTE["selection"])])
         self.style.configure(
@@ -1588,6 +1602,20 @@ class DesktopWorkbench:
             background=self.PALETTE["surface_bg"],
             foreground=self.PALETTE["text"],
             font=("Segoe UI", 10),
+        )
+        self.style.configure(
+            "Vertical.TScrollbar",
+            background=self.PALETTE["muted_surface"],
+            troughcolor=self.PALETTE["surface_alt"],
+            bordercolor=self.PALETTE["border"],
+            arrowcolor=self.PALETTE["muted_text"],
+        )
+        self.style.configure(
+            "Horizontal.TScrollbar",
+            background=self.PALETTE["muted_surface"],
+            troughcolor=self.PALETTE["surface_alt"],
+            bordercolor=self.PALETTE["border"],
+            arrowcolor=self.PALETTE["muted_text"],
         )
         return preferred_theme
 
@@ -1639,6 +1667,14 @@ class DesktopWorkbench:
         """Mark the settings canvas that should react to mouse-wheel scrolling."""
 
         self.settings_canvas = canvas
+        self.active_scroll_widget = canvas
+
+    def _activate_scroll_widget(self, widget: tk.Widget | None) -> None:
+        """Mark the widget currently under the pointer as the preferred mouse-wheel target."""
+
+        self.active_scroll_widget = widget
+        if isinstance(widget, tk.Canvas) and widget in self.settings_page_canvases.values():
+            self.settings_canvas = widget
 
     def _handle_settings_page_changed(self, _event: tk.Event | None = None) -> None:
         """Update the active scroll target when the visible settings page changes."""
@@ -1648,18 +1684,22 @@ class DesktopWorkbench:
         current_tab = self.settings_pages_notebook.select()
         if not current_tab:
             self.settings_canvas = None
+            self.active_scroll_widget = None
             return
         page_name = self.settings_pages_notebook.tab(current_tab, "text")
         self.settings_canvas = self.settings_page_canvases.get(page_name)
+        if self.settings_canvas is not None:
+            self.active_scroll_widget = self.settings_canvas
         self.active_settings_page_var.set(page_name)
         self.active_settings_page_description_var.set(self.SETTINGS_PAGE_DESCRIPTIONS.get(page_name, ""))
         for name, button in self.settings_nav_buttons.items():
             button.configure(style="SelectedNav.TButton" if name == page_name else "Nav.TButton")
 
     def _on_settings_mousewheel(self, event: tk.Event) -> str | None:
-        """Scroll the active settings page when the mouse wheel is used over the settings tab."""
+        """Scroll the widget under the pointer, falling back to the active settings page."""
 
-        if self.settings_canvas is None:
+        target = self.active_scroll_widget or self.settings_canvas
+        if target is None:
             return None
         delta = getattr(event, "delta", 0)
         if delta == 0:
@@ -1670,9 +1710,27 @@ class DesktopWorkbench:
                 delta = -120
         if delta:
             direction = -1 if delta > 0 else 1
-            self.settings_canvas.yview_scroll(direction, "units")
+            horizontal = bool(getattr(event, "state", 0) & 0x0001)
+            scroll_method = "xview_scroll" if horizontal else "yview_scroll"
+            if not hasattr(target, scroll_method):
+                return None
+            try:
+                getattr(target, scroll_method)(direction, "units")
+            except tk.TclError:
+                return None
             return "break"
         return None
+
+    def _bind_scroll_target(self, widget: tk.Widget, *, target: tk.Widget | None = None) -> None:
+        """Route mouse-wheel scrolling to the scrollable child that sits under this region."""
+
+        scroll_target = target or widget
+        for sequence in ("<Enter>", "<FocusIn>"):
+            widget.bind(
+                sequence,
+                lambda _event, active_widget=scroll_target: self._activate_scroll_widget(active_widget),
+                add="+",
+            )
 
     def _apply_settings_page_visibility(self) -> None:
         """Hide or reveal advanced settings pages based on the current UI mode toggle."""
@@ -1744,7 +1802,7 @@ class DesktopWorkbench:
             style="HeroSubtitle.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(6, 0))
 
-        header_controls = ttk.Frame(header, style="Header.TFrame")
+        header_controls = ttk.Frame(header, padding=12, style="ToolbarGroup.TFrame")
         header_controls.grid(row=0, column=1, sticky="e", padx=(16, 0))
         header_controls.columnconfigure(1, weight=1)
         ttk.Label(header_controls, text="Profile", style="HeroSubtitle.TLabel").grid(row=0, column=0, sticky="w")
@@ -1764,9 +1822,9 @@ class DesktopWorkbench:
         action_bar.columnconfigure(0, weight=1)
         action_bar.columnconfigure(1, weight=0)
 
-        primary_actions = ttk.Frame(action_bar, style="TFrame")
+        primary_actions = ttk.Frame(action_bar, padding=8, style="ToolbarGroup.TFrame")
         primary_actions.grid(row=0, column=0, sticky="w")
-        utility_actions = ttk.Frame(action_bar, style="TFrame")
+        utility_actions = ttk.Frame(action_bar, padding=8, style="ToolbarGroup.TFrame")
         utility_actions.grid(row=0, column=1, sticky="e")
 
         start_button = ttk.Button(primary_actions, text="Start Run", command=self._start_run, style="Accent.TButton")
@@ -3450,6 +3508,8 @@ class DesktopWorkbench:
             horizontal_scrollbar.grid(row=1, column=0, sticky="ew")
             scrollbars["horizontal"] = horizontal_scrollbar
         self.text_scrollbars[key] = scrollbars
+        self._bind_scroll_target(shell, target=text_widget)
+        self._bind_scroll_target(text_widget)
         return shell, text_widget
 
     def _create_scrolled_tree_widget(
@@ -3480,6 +3540,8 @@ class DesktopWorkbench:
             "vertical": vertical_scrollbar,
             "horizontal": horizontal_scrollbar,
         }
+        self._bind_scroll_target(shell, target=tree_widget)
+        self._bind_scroll_target(tree_widget)
         return shell, tree_widget
 
     def _create_scrolled_canvas_widget(
@@ -3514,6 +3576,8 @@ class DesktopWorkbench:
             "vertical": vertical_scrollbar,
             "horizontal": horizontal_scrollbar,
         }
+        self._bind_scroll_target(shell, target=canvas)
+        self._bind_scroll_target(canvas)
         return shell, canvas
 
     def _bind_hover_help(self, widget: tk.Widget, help_text: str) -> None:
@@ -5217,7 +5281,7 @@ class DesktopWorkbench:
         if self.current_controller is not None:
             self.current_controller.request_stop()
         self.hover_tooltip.hide()
-        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        for sequence in ("<MouseWheel>", "<Shift-MouseWheel>", "<Button-4>", "<Button-5>"):
             try:
                 self.root.unbind_all(sequence)
             except tk.TclError:

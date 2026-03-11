@@ -232,6 +232,15 @@ class FeatureBranchCoverageTests(unittest.TestCase):
         self.assertEqual(embedded["p"], 2)
         self.assertIn("AI governance", paper_text)
 
+    def test_fake_prefilter_and_screener_helpers_cover_value_branches(self) -> None:
+        left = _FakeVector(2.0)
+        right = _FakeVector(3.0)
+        product = left * right
+
+        self.assertEqual(product.value, 6.0)
+        self.assertEqual(product.sum().item(), 6.0)
+        self.assertIsNone(_FakeScreener().summarize_review([self._paper()]))
+
     def test_ai_screener_branch_logging_and_topic_match_enrichment(self) -> None:
         config = self.config.model_copy(update={"llm_provider": "heuristic", "verbosity": "verbose", "log_screening_decisions": True, "topic_prefilter_enabled": False})
         topic_match = TopicMatchResult(

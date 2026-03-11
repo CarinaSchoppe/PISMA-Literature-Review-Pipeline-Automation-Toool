@@ -314,10 +314,70 @@ class CoverageReportTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             exit_code = coverage_report.run_coverage_report(["--results-dir", tmpdir, "--fail-under", "99.5"])
+        with self.assertRaisesRegex(AssertionError, "Unexpected command"):
+            fake_run(["unexpected"])
 
         self.assertEqual(exit_code, 0)
         printed_chunks = [" ".join(str(part) for part in call.args) for call in print_mock.call_args_list]
         self.assertTrue(any("coverage.py fallback runner" in chunk for chunk in printed_chunks))
+
+    @patch("coverage_report._pytest_cov_is_available", return_value=False)
+    @patch("builtins.print")
+    @patch("coverage_report.subprocess.run")
+    def test_run_coverage_report_reports_failed_fallback_export(self, run_mock, print_mock, _plugin_available) -> None:
+        def fake_run(command, cwd=None, text=None, capture_output=False, env=None):
+            if command[:4] == [sys.executable, "-m", "coverage", "run"]:
+                junit_arg = next(part for part in command if part.startswith("--junitxml="))
+                coverage_data_arg = next(part for part in command if part.startswith("--data-file="))
+                Path(junit_arg.split("=", 1)[1]).write_text("<testsuite></testsuite>", encoding="utf-8")
+                Path(coverage_data_arg.split("=", 1)[1]).write_text("coverage data", encoding="utf-8")
+                return type("Result", (), {"stdout": "fallback pytest run", "stderr": "", "returncode": 0})()
+            if command[:4] == [sys.executable, "-m", "coverage", "json"]:
+                return type("Result", (), {"stdout": "coverage json failed", "stderr": "", "returncode": 2})()
+            if command[:4] == [sys.executable, "-m", "coverage", "html"]:
+                return type("Result", (), {"stdout": "coverage html failed", "stderr": "", "returncode": 2})()
+            raise AssertionError(f"Unexpected command: {command}")
+
+        run_mock.side_effect = fake_run
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = coverage_report.run_coverage_report(["--results-dir", tmpdir])
+        with self.assertRaisesRegex(AssertionError, "Unexpected command"):
+            fake_run(["unexpected"])
+
+        self.assertEqual(exit_code, 2)
+        error_messages = [str(call.args[0]) for call in print_mock.call_args_list if call.kwargs.get("file") is sys.stderr]
+        self.assertIn(
+            "Coverage.py fallback mode was used, but coverage artifacts could still not be generated.",
+            error_messages,
+        )
+        self.assertIn("Coverage report generation failed before coverage artifacts were written.", error_messages)
+
+    @patch("coverage_report._pytest_cov_is_available", return_value=True)
+    @patch("builtins.print")
+    @patch("coverage_report.subprocess.run")
+    def test_run_coverage_report_reports_missing_pytest_cov_plugin(self, run_mock, print_mock, _plugin_available) -> None:
+        run_mock.return_value = type(
+            "Result",
+            (),
+            {
+                "stdout": "pytest: error: unrecognized arguments: --cov=. --cov-report=json:foo",
+                "stderr": "",
+                "returncode": 4,
+            },
+        )()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = coverage_report.run_coverage_report(["--results-dir", tmpdir])
+
+        self.assertEqual(exit_code, 4)
+        error_messages = [str(call.args[0]) for call in print_mock.call_args_list if call.kwargs.get("file") is sys.stderr]
+        self.assertTrue(any("Pytest-cov does not appear to be installed" in message for message in error_messages))
+
+    def test_pytest_cov_is_available_delegates_to_importlib(self) -> None:
+        with patch("coverage_report.importlib.util.find_spec", return_value=object()) as find_spec:
+            self.assertTrue(coverage_report._pytest_cov_is_available())
+        find_spec.assert_called_once_with("pytest_cov")
 
     @patch("coverage_report.run_coverage_report", return_value=0)
     def test_main_exits_with_report_status(self, run_mock) -> None:

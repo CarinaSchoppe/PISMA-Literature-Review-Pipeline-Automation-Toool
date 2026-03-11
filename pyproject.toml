@@ -61,6 +61,7 @@ select = ["E9", "F"]
 
 [tool.coverage.run]
 branch = false
+parallel = true
 source = ["."]
 omit = [
     "tests/*",

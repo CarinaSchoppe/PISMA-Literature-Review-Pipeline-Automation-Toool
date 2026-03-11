@@ -93,6 +93,7 @@ class LoggingUtilsTests(unittest.TestCase):
             self.assertIn("TRACE", contents)
             self.assertIn("trace message", contents)
             self.assertIn("info message", contents)
+            self.root_logger.addHandler(_BrokenCloseHandler())
             for handler in list(self.root_logger.handlers):
                 self.root_logger.removeHandler(handler)
                 try:
@@ -112,6 +113,7 @@ class LoggingUtilsTests(unittest.TestCase):
 
             contents = log_path.read_text(encoding="utf-8")
             self.assertIn("trace via method", contents)
+            self.root_logger.addHandler(_BrokenCloseHandler())
             for handler in list(self.root_logger.handlers):
                 self.root_logger.removeHandler(handler)
                 try:
@@ -126,12 +128,16 @@ class LoggingUtilsTests(unittest.TestCase):
             resolved = logging_utils.configure_application_logging("normal", log_file_path=log_path)
             self.assertEqual(resolved, log_path)
             self.assertTrue(log_path.exists())
+            self.root_logger.addHandler(_BrokenCloseHandler())
             for handler in list(self.root_logger.handlers):
                 self.root_logger.removeHandler(handler)
                 try:
                     handler.close()
                 except Exception:
                     pass
+
+    def test_teardown_tolerates_broken_handler_close(self) -> None:
+        self.root_logger.addHandler(_BrokenCloseHandler())
 
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper

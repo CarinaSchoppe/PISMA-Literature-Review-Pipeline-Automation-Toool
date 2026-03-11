@@ -290,9 +290,11 @@ class ProviderContractTests(unittest.TestCase):
             client = OpenAlexClient(self.config)
             references = client.fetch_references(paper)
             citations = client.fetch_citations(paper)
+            resolved_payload = fake_request_json(None, None, "https://api.openalex.org/works/W1")
 
         self.assert_provider_contract(references[0], "openalex")
         self.assert_provider_contract(citations[0], "openalex")
+        self.assertEqual(resolved_payload["display_name"], "OpenAlex Paper")
 
     def assert_provider_contract(self, paper: PaperMetadata, expected_source: str) -> None:
         """Assert the normalized paper fields expected from every provider adapter."""
