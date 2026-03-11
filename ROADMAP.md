@@ -18,6 +18,8 @@ Already implemented and verified:
 - CLI, JSON config, and GUI parity for runtime configuration
 - SQLite persistence and screening cache
 - discovery through official APIs and manual import adapters
+- live discovery toggles for OpenAlex, Semantic Scholar, Crossref, Springer, arXiv, PubMed, Europe PMC, and CORE
+- import adapters for Google Scholar exports, ResearchGate exports, generic CSV or JSON metadata files, and offline fixtures
 - DOI and title-similarity deduplication
 - backward and forward citation snowballing
 - PDF enrichment and optional PDF download routing
@@ -65,6 +67,32 @@ The product should move toward:
 - richer visual reporting
 - faster reruns through caching and resume controls
 - more polished GUI ergonomics
+- easier source onboarding through stable adapters and configuration-first toggles
+- stronger operator confidence through explicit health, audit, and recovery tools
+
+## Operator Configuration Vision
+
+The system should remain operator-driven rather than hard-coded around one workflow.
+
+That means a researcher should be able to choose, without touching code:
+
+- which discovery sources are active
+- which imports are used
+- which AI provider or pass chain is used
+- whether discovery is skipped
+- whether PDFs are downloaded
+- where the main database, result exports, caches, and PDF folders live
+- how aggressive request concurrency and request pacing should be
+- whether to rerun only reporting, screening, or PDF-sensitive stages
+- whether response caching and incremental artifact regeneration are enabled
+- whether the run should favor compact UI ergonomics or full advanced controls
+
+The same controls should remain available through:
+
+- GUI
+- CLI flags
+- JSON config files
+- saved GUI profiles
 
 ## Discovery Roadmap
 
@@ -76,11 +104,22 @@ The product should move toward:
 - Springer
 - arXiv
 - PubMed
+- Europe PMC
+- CORE
+
+### Add through stable providers or sanctioned metadata channels
+
+- DataCite
+- Lens.org metadata exports or official API access if the operational terms remain compatible
+- institutional repository adapters where stable metadata APIs exist
+- DOI landing-page enrichment when it improves metadata without turning the system into a brittle browser crawler
 
 ### Supported by import adapters
 
 - Google Scholar exports
 - ResearchGate exports
+- RIS exports
+- BibTeX exports
 - generic CSV and JSON metadata dumps
 - fixture datasets for tests
 
@@ -102,6 +141,7 @@ If broader intake is needed, the better direction is:
 - RIS and BibTeX import
 - DOI landing-page enrichment
 - publisher metadata APIs where available
+- user-supplied source definitions that stay inside documented metadata endpoints instead of arbitrary scraping
 
 ## Screening And Synthesis Roadmap
 
@@ -152,6 +192,8 @@ Desired reporting additions:
 - PRISMA flow visualization image export
 - citation network visualization
 - keyword co-occurrence graph
+- retained-versus-rejected threshold distribution view
+- per-provider latency and cache-hit chart for runtime diagnostics
 
 Preferred output formats:
 
@@ -170,18 +212,24 @@ Already present:
 - output/result tabs
 - force stop
 - pass-chain editing
-
-Next GUI improvements:
-
-- richer visual pass-chain builder
-- compact vs advanced settings modes
-- stronger grouped path configuration
+- compact versus advanced settings density modes
+- grouped storage/path configuration
 - export preview before run
-- artifact browser with open buttons and summaries
+- artifact browser with open actions
 - chart preview tab
 - run history tab
 - screening audit tab
 - provider health indicators
+- scrollable settings pages and scrollable inspector tabs
+
+Next GUI improvements:
+
+- saved inspector layouts and window density presets
+- richer chart interactions such as filtering and export-to-image controls
+- clearer provider-specific credential cards with inline validation status
+- more progressive disclosure so rarely used runtime knobs stay hidden until needed
+- stronger path presets for "single-folder", "separate review bundle", and "database-first" workflows
+- more polished visual styling within Tkinter limits, especially for summary cards and status badges
 
 ## Performance Roadmap
 
@@ -194,6 +242,11 @@ Already present:
 - configurable request timeout
 - per-source rate limiting controls
 - pre-run query reset and screening-cache reset controls
+- optional async orchestration for network-heavy stages
+- batch PDF queueing
+- persistent source-response cache
+- smarter `429` handling with bounded backoff
+- partial rerun modes and incremental report regeneration
 
 Next performance work:
 
@@ -201,6 +254,8 @@ Next performance work:
 - response-cache invalidation policies per source family
 - warm-cache versus cold-cache benchmark fixtures
 - workstation versus lightweight-laptop runtime profiles
+- deeper measurement of source-specific latency, cache-hit rates, and PDF queue throughput
+- more adaptive worker defaults based on source mix and local hardware
 
 ## Quality Roadmap
 
@@ -216,6 +271,9 @@ Future quality additions:
 - targeted UI type-checking once the Tkinter event layer is split into smaller typed helpers
 - persisted benchmark trend history across environments
 - targeted soak tests for async and batched runtime paths
+- broader source-fixture matrices for provider-edge-case parsing
+- stricter mutation-style checks on screening and export invariants
+- richer screenshot-style GUI regression checks where practical
 
 ## Provider Strategy
 
@@ -241,6 +299,7 @@ Future provider ideas:
 - Azure OpenAI-compatible config profile
 - Anthropic-compatible adapter if the product scope expands
 - model presets for fast / balanced / strongest
+- clearer preset bundles for literature-review use cases such as "broad recall", "strict inclusion", and "biomedical review"
 
 ## Research Workflow Vision
 
@@ -275,20 +334,21 @@ We should not optimize for:
 - add document-type classification
 - add evidence matrix export
 - add chart generation for PRISMA and inclusion reasons
+- add DataCite discovery support if the metadata quality justifies the maintenance cost
 
 ### Milestone 2
 
-- add per-source rate-limit configuration
-- add provider health/status indicators in the GUI
-- add run history and audit trail tabs
 - add stronger synthesis reporting
+- add richer source-health diagnostics and credential validation
+- add saved workspace layouts and operator presets
+- add DOI landing-page enrichment safeguards
 
 ### Milestone 3
 
 - add benchmark/dataset extraction
 - add claim-to-source traceability exports
 - add richer citation graph and keyword co-occurrence visualizations
-- add CI and type-checking gates
+- add longer-running soak and concurrency tests
 
 ## How To Judge A New Feature
 

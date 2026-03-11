@@ -269,6 +269,18 @@ What each source is good for:
 - `Europe PMC`: biomedical and life-science search, useful when you want another strong biomedical index beyond PubMed
 - `CORE`: open-access and repository-heavy discovery, useful for institutional repositories and broader full-text recall
 
+Source-specific credentials and throttles:
+
+- `springer_api_key` -> `--springer-api-key`
+- `core_api_key` -> `--core-api-key`
+- `crossref_mailto` -> `--crossref-mailto`
+- `unpaywall_email` -> `--unpaywall-email`
+
+Practical note:
+
+- `CORE` works without a key in some environments, but a configured key is the safer production setup for stable access and quota handling.
+- `Europe PMC` does not require an API key in this project, but you can still tune its request rate with `europe_pmc_calls_per_second`.
+
 Import-only source paths:
 
 - `fixture_data_path` -> `--fixture-data`

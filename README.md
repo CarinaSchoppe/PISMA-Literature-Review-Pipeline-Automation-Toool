@@ -396,6 +396,7 @@ Recommended environment variables:
 * `CROSSREF_MAILTO`
 * `SEMANTIC_SCHOLAR_API_KEY`
 * `SPRINGER_API_KEY`
+* `CORE_API_KEY`
 * `OPENAI_API_KEY`
 * `OPENAI_BASE_URL`
 * `OPENAI_MODEL`
@@ -413,6 +414,8 @@ Recommended environment variables:
 * `HF_HOME` or `TRANSFORMERS_CACHE`
 * `HF_TRUST_REMOTE_CODE`
 * `LLM_TEMPERATURE`
+* `EUROPE_PMC_CALLS_PER_SECOND`
+* `CORE_CALLS_PER_SECOND`
 
 If no remote or local LLM backend is configured, the project still works with the heuristic screener.
 
