@@ -280,7 +280,9 @@ class PipelineControllerHelperTests(unittest.TestCase):
     def test_screen_papers_handles_no_passes_no_candidates_and_cached_results(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            no_pass_controller = PipelineController(self._config(root, run_mode="collect"))
+            no_pass_controller = PipelineController(
+                self._config(root, run_mode="collect", verbosity="normal")
+            )
             try:
                 self.assertEqual(no_pass_controller._screen_papers(), {"screened_count": 0, "full_text_screened_count": 0})
             finally:
