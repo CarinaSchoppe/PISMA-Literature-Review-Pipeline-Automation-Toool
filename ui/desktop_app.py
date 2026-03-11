@@ -5543,6 +5543,210 @@ class DesktopWorkbench:
             "No screening audit is available yet. Start a run or refresh a results directory to inspect keep/exclude reasons.",
         )
 
+    def _build_research_fit_tab(self) -> None:
+        """Create a tab that explains extracted topics and weighted keyword fit per paper."""
+
+        container = ttk.Frame(self.research_fit_tab, padding=8, style="Surface.TFrame")
+        container.pack(fill="both", expand=True)
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(0, weight=1)
+
+        shell = ttk.Panedwindow(container, orient="horizontal")
+        shell.grid(row=0, column=0, sticky="nsew")
+        left = ttk.Frame(shell, padding=8, style="Surface.TFrame")
+        right = ttk.Frame(shell, padding=8, style="Surface.TFrame")
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(2, weight=1)
+        right.columnconfigure(0, weight=1)
+        right.rowconfigure(1, weight=1)
+        shell.add(left, weight=3)
+        shell.add(right, weight=2)
+
+        ttk.Label(left, text="Research fit", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        badge_row = ttk.Frame(left, style="Surface.TFrame")
+        badge_row.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        badge_row.columnconfigure(3, weight=1)
+        self.research_fit_strong_badge = ttk.Label(
+            badge_row,
+            textvariable=self.research_fit_strong_badge_var,
+            style="SuccessBadge.TLabel",
+        )
+        self.research_fit_strong_badge.grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.research_fit_near_badge = ttk.Label(
+            badge_row,
+            textvariable=self.research_fit_near_badge_var,
+            style="WarningBadge.TLabel",
+        )
+        self.research_fit_near_badge.grid(row=0, column=1, sticky="w", padx=(0, 8))
+        self.research_fit_weak_badge = ttk.Label(
+            badge_row,
+            textvariable=self.research_fit_weak_badge_var,
+            style="DangerBadge.TLabel",
+        )
+        self.research_fit_weak_badge.grid(row=0, column=2, sticky="w")
+        research_fit_tree_shell, self.research_fit_tree = self._create_scrolled_tree_widget(
+            left,
+            key="research_fit_tree",
+            columns=("title", "fit_label", "weighted_score", "matched_keywords", "semantic_label"),
+            show="headings",
+        )
+        self.research_fit_tree.heading("title", text="Title")
+        self.research_fit_tree.heading("fit_label", text="Research fit")
+        self.research_fit_tree.heading("weighted_score", text="Weighted score")
+        self.research_fit_tree.heading("matched_keywords", text="Strong matches")
+        self.research_fit_tree.heading("semantic_label", text="Semantic label")
+        self.research_fit_tree.column("title", width=440, anchor="w")
+        self.research_fit_tree.column("fit_label", width=120, anchor="w")
+        self.research_fit_tree.column("weighted_score", width=110, anchor="e")
+        self.research_fit_tree.column("matched_keywords", width=120, anchor="e")
+        self.research_fit_tree.column("semantic_label", width=120, anchor="w")
+        research_fit_tree_shell.grid(row=2, column=0, sticky="nsew")
+        self.research_fit_tree.bind("<<TreeviewSelect>>", self._handle_research_fit_selection)
+        self.research_fit_tree.bind("<Double-1>", lambda _event: self._open_document_from_research_fit())
+
+        ttk.Label(right, text="Keyword evidence", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        research_fit_text_shell, self.research_fit_text = self._create_scrolled_text_widget(
+            right,
+            key="research_fit_text",
+            height=18,
+            wrap="word",
+        )
+        research_fit_text_shell.grid(row=1, column=0, sticky="nsew")
+        self._write_summary_widget(
+            self.research_fit_text,
+            "No research-fit analysis is available yet. Run screening with the topic prefilter enabled to inspect extracted topics and weighted keyword evidence.",
+        )
+
+    def _refresh_research_fit(self, papers_path: Path) -> None:
+        """Load research-fit rows from the current papers CSV when available."""
+
+        if self.research_fit_tree is None:
+            return
+        self.research_fit_rows = {}
+        for item in self.research_fit_tree.get_children():
+            self.research_fit_tree.delete(item)
+        if not papers_path.exists():
+            self._set_badge_label(self.research_fit_strong_badge, "[FIT] 0 strong", "success")
+            self._set_badge_label(self.research_fit_near_badge, "[FIT] 0 near", "warning")
+            self._set_badge_label(self.research_fit_weak_badge, "[FIT] 0 weak", "danger")
+            self._write_summary_widget(
+                self.research_fit_text,
+                "No papers.csv file is available yet, so the research-fit workspace is empty.",
+            )
+            return
+        dataframe = pd.read_csv(papers_path).fillna("")
+        strong_count = 0
+        near_count = 0
+        weak_count = 0
+        for index, row in dataframe.iterrows():
+            row_payload = row.to_dict()
+            fit_label = str(row_payload.get("topic_prefilter_research_fit_label", "") or "").strip().upper()
+            if not fit_label:
+                continue
+            item_id = f"fit-{index}"
+            self.research_fit_rows[item_id] = row_payload
+            if fit_label == "STRONG_FIT":
+                strong_count += 1
+                tag = "strong_fit"
+            elif fit_label == "NEAR_FIT":
+                near_count += 1
+                tag = "near_fit"
+            else:
+                weak_count += 1
+                tag = "weak_fit"
+            self.research_fit_tree.insert(
+                "",
+                tk.END,
+                iid=item_id,
+                values=(
+                    str(row_payload.get("title", ""))[:120],
+                    fit_label.replace("_", " ").title(),
+                    self._display_table_value("topic_prefilter_weighted_score", row_payload),
+                    self._display_table_value("topic_prefilter_matched_keyword_count", row_payload),
+                    self._display_table_value("topic_prefilter_label", row_payload),
+                ),
+                tags=(tag,),
+            )
+        self._set_badge_label(self.research_fit_strong_badge, f"[FIT] {strong_count} strong", "success")
+        self._set_badge_label(self.research_fit_near_badge, f"[FIT] {near_count} near", "warning")
+        self._set_badge_label(self.research_fit_weak_badge, f"[FIT] {weak_count} weak", "danger")
+        if self.research_fit_tree.get_children():
+            first_item = self.research_fit_tree.get_children()[0]
+            self.research_fit_tree.selection_set(first_item)
+            self.research_fit_tree.focus(first_item)
+            self._render_research_fit_row(first_item)
+        else:
+            self._write_summary_widget(
+                self.research_fit_text,
+                "Papers loaded, but no research-fit details are available yet. Enable the topic prefilter to see extracted topics and keyword evidence.",
+            )
+
+    def _handle_research_fit_selection(self, _event: Any | None = None) -> None:
+        """Render details for the selected research-fit row."""
+
+        if self.research_fit_tree is None:
+            return
+        selection = self.research_fit_tree.selection()
+        if not selection:
+            return
+        self._render_research_fit_row(selection[0])
+
+    def _render_research_fit_row(self, item_id: str) -> None:
+        """Show extracted topics and weighted keyword evidence for one paper."""
+
+        row = self.research_fit_rows.get(item_id)
+        if not row:
+            return
+        extracted_topics, keyword_details = self._topic_detail_payload(row)
+        lines = [
+            f"Title: {row.get('title', '')}",
+            f"Research fit: {row.get('topic_prefilter_research_fit_label', '') or '(not available)'}",
+            f"Weighted score: {row.get('topic_prefilter_weighted_score', '') or '(not available)'}",
+            (
+                f"Matched keywords: {row.get('topic_prefilter_matched_keyword_count', '') or '0'} / "
+                f"{row.get('topic_prefilter_min_keyword_matches', '') or '0'} minimum"
+            ),
+            f"Semantic label: {row.get('topic_prefilter_label', '') or '(not available)'}",
+            f"Semantic similarity: {row.get('topic_prefilter_similarity', '') or '(not available)'}",
+            "",
+            "Extracted topics:",
+        ]
+        if extracted_topics:
+            lines.extend([f"- {topic}" for topic in extracted_topics])
+        else:
+            lines.append("- (none extracted)")
+        lines.extend(["", "Weighted keyword evidence:"])
+        if keyword_details:
+            for detail in keyword_details:
+                lines.append(
+                    "- {keyword}: {match_percent:.1f}% ({status}, weight {weight}, best topic: {best_topic})".format(
+                        keyword=detail.get("keyword", ""),
+                        match_percent=float(detail.get("match_percent", 0.0)),
+                        status=str(detail.get("status", "")).upper(),
+                        weight=detail.get("weight", ""),
+                        best_topic=detail.get("best_topic", "") or "n/a",
+                    )
+                )
+        else:
+            lines.append("- (no keyword evidence available)")
+        explanation = str(row.get("relevance_explanation", "") or "").strip()
+        if explanation:
+            lines.extend(["", f"Screening explanation: {explanation}"])
+        self._write_summary_widget(self.research_fit_text, "\n".join(lines))
+
+    def _open_document_from_research_fit(self) -> None:
+        """Open the selected research-fit row in the embedded document viewer."""
+
+        if self.research_fit_tree is None:
+            return
+        selection = self.research_fit_tree.selection()
+        if not selection:
+            return
+        row = self.research_fit_rows.get(selection[0])
+        if not row:
+            return
+        self._show_document_preview(row, source_label="Research Fit")
+
     def _apply_form_values(self, values: dict[str, Any]) -> None:
         """Populate the visible form controls from a flat dictionary of values."""
 
@@ -5911,6 +6115,7 @@ class DesktopWorkbench:
         self._load_outputs(result)
         self._refresh_chart_preview(papers_path)
         self._refresh_screening_audit(papers_path)
+        self._refresh_research_fit(papers_path)
         self._append_run_history(result)
 
     def _refresh_results_from_disk(self) -> None:
@@ -5927,6 +6132,7 @@ class DesktopWorkbench:
         self._load_outputs(self.current_result)
         self._refresh_chart_preview(papers_path)
         self._refresh_screening_audit(papers_path)
+        self._refresh_research_fit(papers_path)
         self._refresh_run_history_tab()
         self._set_status(f"Reloaded results from {config.results_dir}")
 
