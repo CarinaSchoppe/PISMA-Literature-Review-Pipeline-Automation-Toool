@@ -51,7 +51,7 @@ class FullTextExtractionAndPDFTests(unittest.TestCase):
             fetcher = PDFFetcher(config)
 
             with patch("acquisition.pdf_fetcher.request_json", return_value={"is_oa": True, "best_oa_location": {"url_for_pdf": "https://example.org/paper.pdf"}}), patch.object(
-                PDFFetcher, "download_pdf", return_value="papers/example.pdf"
+                    PDFFetcher, "download_pdf", return_value="papers/example.pdf"
             ) as download_mock:
                 enriched = fetcher.fetch_for_paper(paper, download=True)
 
@@ -74,17 +74,17 @@ class FullTextExtractionAndPDFTests(unittest.TestCase):
 
             existing.unlink()
             with patch(
-                "acquisition.pdf_fetcher.request_content",
-                return_value=FakeBinaryResponse(headers={"Content-Type": "text/html"}, chunks=[b"<htm", b"ignored"]),
+                    "acquisition.pdf_fetcher.request_content",
+                    return_value=FakeBinaryResponse(headers={"Content-Type": "text/html"}, chunks=[b"<htm", b"ignored"]),
             ):
                 self.assertIsNone(fetcher.download_pdf(paper, "https://example.org/file.pdf", target_dir=root / "papers"))
 
             with patch(
-                "acquisition.pdf_fetcher.request_content",
-                return_value=FakeBinaryResponse(
-                    headers={"Content-Type": "application/pdf"},
-                    chunks=[b"%PDF-1.7", b" content"],
-                ),
+                    "acquisition.pdf_fetcher.request_content",
+                    return_value=FakeBinaryResponse(
+                        headers={"Content-Type": "application/pdf"},
+                        chunks=[b"%PDF-1.7", b" content"],
+                    ),
             ):
                 output = fetcher.download_pdf(paper, "https://example.org/file.pdf", target_dir=root / "papers")
 

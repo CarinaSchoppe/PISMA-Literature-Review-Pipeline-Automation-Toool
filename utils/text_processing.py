@@ -104,7 +104,6 @@ def parse_search_terms(value: str | Sequence[str] | None) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
-
 def keyword_overlap_score(text: str, keywords: Sequence[str]) -> float:
     """Return the fraction of review keywords that appear in the provided text."""
 
@@ -155,7 +154,7 @@ def chunked(values: Sequence[str], size: int) -> Iterator[list[str]]:
     """Yield fixed-size chunks from a sequence."""
 
     for index in range(0, len(values), size):
-        yield list(values[index : index + size])
+        yield list(values[index: index + size])
 
 
 def make_query_key(topic: str, keywords: Sequence[str], year_start: int, year_end: int) -> str:

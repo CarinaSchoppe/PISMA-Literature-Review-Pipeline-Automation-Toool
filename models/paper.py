@@ -152,4 +152,3 @@ class PaperMetadata(BaseModel):
                 "screening_details": self.screening_details or other.screening_details,
             }
         )
-
