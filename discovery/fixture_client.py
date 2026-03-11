@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from models.paper import PaperMetadata
-
 from config import ResearchConfig
+from models.paper import PaperMetadata
 
 
 class FixtureDiscoveryClient:

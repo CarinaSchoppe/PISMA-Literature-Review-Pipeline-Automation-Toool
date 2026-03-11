@@ -7,10 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from models.paper import PaperMetadata, ScreeningResult
 from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, create_engine, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
+from models.paper import PaperMetadata, ScreeningResult
 from utils.text_processing import canonical_doi
 
 
@@ -129,11 +129,11 @@ class DatabaseManager:
             return [self._record_to_model(record) for record in session.scalars(stmt).all()]
 
     def get_papers_for_analysis(
-        self,
-        query_key: str,
-        limit: int,
-        resume_mode: bool = True,
-        screening_context_key: str | None = None,
+            self,
+            query_key: str,
+            limit: int,
+            resume_mode: bool = True,
+            screening_context_key: str | None = None,
     ) -> list[PaperMetadata]:
         """Return the highest-priority papers that still require screening work."""
 
@@ -156,10 +156,10 @@ class DatabaseManager:
             return filtered
 
     def update_screening_result(
-        self,
-        database_id: int,
-        result: ScreeningResult,
-        screening_details: dict[str, Any] | None = None,
+            self,
+            database_id: int,
+            result: ScreeningResult,
+            screening_details: dict[str, Any] | None = None,
     ) -> None:
         """Persist the final screening result for one paper row."""
 
@@ -178,9 +178,9 @@ class DatabaseManager:
             session.commit()
 
     def get_cached_screening_entry(
-        self,
-        paper_cache_key: str,
-        screening_context_key: str,
+            self,
+            paper_cache_key: str,
+            screening_context_key: str,
     ) -> tuple[ScreeningResult, dict[str, Any]] | None:
         """Load a cached screening payload for a paper fingerprint and context, if available."""
 
@@ -210,13 +210,13 @@ class DatabaseManager:
         return cached[0]
 
     def cache_screening_result(
-        self,
-        *,
-        paper: PaperMetadata,
-        paper_cache_key: str,
-        screening_context_key: str,
-        result: ScreeningResult,
-        screening_details: dict[str, Any] | None = None,
+            self,
+            *,
+            paper: PaperMetadata,
+            paper_cache_key: str,
+            screening_context_key: str,
+            result: ScreeningResult,
+            screening_details: dict[str, Any] | None = None,
     ) -> None:
         """Store or refresh a reusable screening cache entry."""
 

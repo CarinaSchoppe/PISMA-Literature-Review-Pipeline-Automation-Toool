@@ -2,9 +2,9 @@ name: Quality Gates
 
 on:
   push:
-    branches: ["master"]
+    branches: [ "master" ]
   pull_request:
-    branches: ["master"]
+    branches: [ "master" ]
 
 permissions:
   contents: read
@@ -53,7 +53,6 @@ jobs:
           python -m ruff --version
           python -m mypy --version
           python -c "import coverage, pytest_cov; print('coverage', coverage.__version__); print('pytest-cov', pytest_cov.__version__)"
-
       - name: Lint
         run: python -m ruff check .
 

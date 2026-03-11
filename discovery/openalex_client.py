@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from models.paper import PaperMetadata
-
 from config import ResearchConfig
+from models.paper import PaperMetadata
 from utils.http import RateLimiter, build_session, request_json
 from utils.text_processing import reconstruct_inverted_abstract
 
