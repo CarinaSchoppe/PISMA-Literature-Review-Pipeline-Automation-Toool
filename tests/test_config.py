@@ -61,6 +61,34 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(analysis_pass.model_name, "Qwen/Qwen3-14B")
         self.assertEqual(analysis_pass.min_input_score, 70.0)
 
+    def test_validation_rejects_negative_retry_and_worker_values(self) -> None:
+        with self.assertRaises(ValueError):
+            ResearchConfig(research_topic="Topic", search_keywords=["llm"], http_retry_base_delay_seconds=-1)
+        with self.assertRaises(ValueError):
+            ResearchConfig(research_topic="Topic", search_keywords=["llm"], discovery_workers=-1)
+
+    def test_parse_analysis_pass_accepts_json_object_and_config_file_defaults_full_text_flag(self) -> None:
+        analysis_pass = parse_analysis_pass(
+            '{"name": "deep", "llm_provider": "gemini", "threshold": 81, "decision_mode": "triage"}'
+        )
+        self.assertEqual(analysis_pass, AnalysisPassConfig(name="deep", llm_provider="gemini", threshold=81, decision_mode="triage"))
+
+        parser = build_arg_parser()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            config_path.write_text(
+                (
+                    '{"research_topic":"Topic","search_keywords":["llm"],'
+                    '"boolean_operators":"AND","pages_to_retrieve":1,"year_range_start":2020,"year_range_end":2026,'
+                    '"max_papers_to_analyze":5,"citation_snowballing_enabled":false,"relevance_threshold":70,'
+                    '"download_pdfs":false,"include_pubmed":false}'
+                ),
+                encoding="utf-8",
+            )
+            args = parser.parse_args(["--config-file", str(config_path)])
+            config = ResearchConfig.from_cli(args)
+            self.assertFalse(config.analyze_full_text)
+
     def test_cli_runtime_destinations_align_with_ui_form_fields(self) -> None:
         from ui.view_model import default_form_values
 
@@ -176,6 +204,23 @@ class ConfigTests(unittest.TestCase):
                 "3",
                 "--screening-workers",
                 "4",
+                "--partial-rerun-mode",
+                "screening_and_reporting",
+                "--incremental-report-regeneration",
+                "--enable-async-network-stages",
+                "--http-cache-enabled",
+                "--http-cache-dir",
+                "data/test_cli/http_cache",
+                "--http-cache-ttl-seconds",
+                "7200",
+                "--http-retry-max-attempts",
+                "6",
+                "--http-retry-base-delay-seconds",
+                "1.5",
+                "--http-retry-max-delay-seconds",
+                "45",
+                "--pdf-batch-size",
+                "8",
                 "--reset-query-records",
                 "--clear-screening-cache",
                 "--google-scholar-import-path",
@@ -237,6 +282,16 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.discovery_workers, 2)
         self.assertEqual(config.io_workers, 3)
         self.assertEqual(config.screening_workers, 4)
+        self.assertEqual(config.partial_rerun_mode, "screening_and_reporting")
+        self.assertTrue(config.incremental_report_regeneration)
+        self.assertTrue(config.enable_async_network_stages)
+        self.assertTrue(config.http_cache_enabled)
+        self.assertEqual(config.http_cache_dir, Path("data/test_cli/http_cache"))
+        self.assertEqual(config.http_cache_ttl_seconds, 7200)
+        self.assertEqual(config.http_retry_max_attempts, 6)
+        self.assertEqual(config.http_retry_base_delay_seconds, 1.5)
+        self.assertEqual(config.http_retry_max_delay_seconds, 45.0)
+        self.assertEqual(config.pdf_batch_size, 8)
         self.assertTrue(config.reset_query_records)
         self.assertTrue(config.clear_screening_cache)
         self.assertTrue(config.download_pdfs)

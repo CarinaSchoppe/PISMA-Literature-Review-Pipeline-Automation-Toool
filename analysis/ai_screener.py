@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
-from models.paper import PaperMetadata, ScreeningResult
+from models.paper import DecisionLabel, PaperMetadata, ScreeningResult
 
 from config import ResearchConfig
 from .llm_clients import build_llm_client
@@ -149,13 +149,13 @@ class AIScreener:
             return None
         try:
             return ScreeningResult(
-                stage_one_decision=stage_one,
+                stage_one_decision=cast(DecisionLabel, stage_one),
                 relevance_score=float(parsed.get("relevance_score", 0.0)),
                 explanation=str(parsed.get("explanation", "")),
                 extracted_passage=str(parsed.get("extracted_passage", "")),
                 methodology_category=str(parsed.get("methodology_category", "unspecified")),
                 domain_category=str(parsed.get("domain_category", "general")),
-                decision=decision,
+                decision=cast(DecisionLabel, decision),
                 matched_inclusion_criteria=list(parsed.get("matched_inclusion_criteria", []) or []),
                 matched_exclusion_criteria=list(parsed.get("matched_exclusion_criteria", []) or []),
                 matched_banned_topics=list(parsed.get("matched_banned_topics", []) or []),

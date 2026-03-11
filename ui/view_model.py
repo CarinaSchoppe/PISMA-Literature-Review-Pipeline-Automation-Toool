@@ -45,6 +45,13 @@ SCALAR_FIELD_DEFAULTS: dict[str, Any] = {
     "io_workers": 0,
     "screening_workers": 0,
     "request_timeout_seconds": 30,
+    "partial_rerun_mode": "off",
+    "http_cache_dir": "data/http_cache",
+    "http_cache_ttl_seconds": 86400,
+    "http_retry_max_attempts": 4,
+    "http_retry_base_delay_seconds": 1.0,
+    "http_retry_max_delay_seconds": 30.0,
+    "pdf_batch_size": 10,
     "title_similarity_threshold": 0.92,
     "fixture_data_path": "",
     "manual_source_path": "",
@@ -103,6 +110,9 @@ BOOLEAN_FIELD_DEFAULTS = {
     "resume_mode": True,
     "reset_query_records": False,
     "clear_screening_cache": False,
+    "incremental_report_regeneration": False,
+    "enable_async_network_stages": False,
+    "http_cache_enabled": True,
     "disable_progress_bars": False,
     "log_http_requests": True,
     "log_http_payloads": True,
@@ -121,6 +131,14 @@ def default_form_values() -> dict[str, Any]:
         **SCALAR_FIELD_DEFAULTS,
         **BOOLEAN_FIELD_DEFAULTS,
     }
+
+
+def _path_to_ui_value(value: str | Path | None) -> str:
+    """Normalize path-like values into stable forward-slash strings for the UI."""
+
+    if value in {"", None}:
+        return ""
+    return Path(value).as_posix()
 
 
 def config_to_form_values(config: ResearchConfig) -> dict[str, Any]:
@@ -174,16 +192,26 @@ def config_to_form_values(config: ResearchConfig) -> dict[str, Any]:
             "io_workers": config.io_workers,
             "screening_workers": config.screening_workers,
             "request_timeout_seconds": config.request_timeout_seconds,
+            "partial_rerun_mode": config.partial_rerun_mode,
+            "incremental_report_regeneration": config.incremental_report_regeneration,
+            "enable_async_network_stages": config.enable_async_network_stages,
+            "http_cache_enabled": config.http_cache_enabled,
+            "http_cache_dir": _path_to_ui_value(config.http_cache_dir),
+            "http_cache_ttl_seconds": config.http_cache_ttl_seconds,
+            "http_retry_max_attempts": config.http_retry_max_attempts,
+            "http_retry_base_delay_seconds": config.http_retry_base_delay_seconds,
+            "http_retry_max_delay_seconds": config.http_retry_max_delay_seconds,
+            "pdf_batch_size": config.pdf_batch_size,
             "title_similarity_threshold": config.title_similarity_threshold,
-            "fixture_data_path": str(config.fixture_data_path or ""),
-            "manual_source_path": str(config.manual_source_path or ""),
-            "google_scholar_import_path": str(config.google_scholar_import_path or ""),
-            "researchgate_import_path": str(config.researchgate_import_path or ""),
-            "data_dir": str(config.data_dir),
-            "papers_dir": str(config.papers_dir),
-            "relevant_pdfs_dir": str(config.relevant_pdfs_dir or ""),
-            "results_dir": str(config.results_dir),
-            "database_path": str(config.database_path),
+            "fixture_data_path": _path_to_ui_value(config.fixture_data_path),
+            "manual_source_path": _path_to_ui_value(config.manual_source_path),
+            "google_scholar_import_path": _path_to_ui_value(config.google_scholar_import_path),
+            "researchgate_import_path": _path_to_ui_value(config.researchgate_import_path),
+            "data_dir": _path_to_ui_value(config.data_dir),
+            "papers_dir": _path_to_ui_value(config.papers_dir),
+            "relevant_pdfs_dir": _path_to_ui_value(config.relevant_pdfs_dir),
+            "results_dir": _path_to_ui_value(config.results_dir),
+            "database_path": _path_to_ui_value(config.database_path),
             "profile_name": config.profile_name or "",
             "citation_snowballing_enabled": config.citation_snowballing_enabled,
             "download_pdfs": config.download_pdfs,
@@ -233,7 +261,7 @@ def config_to_form_values(config: ResearchConfig) -> dict[str, Any]:
             "huggingface_device": config.api_settings.huggingface_device,
             "huggingface_dtype": config.api_settings.huggingface_dtype,
             "huggingface_max_new_tokens": config.api_settings.huggingface_max_new_tokens,
-            "huggingface_cache_dir": config.api_settings.huggingface_cache_dir or "",
+            "huggingface_cache_dir": _path_to_ui_value(config.api_settings.huggingface_cache_dir),
             "huggingface_trust_remote_code": config.api_settings.huggingface_trust_remote_code,
         }
     )
@@ -314,6 +342,16 @@ def form_values_to_config(values: dict[str, Any]) -> ResearchConfig:
         io_workers=as_int("io_workers", 0) or 0,
         screening_workers=as_int("screening_workers", 0) or 0,
         request_timeout_seconds=as_int("request_timeout_seconds", 30) or 30,
+        partial_rerun_mode=str(values.get("partial_rerun_mode", "off") or "off"),
+        incremental_report_regeneration=as_bool("incremental_report_regeneration"),
+        enable_async_network_stages=as_bool("enable_async_network_stages"),
+        http_cache_enabled=as_bool("http_cache_enabled"),
+        http_cache_dir=values.get("http_cache_dir", "data/http_cache"),
+        http_cache_ttl_seconds=as_int("http_cache_ttl_seconds", 86400) or 86400,
+        http_retry_max_attempts=as_int("http_retry_max_attempts", 4) or 4,
+        http_retry_base_delay_seconds=as_float("http_retry_base_delay_seconds", 1.0),
+        http_retry_max_delay_seconds=as_float("http_retry_max_delay_seconds", 30.0),
+        pdf_batch_size=as_int("pdf_batch_size", 10) or 10,
         resume_mode=as_bool("resume_mode"),
         reset_query_records=as_bool("reset_query_records"),
         clear_screening_cache=as_bool("clear_screening_cache"),

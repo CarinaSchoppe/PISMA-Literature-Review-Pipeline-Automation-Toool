@@ -11,6 +11,7 @@ Use it when you want one place that explains:
 - how provider selection and pass chaining work
 - where outputs are written
 - how stop, resume, verbose logging, and PDF routing behave
+- how type-checking, CI, coverage, and benchmark tooling fit into the workflow
 
 The README stays the short project overview. This handbook is the practical reference.
 
@@ -338,6 +339,58 @@ Global discovery gates:
 - GUI: `Discovery`
 - CLI: `--citation-snowballing`
 
+`http_cache_enabled`
+
+- Enables the persistent source-response cache for eligible GET requests.
+- `Yes` means repeated discovery calls can reuse cached responses until the TTL expires.
+- `No` means every request is fetched fresh from the upstream source.
+- Example:
+  Use `Yes` when you are tuning screening thresholds against the same discovery query and want to avoid re-hitting the same provider pages.
+- GUI: `Discovery`
+- CLI: `--http-cache-enabled` / `--no-http-cache-enabled`
+
+`http_cache_dir`
+
+- Directory where cached source responses are stored.
+- Example:
+  `data/http_cache`
+- GUI: `Discovery`
+- CLI: `--http-cache-dir`
+
+`http_cache_ttl_seconds`
+
+- Maximum age of cached responses before they must be refreshed.
+- Higher values favor speed and fewer network calls.
+- Lower values favor fresher source data.
+- Example:
+  `86400` means the cache is valid for one day.
+- GUI: `Discovery`
+- CLI: `--http-cache-ttl-seconds`
+
+`http_retry_max_attempts`
+
+- Maximum number of request attempts when the HTTP helper encounters `429` or another eligible retry path.
+- Example:
+  `4` means the initial request plus up to three additional attempts.
+- GUI: `Discovery`
+- CLI: `--http-retry-max-attempts`
+
+`http_retry_base_delay_seconds`
+
+- Base delay for bounded exponential backoff when `Retry-After` is missing.
+- Example:
+  `1.0` means the fallback retry delays are `1`, then `2`, then `4` seconds unless capped.
+- GUI: `Discovery`
+- CLI: `--http-retry-base-delay-seconds`
+
+`http_retry_max_delay_seconds`
+
+- Upper bound for a single retry delay, even if the provider asks for a larger wait.
+- Example:
+  `30` keeps retry waits below thirty seconds per attempt.
+- GUI: `Discovery`
+- CLI: `--http-retry-max-delay-seconds`
+
 ### AI Screening
 
 These settings control scoring, pass chains, and model behavior.
@@ -526,7 +579,7 @@ What the SQLite files mean:
 `run_mode`
 
 - `collect` or `analyze`
-- GUI: `Runtime and Logs`
+- GUI: `Advanced Runtime`
 - CLI: `--run-mode`
 
 `verbosity`
@@ -535,13 +588,13 @@ What the SQLite files mean:
 - `normal`: stage boundaries and counts
 - `verbose`: source activity, screening activity, output writes
 - `debug`: verbose plus truncated payload and prompt excerpts
-- GUI: `Runtime and Logs`
+- GUI: `Advanced Runtime`
 - CLI: `--verbosity`
 
 `max_workers`
 
 - Parallel worker count used for discovery, PDF/network enrichment, relevant-PDF downloads, screening preparation, and screening orchestration.
-- GUI: `Runtime and Logs`
+- GUI: `Advanced Runtime`
 - CLI: `--max-workers`
 
 `discovery_workers`, `io_workers`, `screening_workers`
@@ -551,7 +604,7 @@ What the SQLite files mean:
 - `discovery_workers` tunes source-query concurrency.
 - `io_workers` tunes PDF enrichment, PDF download, and full-text preparation concurrency.
 - `screening_workers` tunes AI-screening concurrency unless a local Hugging Face path forces serial execution.
-- GUI: `Runtime and Logs`
+- GUI: `Advanced Runtime`
 - CLI:
   - `--discovery-workers`
   - `--io-workers`
@@ -560,33 +613,74 @@ What the SQLite files mean:
 `request_timeout_seconds`
 
 - HTTP timeout for external calls.
-- GUI: `Runtime and Logs`
+- GUI: `Advanced Runtime`
 - CLI: `--request-timeout-seconds`
+
+`partial_rerun_mode`
+
+- Controls whether the pipeline should rerun everything or only the affected downstream stages.
+- Choices:
+  - `off`: full run
+  - `reporting_only`: rebuild reports from stored paper state without redoing discovery or screening
+  - `screening_and_reporting`: rerun screening on stored records, then regenerate reports
+  - `pdfs_screening_reporting`: refresh PDF enrichment first, then rerun screening and reports
+- Example:
+  If you changed only report settings or export toggles, `reporting_only` is often enough.
+- GUI: `Advanced Runtime`
+- CLI: `--partial-rerun-mode`
+
+`incremental_report_regeneration`
+
+- Skips rewriting report artifacts whose content did not change.
+- `Yes` means unchanged CSV, JSON, Markdown, and SQLite outputs are left untouched.
+- `No` means report outputs are regenerated every run.
+- Example:
+  Turn this on when you want stable output timestamps during repeated reruns.
+- GUI: `Advanced Runtime`
+- CLI: `--incremental-report-regeneration` / `--no-incremental-report-regeneration`
+
+`enable_async_network_stages`
+
+- Enables the optional async orchestration layer for network-heavy stages such as multi-source discovery and network-bound paper mapping.
+- `Yes` means eligible stages can run through the async path while preserving the final record order.
+- `No` keeps the standard threaded executor path.
+- GUI: `Advanced Runtime`
+- CLI: `--enable-async-network-stages` / `--no-enable-async-network-stages`
+
+`pdf_batch_size`
+
+- Controls how many papers are processed together in one PDF acquisition batch.
+- Smaller values reduce burst load and make progress easier to inspect.
+- Larger values can improve throughput when remote PDF endpoints are stable.
+- Example:
+  `10` means the enrichment queue works in batches of ten papers at a time.
+- GUI: `Advanced Runtime`
+- CLI: `--pdf-batch-size`
 
 `resume_mode`
 
 - Reuse screening cache and skip repeated work for the same context.
-- GUI: `Runtime and Logs`
+- GUI: `Advanced Runtime`
 - CLI: `--resume-mode`
 
 `reset_query_records`
 
 - Delete previously stored paper rows for the active query before the run starts.
 - Useful when you want to rebuild the discovery set from scratch instead of merging into prior records.
-- GUI: `Runtime and Logs`
+- GUI: `Advanced Runtime`
 - CLI: `--reset-query-records`
 
 `clear_screening_cache`
 
 - Delete cached screening decisions for the active screening context before the run starts.
 - Useful when criteria, thresholds, prompts, or model choices changed and you want fresh scoring.
-- GUI: `Runtime and Logs`
+- GUI: `Advanced Runtime`
 - CLI: `--clear-screening-cache`
 
 `disable_progress_bars`
 
 - Useful for CI or very clean logs.
-- GUI: `Runtime and Logs`
+- GUI: `Advanced Runtime`
 - CLI: `--disable-progress-bars`
 
 Deduplication and request safety:
@@ -700,11 +794,13 @@ GUI stop feels delayed:
 
 Current verified baseline:
 
-- `163` tests passing
-- `99.14%` app-code coverage excluding `tests/*`
-- `99.17%` full-repository coverage including `tests/*`
+- `219` tests passing
+- `99.30%` app-code coverage excluding `tests/*`
+- `99.30%` full-repository coverage including `tests/*`
 - `ruff` clean
+- `mypy` clean for the configured backend/tooling scope
 - `compileall` clean
+- `benchmark_report.py --fail-on-regression` clean
 
 Commands:
 
@@ -739,6 +835,75 @@ Useful options:
 - `--top-files 25`
 - `--fail-under 99`
 - `--include-tests`
+
+## Benchmark Report Helper
+
+Use the benchmark helper when you want a lightweight regression signal for local performance-sensitive paths.
+
+```powershell
+py -3 benchmark_report.py
+```
+
+Fail the command if any benchmark exceeds its configured threshold:
+
+```powershell
+py -3 benchmark_report.py --fail-on-regression
+```
+
+Artifacts:
+
+- `results/benchmark_report/benchmark_report.txt`
+- `results/benchmark_report/benchmark_report.md`
+- `results/benchmark_report/benchmark_summary.json`
+- `results/benchmark_report/benchmark_results.csv`
+
+Default thresholds live in:
+
+- [benchmark_baselines.json](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/configs/benchmark_baselines.json)
+
+## Type-Checking And CI
+
+Unified tool configuration now lives in:
+
+- [pyproject.toml](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/pyproject.toml)
+
+Run backend and tooling type-checks with:
+
+```powershell
+py -3 -m mypy
+```
+
+The CI workflow lives in:
+
+- [quality.yml](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/.github/workflows/quality.yml)
+
+It runs:
+
+- Ruff linting
+- MyPy type-checking
+- provider-contract tests
+- the full unit suite
+- coverage gates
+- benchmark regression smoke checks
+
+## Provider-Contract Tests
+
+Provider-contract tests keep discovery adapters aligned to the same normalized `PaperMetadata` contract.
+
+Run them directly with:
+
+```powershell
+py -3 -m unittest tests.test_provider_contracts -v
+```
+
+They verify that providers return, at minimum:
+
+- a non-empty title
+- the expected source label
+- the active `query_key`
+- list-based `authors`
+- dictionary-based `raw_payload`
+- dictionary-based `external_ids`
 
 ## Code Map
 

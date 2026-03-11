@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
-import sqlite3
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 import networkx as nx
 import pandas as pd
 from models.paper import PaperMetadata
+from sqlalchemy import create_engine
 
 from analysis.ai_screener import AIScreener
 from config import ResearchConfig
@@ -89,6 +90,8 @@ class ReportGenerator:
     def _clear_previous_outputs(self) -> None:
         """Remove stale artifacts so each run produces a self-consistent result directory."""
 
+        if self.config.incremental_report_regeneration:
+            return
         for filename in (
             "papers.csv",
             "included_papers.csv",
@@ -104,6 +107,9 @@ class ReportGenerator:
             path = Path(self.config.results_dir) / filename
             if path.exists():
                 path.unlink()
+            fingerprint_path = self._artifact_fingerprint_path(path)
+            if fingerprint_path.exists():
+                fingerprint_path.unlink()
 
     def _rank_papers(self, papers: list[PaperMetadata]) -> list[PaperMetadata]:
         """Sort papers so exports and summaries emphasize the strongest candidates first."""
@@ -121,19 +127,19 @@ class ReportGenerator:
     def _write_csv(self, papers: list[PaperMetadata]) -> Path:
         path = Path(self.config.results_dir) / "papers.csv"
         dataframe = self._papers_to_dataframe(papers)
-        dataframe.to_csv(path, index=False)
+        self._write_dataframe_csv(path, dataframe)
         return path
 
     def _write_top_papers_json(self, papers: list[PaperMetadata]) -> Path:
         path = Path(self.config.results_dir) / "top_papers.json"
         pass_names = self._collect_pass_names(papers)
         payload = [self._paper_to_dict(paper, pass_names) for paper in papers[:25]]
-        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        self._write_json_artifact(path, payload)
         return path
 
     def _write_decision_csv(self, filename: str, papers: list[PaperMetadata]) -> Path:
         path = Path(self.config.results_dir) / filename
-        self._papers_to_dataframe(papers).to_csv(path, index=False)
+        self._write_dataframe_csv(path, self._papers_to_dataframe(papers))
         return path
 
     def _write_citation_graph(self, papers: list[PaperMetadata]) -> Path:
@@ -164,7 +170,7 @@ class ReportGenerator:
                 "edge_count": graph.number_of_edges(),
             },
         }
-        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        self._write_json_artifact(path, payload)
         return path
 
     def _write_review_summary(
@@ -194,7 +200,7 @@ class ReportGenerator:
         if self.config.output_sqlite_exports:
             body += f"- Included papers DB: `{Path(self.config.results_dir) / 'included_papers.db'}`\n"
             body += f"- Excluded papers DB: `{Path(self.config.results_dir) / 'excluded_papers.db'}`\n"
-        path.write_text(body, encoding="utf-8")
+        self._write_text_artifact(path, body)
         return path
 
     def _write_prisma_flow_json(
@@ -230,7 +236,7 @@ class ReportGenerator:
                 "run_mode": self.config.run_mode,
             },
         }
-        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        self._write_json_artifact(path, payload)
         return path
 
     def _write_prisma_flow_md(
@@ -259,18 +265,75 @@ class ReportGenerator:
             "## Included",
             f"- Studies included: {len(included)}",
         ]
-        path.write_text("\n".join(lines), encoding="utf-8")
+        self._write_text_artifact(path, "\n".join(lines))
         return path
 
     def _write_decision_database(self, filename: str, table_name: str, papers: list[PaperMetadata]) -> Path:
         path = Path(self.config.results_dir) / filename
         dataframe = self._papers_to_dataframe(papers)
-        connection = sqlite3.connect(path)
+        fingerprint = self._dataframe_fingerprint(dataframe)
+        if self.config.incremental_report_regeneration and path.exists():
+            if self._read_artifact_fingerprint(path) == fingerprint:
+                return path
+        engine = create_engine(f"sqlite:///{path}")
         try:
-            dataframe.to_sql(table_name, connection, if_exists="replace", index=False)
+            with engine.begin() as connection:
+                dataframe.to_sql(table_name, connection, if_exists="replace", index=False)
         finally:
-            connection.close()
+            engine.dispose()
+        self._write_artifact_fingerprint(path, fingerprint)
         return path
+
+    def _write_dataframe_csv(self, path: Path, dataframe: pd.DataFrame) -> None:
+        """Write a CSV artifact, skipping the rewrite when incremental mode sees no change."""
+
+        csv_text = dataframe.to_csv(index=False)
+        self._write_text_artifact(path, csv_text)
+
+    def _write_json_artifact(self, path: Path, payload: Any) -> None:
+        """Write a JSON artifact, skipping the rewrite when incremental mode sees no change."""
+
+        self._write_text_artifact(path, json.dumps(payload, indent=2, ensure_ascii=False))
+
+    def _write_text_artifact(self, path: Path, content: str) -> None:
+        """Write a text artifact, optionally skipping unchanged content in incremental mode."""
+
+        normalized_content = content.replace("\r\n", "\n")
+        if self.config.incremental_report_regeneration and path.exists():
+            try:
+                if path.read_text(encoding="utf-8").replace("\r\n", "\n") == normalized_content:
+                    return
+            except OSError:
+                pass
+        with path.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(normalized_content)
+
+    def _dataframe_fingerprint(self, dataframe: pd.DataFrame) -> str:
+        """Build a stable fingerprint for incremental artifact comparisons."""
+
+        payload = dataframe.to_json(orient="records", date_format="iso", force_ascii=False)
+        return sha256(payload.encode("utf-8")).hexdigest()
+
+    def _artifact_fingerprint_path(self, path: Path) -> Path:
+        """Return the sidecar file used to track the latest artifact fingerprint."""
+
+        return path.with_suffix(path.suffix + ".sha256")
+
+    def _read_artifact_fingerprint(self, path: Path) -> str | None:
+        """Load a stored artifact fingerprint when the sidecar file exists."""
+
+        fingerprint_path = self._artifact_fingerprint_path(path)
+        if not fingerprint_path.exists():
+            return None
+        try:
+            return fingerprint_path.read_text(encoding="utf-8").strip() or None
+        except OSError:
+            return None
+
+    def _write_artifact_fingerprint(self, path: Path, fingerprint: str) -> None:
+        """Persist the current fingerprint so incremental runs can skip unchanged rewrites."""
+
+        self._artifact_fingerprint_path(path).write_text(fingerprint, encoding="utf-8")
 
     def _papers_to_dataframe(self, papers: list[PaperMetadata]) -> pd.DataFrame:
         pass_names = self._collect_pass_names(papers)

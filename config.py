@@ -169,6 +169,21 @@ class ResearchConfig(BaseModel):
     io_workers: int = 0
     screening_workers: int = 0
     request_timeout_seconds: int = 30
+    partial_rerun_mode: Literal[
+        "off",
+        "reporting_only",
+        "screening_and_reporting",
+        "pdfs_screening_reporting",
+    ] = "off"
+    incremental_report_regeneration: bool = False
+    enable_async_network_stages: bool = False
+    http_cache_enabled: bool = True
+    http_cache_dir: Path = Path("data/http_cache")
+    http_cache_ttl_seconds: int = 86400
+    http_retry_max_attempts: int = 4
+    http_retry_base_delay_seconds: float = 1.0
+    http_retry_max_delay_seconds: float = 30.0
+    pdf_batch_size: int = 10
     resume_mode: bool = True
     reset_query_records: bool = False
     clear_screening_cache: bool = False
@@ -267,6 +282,9 @@ class ResearchConfig(BaseModel):
         "max_workers",
         "request_timeout_seconds",
         "full_text_max_chars",
+        "http_cache_ttl_seconds",
+        "http_retry_max_attempts",
+        "pdf_batch_size",
     )
     @classmethod
     def validate_positive_ints(cls, value: int) -> int:
@@ -275,6 +293,15 @@ class ResearchConfig(BaseModel):
         if int(value) < 1:
             raise ValueError("Configuration value must be at least 1")
         return int(value)
+
+    @field_validator("http_retry_base_delay_seconds", "http_retry_max_delay_seconds")
+    @classmethod
+    def validate_non_negative_retry_delays(cls, value: float) -> float:
+        """Require retry delay settings to stay at or above zero seconds."""
+
+        if float(value) < 0:
+            raise ValueError("Retry delay values must be at least 0")
+        return float(value)
 
     @field_validator("discovery_workers", "io_workers", "screening_workers")
     @classmethod
@@ -453,11 +480,13 @@ class ResearchConfig(BaseModel):
             self.year_range_end,
         )
         relevant_pdfs_dir = self.relevant_pdfs_dir or (self.papers_dir / "relevant")
+        http_cache_dir = self.http_cache_dir or (self.data_dir / "http_cache")
         updated = self.model_copy(
             update={
                 "include_pubmed": include_pubmed,
                 "query_key": query_key,
                 "relevant_pdfs_dir": relevant_pdfs_dir,
+                "http_cache_dir": http_cache_dir,
             }
         )
         updated.ensure_directories()
@@ -469,6 +498,8 @@ class ResearchConfig(BaseModel):
         paths = [self.data_dir, self.papers_dir, self.results_dir]
         if self.relevant_pdfs_dir:
             paths.append(self.relevant_pdfs_dir)
+        if self.http_cache_enabled:
+            paths.append(self.http_cache_dir)
         for path in paths:
             path.mkdir(parents=True, exist_ok=True)
         ensure_parent_directory(self.database_path)
@@ -760,6 +791,56 @@ class ResearchConfig(BaseModel):
             io_workers=value_for("io_workers", getattr(args, "io_workers", None), 0),
             screening_workers=value_for("screening_workers", getattr(args, "screening_workers", None), 0),
             request_timeout_seconds=value_for("request_timeout_seconds", args.request_timeout_seconds, 30),
+            partial_rerun_mode=value_for(
+                "partial_rerun_mode",
+                getattr(args, "partial_rerun_mode", None),
+                "off",
+            ),
+            incremental_report_regeneration=value_for(
+                "incremental_report_regeneration",
+                getattr(args, "incremental_report_regeneration", None),
+                False,
+            ),
+            enable_async_network_stages=value_for(
+                "enable_async_network_stages",
+                getattr(args, "enable_async_network_stages", None),
+                False,
+            ),
+            http_cache_enabled=value_for(
+                "http_cache_enabled",
+                getattr(args, "http_cache_enabled", None),
+                True,
+            ),
+            http_cache_dir=value_for(
+                "http_cache_dir",
+                getattr(args, "http_cache_dir", None),
+                Path("data/http_cache"),
+            ),
+            http_cache_ttl_seconds=value_for(
+                "http_cache_ttl_seconds",
+                getattr(args, "http_cache_ttl_seconds", None),
+                86400,
+            ),
+            http_retry_max_attempts=value_for(
+                "http_retry_max_attempts",
+                getattr(args, "http_retry_max_attempts", None),
+                4,
+            ),
+            http_retry_base_delay_seconds=value_for(
+                "http_retry_base_delay_seconds",
+                getattr(args, "http_retry_base_delay_seconds", None),
+                1.0,
+            ),
+            http_retry_max_delay_seconds=value_for(
+                "http_retry_max_delay_seconds",
+                getattr(args, "http_retry_max_delay_seconds", None),
+                30.0,
+            ),
+            pdf_batch_size=value_for(
+                "pdf_batch_size",
+                getattr(args, "pdf_batch_size", None),
+                10,
+            ),
             resume_mode=value_for("resume_mode", args.resume_mode, True),
             reset_query_records=value_for("reset_query_records", getattr(args, "reset_query_records", None), False),
             clear_screening_cache=value_for(
@@ -1053,6 +1134,60 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="HTTP timeout for API calls",
     )
     parser.add_argument(
+        "--partial-rerun-mode",
+        choices=["off", "reporting_only", "screening_and_reporting", "pdfs_screening_reporting"],
+        help="Rerun only the affected downstream stages using already stored records",
+    )
+    parser.add_argument(
+        "--incremental-report-regeneration",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Rewrite only the report artifacts whose contents changed",
+    )
+    parser.add_argument(
+        "--enable-async-network-stages",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Use an asyncio orchestration layer for network-heavy discovery and IO stages",
+    )
+    parser.add_argument(
+        "--http-cache-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Persist eligible GET responses to the on-disk source-response cache",
+    )
+    parser.add_argument("--http-cache-dir", help="Directory for the persistent HTTP source-response cache")
+    parser.add_argument(
+        "--http-cache-ttl-seconds",
+        type=int,
+        dest="http_cache_ttl_seconds",
+        help="Maximum age for cached GET responses before they are treated as stale",
+    )
+    parser.add_argument(
+        "--http-retry-max-attempts",
+        type=int,
+        dest="http_retry_max_attempts",
+        help="Maximum attempts for 429-aware request retries",
+    )
+    parser.add_argument(
+        "--http-retry-base-delay-seconds",
+        type=float,
+        dest="http_retry_base_delay_seconds",
+        help="Base exponential backoff delay used when a 429 response has no Retry-After header",
+    )
+    parser.add_argument(
+        "--http-retry-max-delay-seconds",
+        type=float,
+        dest="http_retry_max_delay_seconds",
+        help="Upper bound for request backoff delays in seconds",
+    )
+    parser.add_argument(
+        "--pdf-batch-size",
+        type=int,
+        dest="pdf_batch_size",
+        help="Queue size for each PDF enrichment or download batch",
+    )
+    parser.add_argument(
         "--resume-mode",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -1203,11 +1338,11 @@ def parse_analysis_pass(value: str) -> AnalysisPassConfig:
         raise ValueError("Analysis pass must use name:provider:threshold[:decision_mode[:margin]]")
     name, provider, threshold = parts[:3]
     decision_mode = parts[3] if len(parts) >= 4 and parts[3] else "strict"
-    margin = float(parts[4]) if len(parts) >= 5 and parts[4] else 10.0
+    margin_value = float(parts[4]) if len(parts) >= 5 and parts[4] else 10.0
     return AnalysisPassConfig(
         name=name,
         llm_provider=provider,  # type: ignore[arg-type]
         threshold=float(threshold),
         decision_mode=decision_mode,  # type: ignore[arg-type]
-        maybe_threshold_margin=margin,
+        maybe_threshold_margin=margin_value,
     )

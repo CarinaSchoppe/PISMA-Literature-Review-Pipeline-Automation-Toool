@@ -113,10 +113,12 @@ class PubMedClient:
                 authors.append(name)
 
         pub_date = article_info.find("./Journal/JournalIssue/PubDate")
-        year = safe_year(
-            pub_date.findtext("./Year", default="")
-            or pub_date.findtext("./MedlineDate", default="")[:4]
-        )
+        year = None
+        if pub_date is not None:
+            year = safe_year(
+                pub_date.findtext("./Year", default="")
+                or pub_date.findtext("./MedlineDate", default="")[:4]
+            )
         article_ids = article.findall("./PubmedData/ArticleIdList/ArticleId")
         doi = None
         pmcid = None

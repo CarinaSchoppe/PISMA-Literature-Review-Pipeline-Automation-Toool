@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -29,7 +30,7 @@ from discovery.semantic_scholar_client import SemanticScholarClient
 from discovery.springer_client import SpringerClient
 from reporting.report_generator import ReportGenerator
 from utils.deduplication import deduplicate_papers
-from utils.http import configure_http_logging
+from utils.http import configure_http_logging, configure_http_runtime
 from utils.text_processing import stable_hash
 
 LOGGER = logging.getLogger(__name__)
@@ -56,6 +57,14 @@ class PipelineController:
         configure_http_logging(
             enabled=self.config.log_http_requests and self.config.verbosity in {"verbose", "debug"},
             log_payloads=self.config.log_http_payloads and self.config.verbosity == "debug",
+        )
+        configure_http_runtime(
+            cache_enabled=self.config.http_cache_enabled,
+            cache_dir=self.config.http_cache_dir,
+            cache_ttl_seconds=self.config.http_cache_ttl_seconds,
+            retry_max_attempts=self.config.http_retry_max_attempts,
+            retry_base_delay_seconds=self.config.http_retry_base_delay_seconds,
+            retry_max_delay_seconds=self.config.http_retry_max_delay_seconds,
         )
         self.database = DatabaseManager(self.config.database_path)
         self.database.initialize()
@@ -104,6 +113,8 @@ class PipelineController:
                     deleted_count=cleared_cache,
                     screening_context_key=self.config.screening_context_key,
                 )
+            if self.config.partial_rerun_mode != "off":
+                return self._run_partial_rerun()
             if self.config.skip_discovery:
                 self._emit_event("stage_started", stage="load_existing")
                 stored = self._apply_discovery_limits(self.database.get_papers_for_query(self.config.query_key or ""))
@@ -138,26 +149,16 @@ class PipelineController:
                 final_papers = self._normalize_papers_for_current_context(
                     self.database.get_papers_for_query(self.config.query_key or "")
                 )
-                stats = {
-                    "discovered_count": len(discovered),
-                    "deduplicated_count": len(deduplicated),
-                    "snowballing_added_count": 0,
-                    "decision_counts": self._decision_counts(final_papers),
-                    "screened_count": 0,
-                    "newly_screened_count": 0,
-                    "full_text_screened_count": 0,
-                    "run_mode": self.config.run_mode,
-                }
-                report_paths = self.report_generator.generate(final_papers, stats=stats)
-                self._emit_report_artifacts(report_paths)
-                return {
-                    **report_paths,
-                    "discovered_count": len(discovered),
-                    "deduplicated_count": len(deduplicated),
-                    "database_count": len(final_papers),
-                    "run_status": "failed_min_discovered_records",
-                    "run_error": reason,
-                }
+                return self._finalize_run_result(
+                    final_papers=final_papers,
+                    discovered_count=len(discovered),
+                    deduplicated_count=len(deduplicated),
+                    snowballing_added_count=0,
+                    screening_stats={"screened_count": 0, "full_text_screened_count": 0},
+                    run_status="failed_min_discovered_records",
+                    run_error=reason,
+                    emit_completed_event=False,
+                )
 
             expanded: list[PaperMetadata] = []
             self._check_stop()
@@ -210,26 +211,14 @@ class PipelineController:
                     self.database.get_papers_for_query(self.config.query_key or "")
                 )
             )
-            stats = {
-                "discovered_count": len(discovered),
-                "deduplicated_count": len(deduplicated),
-                "snowballing_added_count": len(expanded) if expanded else 0,
-                "decision_counts": self._decision_counts(final_papers),
-                "screened_count": len([paper for paper in final_papers if paper.inclusion_decision]),
-                "newly_screened_count": screening_stats["screened_count"],
-                "full_text_screened_count": screening_stats["full_text_screened_count"],
-                "run_mode": self.config.run_mode,
-            }
-            report_paths = self.report_generator.generate(final_papers, stats=stats)
-            self._emit_report_artifacts(report_paths)
-            self._emit_event("run_completed", stage="pipeline", report_paths=report_paths)
-            return {
-                **report_paths,
-                "discovered_count": len(discovered),
-                "deduplicated_count": len(deduplicated),
-                "database_count": len(final_papers),
-                "run_status": "completed",
-            }
+            return self._finalize_run_result(
+                final_papers=final_papers,
+                discovered_count=len(discovered),
+                deduplicated_count=len(deduplicated),
+                snowballing_added_count=len(expanded) if expanded else 0,
+                screening_stats=screening_stats,
+                run_status="completed",
+            )
         except PipelineStoppedError as exc:
             LOGGER.warning("Pipeline stopped on request: %s", exc)
             self._emit_event("run_stopped", stage="pipeline", reason=str(exc))
@@ -262,6 +251,115 @@ class PipelineController:
             executor.shutdown(wait=False, cancel_futures=True)
         self._emit_event("stop_requested", stage="pipeline")
 
+    def _run_partial_rerun(self) -> dict[str, str | int]:
+        """Execute only the downstream stages requested by the partial-rerun mode."""
+
+        mode = self.config.partial_rerun_mode
+        self._emit_event("stage_started", stage="partial_rerun", mode=mode)
+        LOGGER.info("Running partial rerun mode '%s'.", mode)
+        stored_papers = self._apply_discovery_limits(self.database.get_papers_for_query(self.config.query_key or ""))
+        if not stored_papers:
+            reason = "Partial rerun requested, but no stored records exist for the current query."
+            LOGGER.error(reason)
+            self._emit_event("run_failed", stage="partial_rerun", reason=reason)
+            return {
+                "discovered_count": 0,
+                "deduplicated_count": 0,
+                "database_count": 0,
+                "run_status": "failed_partial_rerun",
+                "run_error": reason,
+            }
+
+        screening_stats = {"screened_count": 0, "full_text_screened_count": 0}
+        if mode == "pdfs_screening_reporting":
+            LOGGER.info("Refreshing PDF metadata before screening.")
+            enriched_papers = self._enrich_with_pdfs(stored_papers)
+            if enriched_papers:
+                self.database.upsert_papers(enriched_papers, self.config.query_key or "")
+
+        if mode in {"screening_and_reporting", "pdfs_screening_reporting"} and self.config.run_mode != "collect":
+            screening_stats = self._screen_papers()
+            if self.config.download_pdfs and self.config.pdf_download_mode == "relevant_only":
+                relevant_pdf_updates = self._download_relevant_pdfs(
+                    self._apply_discovery_limits(self.database.get_papers_for_query(self.config.query_key or ""))
+                )
+                if relevant_pdf_updates:
+                    self.database.upsert_papers(relevant_pdf_updates, self.config.query_key or "")
+
+        final_papers = self._apply_discovery_limits(
+            self._normalize_papers_for_current_context(
+                self.database.get_papers_for_query(self.config.query_key or "")
+            )
+        )
+        return self._finalize_run_result(
+            final_papers=final_papers,
+            discovered_count=len(stored_papers),
+            deduplicated_count=len(stored_papers),
+            snowballing_added_count=0,
+            screening_stats=screening_stats,
+            run_status="completed_partial",
+            extra_result_fields={"partial_rerun_mode": mode},
+        )
+
+    def _finalize_run_result(
+        self,
+        *,
+        final_papers: list[PaperMetadata],
+        discovered_count: int,
+        deduplicated_count: int,
+        snowballing_added_count: int,
+        screening_stats: dict[str, int],
+        run_status: str,
+        run_error: str | None = None,
+        emit_completed_event: bool = True,
+        extra_result_fields: dict[str, Any] | None = None,
+    ) -> dict[str, str | int]:
+        """Generate reports, emit artifact events, and build the final result payload."""
+
+        stats = self._build_report_stats(
+            final_papers=final_papers,
+            discovered_count=discovered_count,
+            deduplicated_count=deduplicated_count,
+            snowballing_added_count=snowballing_added_count,
+            screening_stats=screening_stats,
+        )
+        report_paths = self.report_generator.generate(final_papers, stats=stats)
+        self._emit_report_artifacts(report_paths)
+        if emit_completed_event and run_status.startswith("completed"):
+            self._emit_event("run_completed", stage="pipeline", report_paths=report_paths)
+        return {
+            **report_paths,
+            "discovered_count": discovered_count,
+            "deduplicated_count": deduplicated_count,
+            "database_count": len(final_papers),
+            "run_status": run_status,
+            **(extra_result_fields or {}),
+            **({"run_error": run_error} if run_error else {}),
+        }
+
+    def _build_report_stats(
+        self,
+        *,
+        final_papers: list[PaperMetadata],
+        discovered_count: int,
+        deduplicated_count: int,
+        snowballing_added_count: int,
+        screening_stats: dict[str, int],
+    ) -> dict[str, Any]:
+        """Build the shared reporting stats payload used by full and partial runs."""
+
+        return {
+            "discovered_count": discovered_count,
+            "deduplicated_count": deduplicated_count,
+            "snowballing_added_count": snowballing_added_count,
+            "decision_counts": self._decision_counts(final_papers),
+            "screened_count": len([paper for paper in final_papers if paper.inclusion_decision]),
+            "newly_screened_count": screening_stats["screened_count"],
+            "full_text_screened_count": screening_stats["full_text_screened_count"],
+            "run_mode": self.config.run_mode,
+            "partial_rerun_mode": self.config.partial_rerun_mode,
+        }
+
     def _discover(self) -> list[PaperMetadata]:
         """Collect metadata from fixtures, manual imports, and enabled API clients."""
 
@@ -279,6 +377,8 @@ class PipelineController:
         clients = self._build_discovery_clients(allow_empty=bool(imported))
         if not clients:
             return discovered
+        if self.config.enable_async_network_stages:
+            return discovered + self._discover_async(clients)
         with ThreadPoolExecutor(max_workers=min(self.config.effective_discovery_workers, len(clients))) as executor:
             self._active_executors.append(executor)
             try:
@@ -327,6 +427,52 @@ class PipelineController:
                     self._active_executors.remove(executor)
         return discovered
 
+    def _discover_async(self, clients: dict[str, Callable[[], list[PaperMetadata]]]) -> list[PaperMetadata]:
+        """Run discovery sources through an asyncio coordination layer for network-heavy runs."""
+
+        return asyncio.run(self._discover_async_impl(clients))
+
+    async def _discover_async_impl(self, clients: dict[str, Callable[[], list[PaperMetadata]]]) -> list[PaperMetadata]:
+        """Coordinate discovery sources asynchronously while preserving the current source contract."""
+
+        discovered: list[PaperMetadata] = []
+        semaphore = asyncio.Semaphore(max(1, min(self.config.effective_discovery_workers, len(clients))))
+
+        async def run_source(name: str, search_callable: Callable[[], list[PaperMetadata]]) -> tuple[str, list[PaperMetadata]]:
+            async with semaphore:
+                return name, await asyncio.to_thread(self._discover_from_source, name, search_callable)
+
+        tasks = [asyncio.create_task(run_source(name, callable_)) for name, callable_ in clients.items()]
+        for task in tasks:
+            task.set_name(f"discover:{task.get_name()}")
+        for completed in asyncio.as_completed(tasks):
+            self._check_stop()
+            try:
+                source_name, source_records = await completed
+                discovered.extend(source_records)
+                self._emit_event("source_completed", source=source_name, record_count=len(source_records))
+                if self.config.max_discovered_records is not None:
+                    limited = deduplicate_papers(
+                        discovered,
+                        title_similarity_threshold=self.config.title_similarity_threshold,
+                    )
+                    if len(limited) >= self.config.max_discovered_records:
+                        LOGGER.info(
+                            "Discovery cap of %s unique records reached; trimming the result set.",
+                            self.config.max_discovered_records,
+                        )
+                        self._emit_event(
+                            "discovery_limit_reached",
+                            limit=self.config.max_discovered_records,
+                            record_count=len(limited),
+                        )
+                        for task in tasks:
+                            task.cancel()
+                        return limited[: self.config.max_discovered_records]
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.exception("Async discovery source failed: %s", exc)
+        return discovered
+
     def _build_discovery_clients(self, *, allow_empty: bool = False) -> dict[str, Callable[[], list[PaperMetadata]]]:
         """Return the enabled discovery clients for the current configuration."""
 
@@ -351,7 +497,7 @@ class PipelineController:
         """Resolve PDF metadata and optionally download files for discovered papers."""
 
         self._log_verbose("Checking PDF availability for %s papers.", len(papers))
-        return self._map_papers_with_executor(
+        return self._process_pdf_batch_queue(
             papers,
             self._enrich_paper_with_pdf,
             desc="PDF metadata and downloads",
@@ -368,7 +514,7 @@ class PipelineController:
             len(relevant_papers),
             self.config.relevant_pdfs_dir,
         )
-        return self._map_papers_with_executor(
+        return self._process_pdf_batch_queue(
             relevant_papers,
             self._download_one_relevant_pdf,
             desc="Relevant PDF downloads",
@@ -724,6 +870,45 @@ class PipelineController:
             LOGGER.warning("Relevant PDF download failed for %s: %s", paper.title, exc)
             return paper
 
+    def _process_pdf_batch_queue(
+        self,
+        papers: list[PaperMetadata],
+        worker: Callable[[PaperMetadata], PaperMetadata],
+        *,
+        desc: str,
+    ) -> list[PaperMetadata]:
+        """Process PDF work in bounded batches so downloads do not burst all at once."""
+
+        if not papers:
+            return []
+        batch_size = max(1, self.config.pdf_batch_size)
+        if len(papers) <= batch_size:
+            return self._map_papers_with_executor(papers, worker, desc=desc)
+
+        processed: list[PaperMetadata] = []
+        total_batches = (len(papers) + batch_size - 1) // batch_size
+        for batch_index, batch_start in enumerate(range(0, len(papers), batch_size), start=1):
+            self._check_stop()
+            batch = papers[batch_start: batch_start + batch_size]
+            batch_desc = f"{desc} batch {batch_index}/{total_batches}"
+            self._log_verbose("%s queued %s papers.", batch_desc, len(batch))
+            self._emit_event(
+                "pdf_batch_started",
+                stage=desc,
+                batch_index=batch_index,
+                total_batches=total_batches,
+                batch_size=len(batch),
+            )
+            processed.extend(self._map_papers_with_executor(batch, worker, desc=batch_desc))
+            self._emit_event(
+                "pdf_batch_finished",
+                stage=desc,
+                batch_index=batch_index,
+                total_batches=total_batches,
+                batch_size=len(batch),
+            )
+        return processed
+
     def _map_papers_with_executor(
         self,
         papers: list[PaperMetadata],
@@ -746,6 +931,8 @@ class PipelineController:
                     disable=self.config.disable_progress_bars,
                 )
             ]
+        if self.config.enable_async_network_stages:
+            return self._map_papers_async(papers, worker, desc=desc, worker_count=worker_count)
 
         self._log_verbose("%s is using %s worker threads.", desc, worker_count)
         ordered_results: list[PaperMetadata | None] = [None] * len(papers)
@@ -768,6 +955,43 @@ class PipelineController:
             finally:
                 if executor in self._active_executors:
                     self._active_executors.remove(executor)
+        return [result if result is not None else paper for result, paper in zip(ordered_results, papers)]
+
+    def _map_papers_async(
+        self,
+        papers: list[PaperMetadata],
+        worker: Callable[[PaperMetadata], PaperMetadata],
+        *,
+        desc: str,
+        worker_count: int,
+    ) -> list[PaperMetadata]:
+        """Run IO-heavy per-paper work through an asyncio coordination layer."""
+
+        self._log_verbose("%s is using async orchestration with %s workers.", desc, worker_count)
+        return asyncio.run(self._map_papers_async_impl(papers, worker, desc=desc, worker_count=worker_count))
+
+    async def _map_papers_async_impl(
+        self,
+        papers: list[PaperMetadata],
+        worker: Callable[[PaperMetadata], PaperMetadata],
+        *,
+        desc: str,
+        worker_count: int,
+    ) -> list[PaperMetadata]:
+        """Preserve paper order while running synchronous workers through asyncio."""
+
+        ordered_results: list[PaperMetadata | None] = [None] * len(papers)
+        semaphore = asyncio.Semaphore(max(1, worker_count))
+
+        async def run_worker(index: int, paper: PaperMetadata) -> tuple[int, PaperMetadata]:
+            async with semaphore:
+                return index, await asyncio.to_thread(worker, paper)
+
+        tasks = [asyncio.create_task(run_worker(index, paper)) for index, paper in enumerate(papers)]
+        for completed in asyncio.as_completed(tasks):
+            self._check_stop()
+            index, result = await completed
+            ordered_results[index] = result
         return [result if result is not None else paper for result, paper in zip(ordered_results, papers)]
 
     def _parallel_worker_count(self, item_count: int) -> int:

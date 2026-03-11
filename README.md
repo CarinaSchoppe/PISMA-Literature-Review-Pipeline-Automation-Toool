@@ -52,6 +52,16 @@ input -> discovery -> deduplication -> database storage -> citation expansion ->
 * deterministic offline fixture mode for testing
 * multi-threaded discovery, enrichment, and screening orchestration
 * per-source throttling and stage-specific worker overrides
+* smarter `429` backoff with `Retry-After` support and bounded exponential fallback
+* persistent on-disk source-response cache for repeatable GET requests
+* incremental report regeneration that skips unchanged artifacts
+* partial rerun modes for downstream-only execution
+* batch-based PDF acquisition queueing
+* optional async orchestration for network-heavy stages
+* provider-contract tests for normalized discovery adapters
+* benchmark fixtures and local performance regression reports
+* `pyproject.toml`-based tooling unification
+* GitHub Actions quality gates for lint, type-checking, tests, coverage, and benchmark smoke runs
 * profile save/load in the GUI
 
 ---
@@ -179,8 +189,116 @@ That includes:
 * export options
 * database and output paths
 * worker/thread controls
+* HTTP cache and retry controls
+* partial rerun and incremental regeneration controls
+* async network-stage toggles and PDF batch sizing
 * rerun and cache-reset controls
 * logging and verbosity settings
+
+---
+
+## Runtime Resilience And Incremental Workflows
+
+The runtime now includes explicit controls for repeated review work, rate-limit handling, and downstream-only reruns.
+
+### Smarter `429` backoff
+
+The HTTP layer now:
+
+* respects `Retry-After` when a provider returns `429 Too Many Requests`
+* falls back to bounded exponential backoff when `Retry-After` is missing
+* keeps transport retries for `5xx` failures separate from rate-limit retries
+
+Relevant settings:
+
+* `--http-retry-max-attempts`
+* `--http-retry-base-delay-seconds`
+* `--http-retry-max-delay-seconds`
+
+### Persistent source-response cache
+
+Eligible GET requests can be cached on disk and reused across runs.
+
+Useful when:
+
+* you are re-running the same discovery query while tuning thresholds
+* a provider is rate-limited and you want to avoid fetching identical pages again
+* you want faster local iteration on screening or reporting settings
+
+Relevant settings:
+
+* `--http-cache-enabled` / `--no-http-cache-enabled`
+* `--http-cache-dir`
+* `--http-cache-ttl-seconds`
+
+### Partial rerun modes
+
+You can rerun only the affected downstream stages instead of restarting the full pipeline each time.
+
+Available modes:
+
+* `off`
+* `reporting_only`
+* `screening_and_reporting`
+* `pdfs_screening_reporting`
+
+Relevant setting:
+
+* `--partial-rerun-mode`
+
+### Incremental report regeneration
+
+When enabled, report generation skips rewriting artifacts whose content did not change.
+
+Relevant setting:
+
+* `--incremental-report-regeneration` / `--no-incremental-report-regeneration`
+
+### Batch PDF acquisition queue
+
+PDF enrichment and relevant-only PDF downloads now run in configurable batches.
+
+Relevant setting:
+
+* `--pdf-batch-size`
+
+### Optional async orchestration
+
+Eligible network-heavy stages can use the async orchestration path while preserving deterministic final ordering.
+
+Relevant setting:
+
+* `--enable-async-network-stages` / `--no-enable-async-network-stages`
+
+---
+
+## Quality Tooling
+
+The engineering toolchain is now unified around:
+
+* [pyproject.toml](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/pyproject.toml) for packaging metadata plus Ruff, Coverage, and MyPy configuration
+* [quality.yml](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/.github/workflows/quality.yml) for CI quality gates
+* [coverage_report.py](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/coverage_report.py) for JaCoCo-style coverage bundles
+* [benchmark_report.py](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/benchmark_report.py) for local benchmark regression reports
+* [test_provider_contracts.py](/C:/Users/Carina/.codex/worktrees/067c/PRISMA-Literature-Review/tests/test_provider_contracts.py) for provider contract coverage
+
+Recommended local quality commands:
+
+```powershell
+py -3 -m ruff check .
+py -3 -m mypy
+py -3 -m unittest discover -s tests -v
+py -3 coverage_report.py --top-files 25 --fail-under 99
+py -3 benchmark_report.py --fail-on-regression
+```
+
+### Optional async network orchestration
+
+Discovery and other network-heavy mapping stages can run through an async orchestration path while preserving stable output ordering.
+
+Relevant setting:
+
+* `--enable-async-network-stages` / `--no-enable-async-network-stages`
 
 ---
 
@@ -250,6 +368,18 @@ Optional local-model runtime:
 
 ```powershell
 py -3 -m pip install -r requirements-local-llm.txt
+```
+
+You can also install directly from the unified project metadata:
+
+```powershell
+py -3 -m pip install -e .[dev]
+```
+
+For local transformer support:
+
+```powershell
+py -3 -m pip install -e .[dev,local-llm]
 ```
 
 ---
@@ -504,11 +634,13 @@ The GUI surfaces operational issues through:
 
 Current tested baseline:
 
-* `163` passing tests
-* `99.14%` app-code coverage excluding `tests/*`
-* `99.17%` full-repository coverage including `tests/*`
+* `219` passing tests
+* `99.30%` app-code coverage excluding `tests/*`
+* `99.30%` full-repository coverage including `tests/*`
 * clean `ruff` lint
+* clean `mypy` type-checking for the configured backend/tooling scope
 * clean `compileall`
+* clean benchmark regression pass with `benchmark_report.py --fail-on-regression`
 
 Run the test suite:
 
@@ -573,6 +705,27 @@ Generated reports include:
 * `results/coverage_html_app/index.html`
 
 Each coverage-report run uses its own coverage data file inside the target results directory, so separate report runs do not collide with the root `.coverage` file.
+
+Run the benchmark regression helper:
+
+```powershell
+py -3 benchmark_report.py
+```
+
+Fail the run when a benchmark baseline is exceeded:
+
+```powershell
+py -3 benchmark_report.py --fail-on-regression
+```
+
+Generated benchmark artifacts include:
+
+* `results/benchmark_report/benchmark_report.txt`
+* `results/benchmark_report/benchmark_report.md`
+* `results/benchmark_report/benchmark_summary.json`
+* `results/benchmark_report/benchmark_results.csv`
+
+The default thresholds live in `configs/benchmark_baselines.json`.
 
 ---
 

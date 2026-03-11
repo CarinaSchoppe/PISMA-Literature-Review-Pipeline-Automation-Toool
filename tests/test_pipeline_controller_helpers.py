@@ -404,6 +404,65 @@ class PipelineControllerHelperTests(unittest.TestCase):
             finally:
                 failing_controller.close()
 
+    def test_discover_can_use_async_network_layer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = PipelineController(self._config(root, max_workers=4, openalex_enabled=True, enable_async_network_stages=True))
+            try:
+                controller.fixture_client = None
+                controller.manual_import_clients = []
+                controller._build_discovery_clients = Mock(
+                    return_value={
+                        "one": lambda: [PaperMetadata(title="Paper 1", source="one")],
+                        "two": lambda: [PaperMetadata(title="Paper 2", source="two")],
+                    }
+                )
+                results = controller._discover()
+                self.assertEqual({paper.title for paper in results}, {"Paper 1", "Paper 2"})
+            finally:
+                controller.close()
+
+    def test_async_discovery_can_hit_global_cap_and_cancel_remaining_tasks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            events: list[dict[str, object]] = []
+            controller = PipelineController(
+                self._config(root, max_workers=4, max_discovered_records=1, openalex_enabled=True, enable_async_network_stages=True),
+                event_sink=events.append,
+            )
+            try:
+                controller.fixture_client = None
+                controller.manual_import_clients = []
+                controller._build_discovery_clients = Mock(
+                    return_value={
+                        "one": lambda: [PaperMetadata(title="Paper 1", source="one")],
+                        "two": lambda: [PaperMetadata(title="Paper 2", source="two")],
+                    }
+                )
+                limited = controller._discover()
+                self.assertEqual(len(limited), 1)
+                self.assertTrue(any(event["event_type"] == "discovery_limit_reached" for event in events))
+            finally:
+                controller.close()
+
+    def test_async_discovery_handles_source_exceptions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = PipelineController(self._config(root, openalex_enabled=True, enable_async_network_stages=True))
+            try:
+                controller.fixture_client = None
+                controller.manual_import_clients = []
+                controller._build_discovery_clients = Mock(
+                    return_value={
+                        "good": lambda: [PaperMetadata(title="Paper 1", source="good")],
+                        "broken": Mock(side_effect=RuntimeError("boom")),
+                    }
+                )
+                results = controller._discover()
+                self.assertEqual([paper.title for paper in results], ["Paper 1"])
+            finally:
+                controller.close()
+
     def test_parallel_mapping_preserves_order_and_caps_worker_counts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -432,6 +491,125 @@ class PipelineControllerHelperTests(unittest.TestCase):
                 self.assertEqual(controller._parallel_worker_count(1), 1)
                 self.assertEqual(controller._parallel_worker_count(3), 3)
                 self.assertEqual(controller._parallel_worker_count(20), 4)
+            finally:
+                controller.close()
+
+    def test_pdf_batch_queue_splits_work_into_configured_batches(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = PipelineController(self._config(root, pdf_batch_size=2))
+            try:
+                papers = [
+                    PaperMetadata(title="A", source="fixture"),
+                    PaperMetadata(title="B", source="fixture"),
+                    PaperMetadata(title="C", source="fixture"),
+                    PaperMetadata(title="D", source="fixture"),
+                    PaperMetadata(title="E", source="fixture"),
+                ]
+                batch_descriptions: list[str] = []
+
+                def fake_map(batch: list[PaperMetadata], _worker, *, desc: str):  # noqa: ANN001
+                    batch_descriptions.append(desc)
+                    return batch
+
+                controller._map_papers_with_executor = Mock(side_effect=fake_map)
+                processed = controller._process_pdf_batch_queue(papers, lambda paper: paper, desc="PDF queue")
+
+                self.assertEqual([paper.title for paper in processed], ["A", "B", "C", "D", "E"])
+                self.assertEqual(
+                    batch_descriptions,
+                    ["PDF queue batch 1/3", "PDF queue batch 2/3", "PDF queue batch 3/3"],
+                )
+            finally:
+                controller.close()
+
+    def test_pdf_batch_queue_returns_empty_without_work(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = PipelineController(self._config(root, pdf_batch_size=3))
+            try:
+                self.assertEqual(controller._process_pdf_batch_queue([], lambda paper: paper, desc="Empty queue"), [])
+            finally:
+                controller.close()
+
+    def test_map_papers_async_preserves_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = PipelineController(self._config(root, max_workers=3, enable_async_network_stages=True))
+            try:
+                papers = [
+                    PaperMetadata(title="Paper A", source="fixture"),
+                    PaperMetadata(title="Paper B", source="fixture"),
+                    PaperMetadata(title="Paper C", source="fixture"),
+                ]
+
+                def worker(paper: PaperMetadata) -> PaperMetadata:
+                    delays = {"Paper A": 0.03, "Paper B": 0.01, "Paper C": 0.02}
+                    time.sleep(delays[paper.title])
+                    return paper.model_copy(update={"venue": f"done-{paper.title}"})
+
+                results = controller._map_papers_async(papers, worker, desc="Async stage", worker_count=3)
+                self.assertEqual([paper.title for paper in results], ["Paper A", "Paper B", "Paper C"])
+                self.assertEqual([paper.venue for paper in results], ["done-Paper A", "done-Paper B", "done-Paper C"])
+            finally:
+                controller.close()
+
+    def test_map_papers_with_executor_can_delegate_to_async_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = PipelineController(self._config(root, max_workers=3, enable_async_network_stages=True))
+            try:
+                papers = [
+                    PaperMetadata(title="Paper A", source="fixture"),
+                    PaperMetadata(title="Paper B", source="fixture"),
+                ]
+                async_results = [paper.model_copy(update={"venue": "async"}) for paper in papers]
+                with patch.object(controller, "_map_papers_async", return_value=async_results) as async_mock:
+                    results = controller._map_papers_with_executor(papers, lambda paper: paper, desc="Async delegate")
+                self.assertEqual(results, async_results)
+                async_mock.assert_called_once()
+            finally:
+                controller.close()
+
+    def test_partial_rerun_returns_failure_when_no_stored_records_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = PipelineController(self._config(root, partial_rerun_mode="reporting_only"))
+            try:
+                controller.database.get_papers_for_query = Mock(return_value=[])
+                result = controller._run_partial_rerun()
+                self.assertEqual(result["run_status"], "failed_partial_rerun")
+            finally:
+                controller.close()
+
+    def test_partial_rerun_can_refresh_pdfs_and_download_relevant_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            controller = PipelineController(
+                self._config(
+                    root,
+                    run_mode="analyze",
+                    partial_rerun_mode="pdfs_screening_reporting",
+                    download_pdfs=True,
+                    pdf_download_mode="relevant_only",
+                )
+            )
+            try:
+                stored = [PaperMetadata(database_id=1, title="Stored", source="fixture")]
+                enriched = [stored[0].model_copy(update={"pdf_link": "https://example.org/paper.pdf"})]
+                relevant = [stored[0].model_copy(update={"pdf_path": "papers/paper.pdf"})]
+                controller.database.get_papers_for_query = Mock(side_effect=[stored, stored, stored])
+                controller.database.upsert_papers = Mock()
+                controller._enrich_with_pdfs = Mock(return_value=enriched)
+                controller._screen_papers = Mock(return_value={"screened_count": 1, "full_text_screened_count": 0})
+                controller._download_relevant_pdfs = Mock(return_value=relevant)
+                controller._finalize_run_result = Mock(return_value={"run_status": "completed_partial"})
+
+                result = controller._run_partial_rerun()
+
+                self.assertEqual(result["run_status"], "completed_partial")
+                self.assertEqual(controller.database.upsert_papers.call_count, 2)
+                controller._download_relevant_pdfs.assert_called_once()
             finally:
                 controller.close()
 

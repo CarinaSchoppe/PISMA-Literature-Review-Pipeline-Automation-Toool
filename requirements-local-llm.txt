@@ -1,6 +1,1 @@
--r requirements.txt
-transformers
-torch
-accelerate
-safetensors
-sentencepiece
+-e .[dev,local-llm]

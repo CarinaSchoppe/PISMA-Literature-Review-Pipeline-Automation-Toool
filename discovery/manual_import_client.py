@@ -22,7 +22,8 @@ class ManualImportClient:
         source_name: str = "manual_import",
     ) -> None:
         self.config = config
-        resolved_path = Path(path or config.manual_source_path) if (path or config.manual_source_path) else None
+        source_path = path or config.manual_source_path
+        resolved_path = Path(source_path) if source_path is not None else None
         if resolved_path is None:
             raise ValueError("A path must be set for manual import")
         self.path = resolved_path

@@ -174,7 +174,7 @@ def build_report_artifacts(
         "",
         "Lowest-Coverage Files:",
     ]
-    json_summary = {
+    json_summary: dict[str, Any] = {
         "overall": {
             "percent_covered": round(summary.percent_covered, 2),
             "covered_lines": summary.covered_lines,

@@ -161,6 +161,7 @@ class DesktopWorkbench:
 
     COMBOBOX_FIELDS = {
         "llm_provider": ["auto", "heuristic", "openai_compatible", "gemini", "ollama", "huggingface_local"],
+        "partial_rerun_mode": ["off", "reporting_only", "screening_and_reporting", "pdfs_screening_reporting"],
         "openai_model": ["gpt-5.4"],
         "gemini_model": ["gemini-2.5-flash", "gemini-2.5-pro"],
         "ollama_model": ["qwen3:8b", "gpt-oss:20b"],
@@ -183,6 +184,9 @@ class DesktopWorkbench:
         "io_workers": {"from_": 0, "to": 64, "increment": 1},
         "screening_workers": {"from_": 0, "to": 64, "increment": 1},
         "request_timeout_seconds": {"from_": 1, "to": 600, "increment": 1},
+        "http_cache_ttl_seconds": {"from_": 60, "to": 604800, "increment": 60},
+        "http_retry_max_attempts": {"from_": 1, "to": 20, "increment": 1},
+        "pdf_batch_size": {"from_": 1, "to": 500, "increment": 1},
         "huggingface_max_new_tokens": {"from_": 16, "to": 4096, "increment": 16},
     }
 
@@ -194,6 +198,8 @@ class DesktopWorkbench:
         "arxiv_calls_per_second": {"from_": 0.0, "to": 5.0, "increment": 0.01},
         "pubmed_calls_per_second": {"from_": 0.0, "to": 20.0, "increment": 0.1},
         "unpaywall_calls_per_second": {"from_": 0.0, "to": 10.0, "increment": 0.1},
+        "http_retry_base_delay_seconds": {"from_": 0.0, "to": 120.0, "increment": 0.1},
+        "http_retry_max_delay_seconds": {"from_": 0.0, "to": 600.0, "increment": 1.0},
     }
 
     SECRET_FIELDS = {
@@ -247,6 +253,12 @@ class DesktopWorkbench:
                 "manual_source_path",
                 "google_scholar_import_path",
                 "researchgate_import_path",
+                "http_cache_enabled",
+                "http_cache_dir",
+                "http_cache_ttl_seconds",
+                "http_retry_max_attempts",
+                "http_retry_base_delay_seconds",
+                "http_retry_max_delay_seconds",
                 "openalex_calls_per_second",
                 "semantic_scholar_calls_per_second",
                 "crossref_calls_per_second",
@@ -326,6 +338,10 @@ class DesktopWorkbench:
                 "discovery_workers",
                 "io_workers",
                 "screening_workers",
+                "partial_rerun_mode",
+                "incremental_report_regeneration",
+                "enable_async_network_stages",
+                "pdf_batch_size",
                 "request_timeout_seconds",
                 "resume_mode",
                 "reset_query_records",
@@ -370,6 +386,16 @@ class DesktopWorkbench:
         "analyze_full_text": "Analyze PDF full text",
         "full_text_max_chars": "Full-text chars",
         "request_timeout_seconds": "Request timeout (s)",
+        "partial_rerun_mode": "Partial rerun mode",
+        "incremental_report_regeneration": "Incremental report regeneration",
+        "enable_async_network_stages": "Enable async network stages",
+        "http_cache_enabled": "Enable HTTP source cache",
+        "http_cache_dir": "HTTP cache directory",
+        "http_cache_ttl_seconds": "HTTP cache TTL (s)",
+        "http_retry_max_attempts": "HTTP retry max attempts",
+        "http_retry_base_delay_seconds": "HTTP retry base delay (s)",
+        "http_retry_max_delay_seconds": "HTTP retry max delay (s)",
+        "pdf_batch_size": "PDF batch size",
         "title_similarity_threshold": "Title similarity threshold",
         "openai_base_url": "OpenAI base URL",
         "openai_model": "OpenAI model",
@@ -438,6 +464,7 @@ class DesktopWorkbench:
         "papers_dir": "directory",
         "relevant_pdfs_dir": "directory",
         "results_dir": "directory",
+        "http_cache_dir": "directory",
         "huggingface_cache_dir": "directory",
     }
 
@@ -749,6 +776,52 @@ class DesktopWorkbench:
         ),
         "max_workers": "Maximum worker threads used for parallel API discovery and other concurrent tasks.",
         "request_timeout_seconds": "Network timeout applied to external API requests.",
+        "partial_rerun_mode": (
+            "Choose whether the next run should execute the full pipeline or only downstream stages that depend on "
+            "already stored records. Reporting-only is useful after changing export settings. Screening-and-reporting "
+            "reuses stored discovery records but reruns AI evaluation. PDFs-screening-reporting also refreshes PDF "
+            "metadata and downloads before screening."
+        ),
+        "incremental_report_regeneration": (
+            "If you set this to Yes, report files are rewritten only when their contents changed. If you set this to "
+            "No, every report artifact is regenerated from scratch. This is useful when you want stable timestamps and "
+            "faster report-only reruns."
+        ),
+        "enable_async_network_stages": (
+            "If you set this to Yes, discovery and IO-heavy stages are orchestrated through asyncio while still using "
+            "the same provider clients. If you set this to No, the pipeline uses the classic thread-pool path only. "
+            "This flag is optional and mainly helps network-heavy runs."
+        ),
+        "http_cache_enabled": (
+            "If you set this to Yes, eligible GET responses from discovery-style APIs are stored on disk and can be "
+            "reused by later runs. If you set this to No, each run fetches fresh responses from the remote source. "
+            "Use this to reduce duplicate API traffic during iterative review design."
+        ),
+        "http_cache_dir": (
+            "Directory where the persistent HTTP source-response cache is stored. Example path: "
+            "C:/reviews/llm_review/data/http_cache. Cached entries are keyed by request signature and reused until "
+            "their TTL expires."
+        ),
+        "http_cache_ttl_seconds": (
+            "Maximum age for cached GET responses before they are treated as stale. Higher values reuse metadata for "
+            "longer; lower values force fresher API lookups. Example: 86400 means one day."
+        ),
+        "http_retry_max_attempts": (
+            "Maximum attempts for requests that receive a 429 rate-limit response. Higher values wait and retry longer; "
+            "lower values fail fast. Example: 4 means one initial request plus up to three retries."
+        ),
+        "http_retry_base_delay_seconds": (
+            "Base exponential backoff delay used when a 429 response does not provide a Retry-After header. Lower "
+            "values retry sooner. Higher values are gentler on rate-limited providers."
+        ),
+        "http_retry_max_delay_seconds": (
+            "Upper limit for any individual 429 backoff delay. This prevents one provider from sleeping for an "
+            "unreasonably long time when a retry header is very large."
+        ),
+        "pdf_batch_size": (
+            "Number of papers processed in each PDF enrichment or download batch. Smaller batches reduce burstiness and "
+            "make progress easier to inspect. Larger batches may finish faster on stable connections."
+        ),
         "discovery_workers": (
             "Optional worker-thread override for discovery. Set this to 0 to inherit the global parallel-worker count."
         ),

@@ -32,6 +32,16 @@ class UIViewModelTests(unittest.TestCase):
                 "discovery_workers": 2,
                 "io_workers": 3,
                 "screening_workers": 4,
+                "partial_rerun_mode": "screening_and_reporting",
+                "incremental_report_regeneration": True,
+                "enable_async_network_stages": True,
+                "http_cache_enabled": True,
+                "http_cache_dir": "data/http_cache",
+                "http_cache_ttl_seconds": "7200",
+                "http_retry_max_attempts": "6",
+                "http_retry_base_delay_seconds": "1.5",
+                "http_retry_max_delay_seconds": "45",
+                "pdf_batch_size": "8",
                 "reset_query_records": True,
                 "clear_screening_cache": True,
                 "analysis_passes": "fast|huggingface_local|72|strict|8|Qwen/Qwen3-14B|0\ndeep|openai_compatible|85|triage|12|gpt-5.4|70",
@@ -62,6 +72,16 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(config.discovery_workers, 2)
         self.assertEqual(config.io_workers, 3)
         self.assertEqual(config.screening_workers, 4)
+        self.assertEqual(config.partial_rerun_mode, "screening_and_reporting")
+        self.assertTrue(config.incremental_report_regeneration)
+        self.assertTrue(config.enable_async_network_stages)
+        self.assertTrue(config.http_cache_enabled)
+        self.assertEqual(config.http_cache_dir, Path("data/http_cache"))
+        self.assertEqual(config.http_cache_ttl_seconds, 7200)
+        self.assertEqual(config.http_retry_max_attempts, 6)
+        self.assertEqual(config.http_retry_base_delay_seconds, 1.5)
+        self.assertEqual(config.http_retry_max_delay_seconds, 45.0)
+        self.assertEqual(config.pdf_batch_size, 8)
         self.assertTrue(config.reset_query_records)
         self.assertTrue(config.clear_screening_cache)
         self.assertEqual(len(config.analysis_passes), 2)
@@ -104,43 +124,69 @@ class UIViewModelTests(unittest.TestCase):
             self.assertEqual(Path(loaded["results_dir"]), Path("results/demo-profile"))
 
     def test_config_to_form_values_flattens_validated_config(self) -> None:
-        config = ResearchConfig(
-            research_topic="Systematic reviews",
-            search_keywords=["llm", "screening"],
-            discovery_strategy="balanced",
-            max_discovered_records=75,
-            min_discovered_records=5,
-            analysis_passes=[
-                {
-                    "name": "fast",
-                    "llm_provider": "huggingface_local",
-                    "threshold": 72,
-                    "decision_mode": "strict",
-                    "maybe_threshold_margin": 8,
-                    "model_name": "Qwen/Qwen3-14B",
-                    "min_input_score": 0,
-                }
-            ],
-            discovery_workers=2,
-            io_workers=3,
-            screening_workers=4,
-            reset_query_records=True,
-            clear_screening_cache=True,
-            include_pubmed=False,
-        ).finalize()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = ResearchConfig(
+                research_topic="Systematic reviews",
+                search_keywords=["llm", "screening"],
+                discovery_strategy="balanced",
+                max_discovered_records=75,
+                min_discovered_records=5,
+                analysis_passes=[
+                    {
+                        "name": "fast",
+                        "llm_provider": "huggingface_local",
+                        "threshold": 72,
+                        "decision_mode": "strict",
+                        "maybe_threshold_margin": 8,
+                        "model_name": "Qwen/Qwen3-14B",
+                        "min_input_score": 0,
+                    }
+                ],
+                discovery_workers=2,
+                io_workers=3,
+                screening_workers=4,
+                partial_rerun_mode="screening_and_reporting",
+                incremental_report_regeneration=True,
+                enable_async_network_stages=True,
+                http_cache_enabled=True,
+                http_cache_dir=root / "data" / "http_cache",
+                http_cache_ttl_seconds=7200,
+                http_retry_max_attempts=6,
+                http_retry_base_delay_seconds=1.5,
+                http_retry_max_delay_seconds=45.0,
+                pdf_batch_size=8,
+                reset_query_records=True,
+                clear_screening_cache=True,
+                include_pubmed=False,
+                data_dir=root / "data",
+                papers_dir=root / "papers",
+                results_dir=root / "results",
+                database_path=root / "data" / "literature_review.db",
+            ).finalize()
 
-        values = config_to_form_values(config)
+            values = config_to_form_values(config)
 
-        self.assertEqual(values["research_topic"], "Systematic reviews")
-        self.assertEqual(values["search_keywords"], "llm, screening")
-        self.assertEqual(values["max_discovered_records"], 75)
-        self.assertEqual(values["min_discovered_records"], 5)
-        self.assertEqual(values["discovery_workers"], 2)
-        self.assertEqual(values["io_workers"], 3)
-        self.assertEqual(values["screening_workers"], 4)
-        self.assertTrue(values["reset_query_records"])
-        self.assertTrue(values["clear_screening_cache"])
-        self.assertIn("Qwen/Qwen3-14B", values["analysis_passes"])
+            self.assertEqual(values["research_topic"], "Systematic reviews")
+            self.assertEqual(values["search_keywords"], "llm, screening")
+            self.assertEqual(values["max_discovered_records"], 75)
+            self.assertEqual(values["min_discovered_records"], 5)
+            self.assertEqual(values["discovery_workers"], 2)
+            self.assertEqual(values["io_workers"], 3)
+            self.assertEqual(values["screening_workers"], 4)
+            self.assertEqual(values["partial_rerun_mode"], "screening_and_reporting")
+            self.assertTrue(values["incremental_report_regeneration"])
+            self.assertTrue(values["enable_async_network_stages"])
+            self.assertTrue(values["http_cache_enabled"])
+            self.assertEqual(values["http_cache_dir"], (root / "data" / "http_cache").as_posix())
+            self.assertEqual(values["http_cache_ttl_seconds"], 7200)
+            self.assertEqual(values["http_retry_max_attempts"], 6)
+            self.assertEqual(values["http_retry_base_delay_seconds"], 1.5)
+            self.assertEqual(values["http_retry_max_delay_seconds"], 45.0)
+            self.assertEqual(values["pdf_batch_size"], 8)
+            self.assertTrue(values["reset_query_records"])
+            self.assertTrue(values["clear_screening_cache"])
+            self.assertIn("Qwen/Qwen3-14B", values["analysis_passes"])
 
     def test_config_payload_to_form_values_accepts_saved_json_shape(self) -> None:
         payload = {
@@ -152,6 +198,16 @@ class UIViewModelTests(unittest.TestCase):
             "discovery_workers": 2,
             "io_workers": 3,
             "screening_workers": 4,
+            "partial_rerun_mode": "screening_and_reporting",
+            "incremental_report_regeneration": True,
+            "enable_async_network_stages": True,
+            "http_cache_enabled": True,
+            "http_cache_dir": "data/http_cache",
+            "http_cache_ttl_seconds": 7200,
+            "http_retry_max_attempts": 6,
+            "http_retry_base_delay_seconds": 1.5,
+            "http_retry_max_delay_seconds": 45.0,
+            "pdf_batch_size": 8,
             "api_settings": {
                 "huggingface_model": "Qwen/Qwen3-14B",
                 "gemini_model": "gemini-2.5-flash",
@@ -169,6 +225,16 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(values["discovery_workers"], 2)
         self.assertEqual(values["io_workers"], 3)
         self.assertEqual(values["screening_workers"], 4)
+        self.assertEqual(values["partial_rerun_mode"], "screening_and_reporting")
+        self.assertTrue(values["incremental_report_regeneration"])
+        self.assertTrue(values["enable_async_network_stages"])
+        self.assertTrue(values["http_cache_enabled"])
+        self.assertEqual(values["http_cache_dir"], "data/http_cache")
+        self.assertEqual(values["http_cache_ttl_seconds"], 7200)
+        self.assertEqual(values["http_retry_max_attempts"], 6)
+        self.assertEqual(values["http_retry_base_delay_seconds"], 1.5)
+        self.assertEqual(values["http_retry_max_delay_seconds"], 45.0)
+        self.assertEqual(values["pdf_batch_size"], 8)
         self.assertEqual(values["gemini_model"], "gemini-2.5-flash")
         self.assertEqual(values["openalex_calls_per_second"], 4.5)
 

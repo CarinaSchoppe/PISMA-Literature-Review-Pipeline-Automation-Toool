@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+from typing import cast
 
-from models.paper import PaperMetadata, ScreeningResult
+from models.paper import DecisionLabel, PaperMetadata, ScreeningResult
 
 from config import ResearchConfig
 from utils.text_processing import extract_salient_sentence, keyword_overlap_score, normalize_title
@@ -110,13 +111,16 @@ class RelevanceScorer:
             + 0.10 * recency_score
             + 0.15 * citation_score
                           ) - exclusion_penalty - banned_penalty - excluded_title_penalty
-        stage_one = stage_one_decision or self.quick_screen(paper)
+        stage_one = cast(DecisionLabel, stage_one_decision or self.quick_screen(paper))
         extracted_passage = extract_salient_sentence(paper.abstract or paper.title, self.config.search_keywords)
-        decision = self._decision_from_score(
-            relevance_score,
-            stage_one,
-            matched_banned=bool(matched_banned),
-            matched_excluded_title_terms=bool(matched_excluded_title_terms),
+        decision = cast(
+            DecisionLabel,
+            self._decision_from_score(
+                relevance_score,
+                stage_one,
+                matched_banned=bool(matched_banned),
+                matched_excluded_title_terms=bool(matched_excluded_title_terms),
+            ),
         )
         retain_reason = (
             f"Kept because the paper matches the review focus and scored {relevance_score:.1f} against the "

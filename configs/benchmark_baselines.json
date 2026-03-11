@@ -1,0 +1,18 @@
+{
+  "fixture_discovery_search": {
+    "description": "Normalize the offline discovery fixture through the shared discovery client.",
+    "max_seconds": 0.8000
+  },
+  "deduplicate_fixture_batch": {
+    "description": "Deduplicate an amplified local fixture batch with DOI and title matching.",
+    "max_seconds": 1.2000
+  },
+  "manual_import_csv_load": {
+    "description": "Load and normalize a local CSV import fixture through the manual import client.",
+    "max_seconds": 0.8000
+  },
+  "query_variant_building": {
+    "description": "Build compound discovery query variants for search-oriented screening prompts.",
+    "max_seconds": 0.2500
+  }
+}

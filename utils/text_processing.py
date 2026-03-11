@@ -125,7 +125,7 @@ def safe_year(value: object) -> int | None:
     if value is None or value == "":
         return None
     try:
-        year = int(value)
+        year = int(str(value))
     except (TypeError, ValueError):
         return None
     if 1800 <= year <= 2100:

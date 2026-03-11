@@ -29,9 +29,19 @@ Already implemented and verified:
 - controlled stop handling
 - per-source rate limiting controls
 - stage-specific worker overrides
+- smarter request backoff on `429`, including `Retry-After` support and bounded exponential fallback
+- persistent source-response cache for eligible GET requests
+- incremental report regeneration that skips unchanged artifacts
+- partial rerun modes for downstream-only execution
+- batch PDF acquisition queueing
+- optional async orchestration for network-heavy stages
 - pre-run query reset and screening-cache reset controls
-- `99.14%` app-code coverage excluding `tests/*`
-- `99.17%` full-repository coverage including `tests/*`
+- `pyproject.toml` unification
+- MyPy type-checking on the core backend and tooling surface
+- CI pipeline for lint, type-checking, tests, coverage, and benchmark smoke checks
+- benchmark fixtures for performance regressions
+- provider-contract tests
+- verified automated quality gates with total code coverage above `99%`
 
 ## Design Principles
 
@@ -187,12 +197,10 @@ Already present:
 
 Next performance work:
 
-- smarter request backoff on `429`
-- persistent source-response cache
-- incremental report regeneration
-- partial rerun mode for only affected stages
-- batch PDF acquisition queue
-- optional async client layer for network-heavy stages
+- async-native provider clients where upstream SDKs make that worth the extra complexity
+- response-cache invalidation policies per source family
+- warm-cache versus cold-cache benchmark fixtures
+- workstation versus lightweight-laptop runtime profiles
 
 ## Quality Roadmap
 
@@ -205,11 +213,9 @@ The project should remain:
 
 Future quality additions:
 
-- `pyproject.toml` unification
-- type-checking with MyPy or Pyright
-- CI pipeline for lint, tests, and coverage gates
-- benchmark fixtures for performance regressions
-- provider-contract tests
+- targeted UI type-checking once the Tkinter event layer is split into smaller typed helpers
+- persisted benchmark trend history across environments
+- targeted soak tests for async and batched runtime paths
 
 ## Provider Strategy
 

@@ -1,0 +1,104 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prisma-literature-review-pipeline"
+version = "0.1.0"
+description = "Systematic literature discovery, screening, and reporting pipeline with a guided desktop workbench."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Carina Sophie Schoppe" },
+]
+dependencies = [
+  "requests>=2.32.3",
+  "pandas>=2.2.3",
+  "SQLAlchemy>=2.0.38",
+  "tqdm>=4.67.1",
+  "pydantic>=2.10.6",
+  "scikit-learn>=1.6.1",
+  "networkx>=3.4.2",
+  "pypdf>=5.4.0",
+  "coverage>=7.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.15.0",
+  "ruff>=0.12.0",
+  "types-requests>=2.32.0.20250328",
+]
+local-llm = [
+  "transformers",
+  "torch",
+  "accelerate",
+  "safetensors",
+  "sentencepiece",
+]
+
+[tool.setuptools]
+include-package-data = true
+py-modules = ["benchmark_report", "config", "coverage_report", "database", "main"]
+
+[tool.setuptools.packages.find]
+include = ["acquisition*", "analysis*", "citation*", "discovery*", "models*", "pipeline*", "reporting*", "ui*", "utils*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [
+  ".git",
+  ".ruff_cache",
+  ".venv",
+  "build",
+  "dist",
+]
+
+[tool.ruff.lint]
+select = ["E9", "F"]
+
+[tool.coverage.run]
+branch = false
+source = ["."]
+omit = [
+  "tests/*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+omit = [
+  "tests/*",
+]
+
+[tool.mypy]
+python_version = "3.11"
+files = [
+  "acquisition",
+  "analysis",
+  "citation",
+  "discovery",
+  "models",
+  "pipeline",
+  "reporting",
+  "utils",
+  "benchmark_report.py",
+  "config.py",
+  "coverage_report.py",
+  "database.py",
+]
+exclude = ["tests/", "ui/"]
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = false
+check_untyped_defs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+no_implicit_optional = true
+disable_error_code = ["import-untyped"]
+pretty = true
