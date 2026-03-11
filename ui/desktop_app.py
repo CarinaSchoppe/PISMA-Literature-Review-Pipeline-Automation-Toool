@@ -2464,6 +2464,17 @@ class DesktopWorkbench:
         normalized_topics = [str(topic).strip() for topic in self._coerce_json_list(extracted_topics) if str(topic).strip()]
         return normalized_topics, normalized_details
 
+    def _row_value(self, row: dict[str, Any], key: str) -> Any:
+        """Read a value from either the flat row payload or nested screening details."""
+
+        value = row.get(key)
+        if value not in {None, ""}:
+            return value
+        screening_details = row.get("screening_details")
+        if isinstance(screening_details, dict):
+            return screening_details.get(key)
+        return value
+
     def _build_layout(self) -> None:
         """Construct the top-level toolbar, notebook, and status bar widgets."""
         shell = ttk.Frame(self.root, padding=12, style="TFrame")
@@ -4266,6 +4277,8 @@ class DesktopWorkbench:
         """Return a user-facing table value with compact badges for high-signal columns."""
 
         value = str(row_payload.get(column, "") or "")
+        if not value and isinstance(row_payload.get("screening_details"), dict):
+            value = str(row_payload["screening_details"].get(column, "") or "")
         if column == "inclusion_decision":
             badge_text, _tone = self._decision_badge_text(value)
             return badge_text
@@ -5712,16 +5725,22 @@ class DesktopWorkbench:
         if not row:
             return
         extracted_topics, keyword_details = self._topic_detail_payload(row)
+        research_fit_label = self._row_value(row, "topic_prefilter_research_fit_label")
+        weighted_score = self._row_value(row, "topic_prefilter_weighted_score")
+        matched_count = self._row_value(row, "topic_prefilter_matched_keyword_count")
+        min_matches = self._row_value(row, "topic_prefilter_min_keyword_matches")
+        semantic_label = self._row_value(row, "topic_prefilter_label")
+        semantic_similarity = self._row_value(row, "topic_prefilter_similarity")
         lines = [
             f"Title: {row.get('title', '')}",
-            f"Research fit: {row.get('topic_prefilter_research_fit_label', '') or '(not available)'}",
-            f"Weighted score: {row.get('topic_prefilter_weighted_score', '') or '(not available)'}",
+            f"Research fit: {research_fit_label or '(not available)'}",
+            f"Weighted score: {weighted_score or '(not available)'}",
             (
-                f"Matched keywords: {row.get('topic_prefilter_matched_keyword_count', '') or '0'} / "
-                f"{row.get('topic_prefilter_min_keyword_matches', '') or '0'} minimum"
+                f"Matched keywords: {matched_count or '0'} / "
+                f"{min_matches or '0'} minimum"
             ),
-            f"Semantic label: {row.get('topic_prefilter_label', '') or '(not available)'}",
-            f"Semantic similarity: {row.get('topic_prefilter_similarity', '') or '(not available)'}",
+            f"Semantic label: {semantic_label or '(not available)'}",
+            f"Semantic similarity: {semantic_similarity or '(not available)'}",
             "",
             "Extracted topics:",
         ]
@@ -6838,12 +6857,12 @@ class DesktopWorkbench:
             f"Exclusion reason: {row.get('exclusion_reason', '') or '(not available)'}",
         ]
         extracted_topics, keyword_details = self._topic_detail_payload(row)
-        research_fit_label = str(row.get("topic_prefilter_research_fit_label", "") or "").strip()
-        weighted_score = str(row.get("topic_prefilter_weighted_score", "") or "").strip()
-        matched_count = str(row.get("topic_prefilter_matched_keyword_count", "") or "").strip()
-        min_matches = str(row.get("topic_prefilter_min_keyword_matches", "") or "").strip()
-        semantic_label = str(row.get("topic_prefilter_label", "") or "").strip()
-        semantic_similarity = str(row.get("topic_prefilter_similarity", "") or "").strip()
+        research_fit_label = str(self._row_value(row, "topic_prefilter_research_fit_label") or "").strip()
+        weighted_score = str(self._row_value(row, "topic_prefilter_weighted_score") or "").strip()
+        matched_count = str(self._row_value(row, "topic_prefilter_matched_keyword_count") or "").strip()
+        min_matches = str(self._row_value(row, "topic_prefilter_min_keyword_matches") or "").strip()
+        semantic_label = str(self._row_value(row, "topic_prefilter_label") or "").strip()
+        semantic_similarity = str(self._row_value(row, "topic_prefilter_similarity") or "").strip()
         if research_fit_label or extracted_topics or keyword_details:
             lines.extend(
                 [

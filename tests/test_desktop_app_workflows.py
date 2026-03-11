@@ -269,7 +269,17 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
         with patch("ui.desktop_app.PipelineController", FakeController), patch("ui.desktop_app.threading.Thread", FakeThread), patch.object(
             self.workbench, "_load_records_into_tree"
         ) as load_table, patch.object(self.workbench, "_load_outputs") as load_outputs:
-            self.workbench._start_run()
+            with patch.object(self.workbench, "_validate_guided_text_inputs", return_value=[]), patch(
+                "ui.desktop_app.form_values_to_config",
+                return_value=SimpleNamespace(
+                    log_file_path=Path("results/pipeline.log"),
+                    results_dir=Path("results"),
+                    skip_discovery=False,
+                    run_mode="analyze",
+                    verbosity="normal",
+                ),
+            ):
+                self.workbench._start_run()
             with patch.object(self.workbench.root, "after", return_value=None):
                 self.workbench._poll_messages()
             load_table.assert_called()
@@ -356,6 +366,13 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
                                 "doi": "10.1/a",
                                 "inclusion_decision": "include",
                                 "relevance_score": 72.0,
+                                "screening_details": {
+                                    "topic_prefilter_research_fit_label": "STRONG_FIT",
+                                    "topic_prefilter_weighted_score": 81.0,
+                                    "topic_prefilter_matched_keyword_count": 2,
+                                    "topic_prefilter_min_keyword_matches": 1,
+                                    "topic_prefilter_label": "HIGH_RELEVANCE",
+                                },
                             },
                             {
                                 "title": "Paper B",
@@ -365,6 +382,13 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
                                 "doi": "10.1/b",
                                 "inclusion_decision": "exclude",
                                 "relevance_score": 40.0,
+                                "screening_details": {
+                                    "topic_prefilter_research_fit_label": "NEAR_FIT",
+                                    "topic_prefilter_weighted_score": 48.0,
+                                    "topic_prefilter_matched_keyword_count": 1,
+                                    "topic_prefilter_min_keyword_matches": 2,
+                                    "topic_prefilter_label": "REVIEW",
+                                },
                             },
                         ],
                     },

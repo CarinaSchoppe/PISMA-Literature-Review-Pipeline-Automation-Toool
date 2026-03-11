@@ -95,7 +95,8 @@ class ConfigTests(unittest.TestCase):
             ]
         )
 
-        config = ResearchConfig.from_cli(args)
+        with patch("builtins.input", side_effect=AssertionError("input should not be called")):
+            config = ResearchConfig.from_cli(args)
 
         self.assertEqual(
             config.topic_prefilter_weighted_keywords,
