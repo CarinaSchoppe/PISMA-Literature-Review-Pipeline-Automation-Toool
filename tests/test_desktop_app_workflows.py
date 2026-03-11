@@ -53,7 +53,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
 
     def test_browse_for_field_supports_directory_file_and_database_targets(self) -> None:
         with patch("ui.desktop_app.filedialog.askdirectory", return_value="results/custom"), patch(
-            "ui.desktop_app.filedialog.asksaveasfilename", side_effect=["data/custom.db", "results/pipeline.log"]
+                "ui.desktop_app.filedialog.asksaveasfilename", return_value="data/custom.db"
         ), patch("ui.desktop_app.filedialog.askopenfilename", return_value="imports/manual.csv"):
             self.workbench._browse_for_field("results_dir", self.workbench.scalar_vars["results_dir"])
             self.workbench._browse_for_field("database_path", self.workbench.scalar_vars["database_path"])
@@ -254,7 +254,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
                 self.stop_called = True
 
         with patch("ui.desktop_app.PipelineController", FakeController), patch("ui.desktop_app.threading.Thread", FakeThread), patch.object(
-            self.workbench, "_load_dataframe_into_tree"
+                self.workbench, "_load_dataframe_into_tree"
         ) as load_table, patch.object(self.workbench, "_load_outputs") as load_outputs:
             self.workbench._start_run()
             with patch.object(self.workbench.root, "after", return_value=None):
@@ -263,7 +263,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
             load_outputs.assert_called_once()
 
         with patch("ui.desktop_app.form_values_to_config", side_effect=ValueError("bad config")), patch(
-            "ui.desktop_app.messagebox.showerror"
+                "ui.desktop_app.messagebox.showerror"
         ) as showerror:
             self.workbench._start_run()
         showerror.assert_called_once()
@@ -300,7 +300,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
         config = SimpleNamespace(results_dir=Path("results"))
 
         with patch.object(self.workbench, "_load_dataframe_into_tree"), patch.object(self.workbench, "_load_outputs"), patch(
-            "ui.desktop_app.messagebox.showerror"
+                "ui.desktop_app.messagebox.showerror"
         ) as showerror:
             self.workbench._handle_result(
                 {
@@ -311,7 +311,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
         showerror.assert_called_once()
 
         with patch.object(self.workbench, "_load_dataframe_into_tree"), patch.object(self.workbench, "_load_outputs"), patch(
-            "ui.desktop_app.messagebox.showwarning"
+                "ui.desktop_app.messagebox.showwarning"
         ) as showwarning:
             self.workbench._handle_result(
                 {
@@ -359,7 +359,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
                 startfile.assert_called_once()
             else:
                 with patch("ui.desktop_app.subprocess.run") as run_mock, patch("ui.desktop_app.os.name", "posix"), patch(
-                    "ui.desktop_app.sys.platform", "linux"
+                        "ui.desktop_app.sys.platform", "linux"
                 ):
                     self.workbench._open_path(existing)
                 run_mock.assert_called_once()

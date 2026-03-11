@@ -5,9 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from models.paper import PaperMetadata
-
 from config import ResearchConfig
+from models.paper import PaperMetadata
 from utils.http import RateLimiter, build_session, request_json
 
 LOGGER = logging.getLogger(__name__)

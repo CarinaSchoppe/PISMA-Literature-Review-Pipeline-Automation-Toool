@@ -1,7 +1,9 @@
 [
   {
     "title": "Google Scholar exported review screening example",
-    "authors": ["Manual Scholar"],
+    "authors": [
+      "Manual Scholar"
+    ],
     "abstract": "A manually exported metadata record representing a scholar discovery workflow for review screening.",
     "year": 2024,
     "venue": "Scholar Export Journal",

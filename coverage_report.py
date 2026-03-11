@@ -140,11 +140,11 @@ def summarize_coverage_payload(payload: dict[str, Any]) -> CoverageSummary:
 
 
 def build_report_artifacts(
-    summary: CoverageSummary,
-    *,
-    top_files: int,
-    html_index_path: Path,
-    raw_json_path: Path,
+        summary: CoverageSummary,
+        *,
+        top_files: int,
+        html_index_path: Path,
+        raw_json_path: Path,
 ) -> tuple[str, str, dict[str, Any]]:
     """Render Markdown, text, and JSON-friendly summaries from normalized coverage data."""
 
