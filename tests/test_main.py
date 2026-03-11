@@ -84,8 +84,8 @@ class MainEntrypointTests(unittest.TestCase):
 
     def test_main_routes_headless_when_wizard_or_explicit_args_are_present(self) -> None:
         for args in (
-            argparse.Namespace(ui=False, wizard=True),
-            argparse.Namespace(ui=False, wizard=False),
+                argparse.Namespace(ui=False, wizard=True),
+                argparse.Namespace(ui=False, wizard=False),
         ):
             with self.subTest(args=args):
                 with (

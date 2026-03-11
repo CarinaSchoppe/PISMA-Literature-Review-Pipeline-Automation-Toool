@@ -380,7 +380,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             path = Path(temp_dir) / "file.txt"
             path.write_text("x", encoding="utf-8")
             with patch("ui.desktop_app.subprocess.run") as run_mock, patch(
-                "ui.desktop_app.os.name", "posix"
+                    "ui.desktop_app.os.name", "posix"
             ), patch("ui.desktop_app.sys.platform", "linux"):
                 self.workbench._open_path(path)
             run_mock.assert_called_once()
@@ -388,7 +388,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
     def test_new_inspector_picker_and_page_selection_branches(self) -> None:
         self.workbench.quick_destination_var.set("")
         with patch.object(self.workbench, "_focus_field") as focus_mock, patch.object(
-            self.workbench, "_open_pass_builder"
+                self.workbench, "_open_pass_builder"
         ) as pass_mock:
             self.workbench._open_selected_destination()
         focus_mock.assert_not_called()
@@ -396,7 +396,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
 
         self.workbench.quick_destination_var.set("Pass chain editor")
         with patch.object(self.workbench, "_focus_field") as focus_mock, patch.object(
-            self.workbench, "_open_pass_builder"
+                self.workbench, "_open_pass_builder"
         ) as pass_mock:
             self.workbench._open_selected_destination()
         focus_mock.assert_called_once_with("analysis_passes")
@@ -602,7 +602,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         self.workbench._set_text_widget_value(self.workbench.text_widgets["research_topic"], "")
         self.workbench._set_text_widget_value(self.workbench.text_widgets["search_keywords"], " , ; \n ")
         with patch("ui.desktop_app.messagebox.showerror") as showerror, patch(
-            "ui.desktop_app.threading.Thread"
+                "ui.desktop_app.threading.Thread"
         ) as thread_cls:
             self.workbench._start_run()
         showerror.assert_called_once()
@@ -630,7 +630,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         self.workbench.handbook_text = handbook_text
 
         with patch("ui.desktop_app.filedialog.askdirectory", return_value=""), patch(
-            "ui.desktop_app.filedialog.asksaveasfilename", return_value=""
+                "ui.desktop_app.filedialog.asksaveasfilename", return_value=""
         ), patch("ui.desktop_app.filedialog.askopenfilename", return_value=""):
             self.workbench._browse_for_field("results_dir", self.workbench.scalar_vars["results_dir"])
             self.workbench._browse_for_field("database_path", self.workbench.scalar_vars["database_path"])
@@ -698,9 +698,9 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         self.assertEqual(len(appended), before_count + 1)
 
         for provider_name, expected in (
-            ("heuristic", "local rule-based scoring"),
-            ("openai_compatible", "reachable API base URL"),
-            ("ollama", "locally running server"),
+                ("heuristic", "local rule-based scoring"),
+                ("openai_compatible", "reachable API base URL"),
+                ("ollama", "locally running server"),
         ):
             self.workbench._write_analysis_passes(
                 [
@@ -953,7 +953,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
                 return None
 
         with patch("ui.desktop_app.PipelineController", BrokenController), patch(
-            "ui.desktop_app.threading.Thread", FakeThread
+                "ui.desktop_app.threading.Thread", FakeThread
         ), patch("ui.desktop_app.messagebox.showerror") as showerror, patch.object(self.workbench.root, "after", return_value=None):
             self.workbench._start_run(skip_discovery_override=True, run_mode_override="collect")
             self.workbench._poll_messages()
@@ -976,7 +976,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             self.assertNotIn("old", str(tree.item(tree.get_children()[0]).get("values")))
 
         with patch("ui.desktop_app.form_values_to_config", return_value=SimpleNamespace(results_dir=Path("results/mock"))), patch.object(
-            self.workbench, "_load_dataframe_into_tree"
+                self.workbench, "_load_dataframe_into_tree"
         ) as load_tree:
             self.workbench._refresh_all_table()
         load_tree.assert_called_once()
@@ -999,7 +999,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         temp_file = str(self.workbench.root.tk.call("info", "nameofexecutable"))
         path = Path(temp_file)
         with patch("ui.desktop_app.subprocess.run") as run_mock, patch("ui.desktop_app.os.name", "posix"), patch(
-            "ui.desktop_app.sys.platform", "darwin"
+                "ui.desktop_app.sys.platform", "darwin"
         ):
             self.workbench._open_path(path)
         run_mock.assert_called_once()
@@ -1007,7 +1007,7 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         controller = Mock()
         self.workbench.current_controller = controller
         with patch.object(self.workbench, "_set_status") as set_status, patch("ui.desktop_app.PipelineController", BrokenController), patch(
-            "ui.desktop_app.threading.Thread", FakeThread
+                "ui.desktop_app.threading.Thread", FakeThread
         ), patch.object(self.workbench.root, "after", return_value=None):
             self.workbench._start_run(skip_discovery_override=True, run_mode_override="analyze")
         self.assertTrue(

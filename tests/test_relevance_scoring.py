@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import unittest
 
-from models.paper import PaperMetadata
-
 from analysis.relevance_scoring import RelevanceScorer
 from config import ResearchConfig
+from models.paper import PaperMetadata
 
 
 class RelevanceScoringTests(unittest.TestCase):

@@ -1,2 +1,1 @@
 """Citation graph expansion helpers."""
-

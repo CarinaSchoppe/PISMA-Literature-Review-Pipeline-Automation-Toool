@@ -6,9 +6,8 @@ import json
 import logging
 from typing import Any, cast
 
-from models.paper import DecisionLabel, PaperMetadata, ScreeningResult
-
 from config import ResearchConfig
+from models.paper import DecisionLabel, PaperMetadata, ScreeningResult
 from .llm_clients import build_llm_client
 from .relevance_scoring import RelevanceScorer
 from .topic_prefilter import build_topic_matcher
@@ -91,11 +90,11 @@ class AIScreener:
             for paper in papers[:12]
         ]
         prompt = (
-            "Write a concise literature review summary in Markdown with sections: "
-            "Theme Overview, Methods, Gaps, and Recommended Core Papers. "
-            "Base the summary only on this JSON payload and review brief:\n"
-            f"{self.config.screening_brief}\n"
-            + json.dumps(shortlist, ensure_ascii=True)
+                "Write a concise literature review summary in Markdown with sections: "
+                "Theme Overview, Methods, Gaps, and Recommended Core Papers. "
+                "Base the summary only on this JSON payload and review brief:\n"
+                f"{self.config.screening_brief}\n"
+                + json.dumps(shortlist, ensure_ascii=True)
         )
         payload = self._chat_completion(
             system_prompt="You are a rigorous research synthesis assistant.",
@@ -192,9 +191,9 @@ class AIScreener:
             return None
 
     def _enrich_with_topic_match(
-        self,
-        result: ScreeningResult,
-        topic_match: Any | None,
+            self,
+            result: ScreeningResult,
+            topic_match: Any | None,
     ) -> ScreeningResult:
         """Attach local semantic topic-match details to an LLM-produced screening result."""
 
@@ -245,7 +244,7 @@ class AIScreener:
         end = candidate.rfind("}")
         if start == -1 or end == -1:
             return {}
-        candidate = candidate[start : end + 1]
+        candidate = candidate[start: end + 1]
         try:
             parsed = json.loads(candidate)
             return parsed if isinstance(parsed, dict) else {}

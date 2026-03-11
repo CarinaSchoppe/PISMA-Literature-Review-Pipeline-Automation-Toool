@@ -195,7 +195,7 @@ def chunked(values: Sequence[str], size: int) -> Iterator[list[str]]:
     """Yield fixed-size chunks from a sequence."""
 
     for index in range(0, len(values), size):
-        yield list(values[index : index + size])
+        yield list(values[index: index + size])
 
 
 def make_query_key(topic: str, keywords: Sequence[str], year_start: int, year_end: int) -> str:

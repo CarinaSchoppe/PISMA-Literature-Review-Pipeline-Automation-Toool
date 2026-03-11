@@ -77,12 +77,12 @@ class LLMClientTests(unittest.TestCase):
 
     def test_gemini_client_handles_missing_and_successful_payloads(self) -> None:
         with patch(
-            "analysis.llm_clients.request_json",
-            side_effect=[
-                None,
-                {"candidates": []},
-                {"candidates": [{"content": {"parts": [{"text": "first"}, {"text": "second"}]}}]},
-            ],
+                "analysis.llm_clients.request_json",
+                side_effect=[
+                    None,
+                    {"candidates": []},
+                    {"candidates": [{"content": {"parts": [{"text": "first"}, {"text": "second"}]}}]},
+                ],
         ):
             client = GeminiLLMClient(
                 base_url="https://generativelanguage.googleapis.com/v1beta/",
@@ -187,8 +187,8 @@ class LLMClientTests(unittest.TestCase):
             return ExplodingGenerator()
 
         with patch("analysis.llm_clients.load_transformers_runtime", return_value=(_FakeTorch, fake_pipeline)), patch(
-            "analysis.llm_clients.importlib.util.find_spec",
-            return_value=object(),
+                "analysis.llm_clients.importlib.util.find_spec",
+                return_value=object(),
         ):
             client = HuggingFaceLocalLLMClient(
                 model_id="Qwen/Qwen3-14B",

@@ -5,10 +5,9 @@ from __future__ import annotations
 import math
 from typing import cast
 
-from models.paper import DecisionLabel, PaperMetadata, ScreeningResult
-
 from analysis.topic_prefilter import BaseTopicMatcher, TopicMatchResult
 from config import ResearchConfig
+from models.paper import DecisionLabel, PaperMetadata, ScreeningResult
 from utils.text_processing import extract_salient_sentence, keyword_overlap_score, normalize_title
 
 METHODOLOGY_PATTERNS = {
@@ -56,10 +55,10 @@ class RelevanceScorer:
         )
 
     def quick_screen(
-        self,
-        paper: PaperMetadata,
-        *,
-        topic_match: TopicMatchResult | None = None,
+            self,
+            paper: PaperMetadata,
+            *,
+            topic_match: TopicMatchResult | None = None,
     ) -> str:
         """Return a fast include/maybe/exclude triage decision from lightweight signals."""
 
@@ -86,11 +85,11 @@ class RelevanceScorer:
         return "exclude"
 
     def deep_score(
-        self,
-        paper: PaperMetadata,
-        stage_one_decision: str | None = None,
-        *,
-        topic_match: TopicMatchResult | None = None,
+            self,
+            paper: PaperMetadata,
+            stage_one_decision: str | None = None,
+            *,
+            topic_match: TopicMatchResult | None = None,
     ) -> ScreeningResult:
         """Compute the final relevance score, explanation, and structured decision payload."""
 
@@ -126,11 +125,11 @@ class RelevanceScorer:
         citation_score = self._citation_score(paper.citation_count)
 
         relevance_score = (
-            0.40 * topic_score
-            + 0.20 * methodology_score
-            + 0.15 * theoretical_score
-            + 0.10 * recency_score
-            + 0.15 * citation_score
+                                  0.40 * topic_score
+                                  + 0.20 * methodology_score
+                                  + 0.15 * theoretical_score
+                                  + 0.10 * recency_score
+                                  + 0.15 * citation_score
                           ) - exclusion_penalty - banned_penalty - excluded_title_penalty
         stage_one = cast(DecisionLabel, stage_one_decision or self.quick_screen(paper, topic_match=topic_match))
         extracted_passage = extract_salient_sentence(paper.abstract or paper.title, self.config.search_keywords)
@@ -301,4 +300,3 @@ class RelevanceScorer:
             if candidate and candidate in normalized:
                 matches.append(term)
         return matches
-

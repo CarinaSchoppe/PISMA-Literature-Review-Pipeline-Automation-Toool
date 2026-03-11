@@ -31,7 +31,6 @@ def _install_trace_level() -> None:
 
 _install_trace_level()
 
-
 VERBOSITY_ALIASES = {
     "important only": "normal",
     "important_only": "normal",
@@ -79,10 +78,10 @@ def build_log_file_path(*, results_dir: str | Path, explicit_path: str | Path | 
 
 
 def configure_application_logging(
-    verbosity: str,
-    *,
-    log_file_path: str | Path,
-    extra_handlers: list[logging.Handler] | None = None,
+        verbosity: str,
+        *,
+        log_file_path: str | Path,
+        extra_handlers: list[logging.Handler] | None = None,
 ) -> Path:
     """Configure root logging for console, GUI mirroring, and persistent file output."""
 

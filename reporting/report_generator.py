@@ -9,11 +9,11 @@ from typing import Any
 
 import networkx as nx
 import pandas as pd
-from models.paper import PaperMetadata
 from sqlalchemy import create_engine
 
 from analysis.ai_screener import AIScreener
 from config import ResearchConfig
+from models.paper import PaperMetadata
 from utils.text_processing import top_terms
 
 
@@ -35,7 +35,7 @@ class ReportGenerator:
             paper
             for paper in scored
             if (paper.relevance_score or 0.0) >= final_threshold
-            and paper.inclusion_decision != "exclude"
+               and paper.inclusion_decision != "exclude"
         ]
         excluded = [paper for paper in scored if paper.inclusion_decision == "exclude"]
         outputs: dict[str, str] = {}
@@ -93,16 +93,16 @@ class ReportGenerator:
         if self.config.incremental_report_regeneration:
             return
         for filename in (
-            "papers.csv",
-            "included_papers.csv",
-            "excluded_papers.csv",
-            "top_papers.json",
-            "citation_graph.json",
-            "prisma_flow.json",
-            "prisma_flow.md",
-            "included_papers.db",
-            "excluded_papers.db",
-            "review_summary.md",
+                "papers.csv",
+                "included_papers.csv",
+                "excluded_papers.csv",
+                "top_papers.json",
+                "citation_graph.json",
+                "prisma_flow.json",
+                "prisma_flow.md",
+                "included_papers.db",
+                "excluded_papers.db",
+                "review_summary.md",
         ):
             path = Path(self.config.results_dir) / filename
             if path.exists():
@@ -174,10 +174,10 @@ class ReportGenerator:
         return path
 
     def _write_review_summary(
-        self,
-        ranked: list[PaperMetadata],
-        shortlisted: list[PaperMetadata],
-        graph_path: Path | None,
+            self,
+            ranked: list[PaperMetadata],
+            shortlisted: list[PaperMetadata],
+            graph_path: Path | None,
     ) -> Path:
         """Create the final narrative summary using the configured LLM or a heuristic fallback."""
 
@@ -204,11 +204,11 @@ class ReportGenerator:
         return path
 
     def _write_prisma_flow_json(
-        self,
-        ranked: list[PaperMetadata],
-        included: list[PaperMetadata],
-        excluded: list[PaperMetadata],
-        stats: dict[str, Any],
+            self,
+            ranked: list[PaperMetadata],
+            included: list[PaperMetadata],
+            excluded: list[PaperMetadata],
+            stats: dict[str, Any],
     ) -> Path:
         path = Path(self.config.results_dir) / "prisma_flow.json"
         decision_counts = stats.get("decision_counts", {})
@@ -240,11 +240,11 @@ class ReportGenerator:
         return path
 
     def _write_prisma_flow_md(
-        self,
-        ranked: list[PaperMetadata],
-        included: list[PaperMetadata],
-        excluded: list[PaperMetadata],
-        stats: dict[str, Any],
+            self,
+            ranked: list[PaperMetadata],
+            included: list[PaperMetadata],
+            excluded: list[PaperMetadata],
+            stats: dict[str, Any],
     ) -> Path:
         path = Path(self.config.results_dir) / "prisma_flow.md"
         decision_counts = stats.get("decision_counts", {})
@@ -397,6 +397,7 @@ class ReportGenerator:
                 ]
             )
         return keys
+
     def _heuristic_summary(self, ranked: list[PaperMetadata], shortlisted: list[PaperMetadata]) -> str:
         """Create a compact summary when no external LLM summary is available."""
 
@@ -509,11 +510,11 @@ class ReportGenerator:
             payload[f"pass_{pass_name}_score"] = pass_payload.get("relevance_score")
             payload[f"pass_{pass_name}_decision"] = pass_payload.get("decision")
             payload[f"pass_{pass_name}_reason"] = (
-                pass_payload.get("skip_reason")
-                or pass_payload.get("retain_reason")
-                or pass_payload.get("exclusion_reason")
-                or pass_payload.get("explanation")
-                or ""
+                    pass_payload.get("skip_reason")
+                    or pass_payload.get("retain_reason")
+                    or pass_payload.get("exclusion_reason")
+                    or pass_payload.get("explanation")
+                    or ""
             )
             payload[f"pass_{pass_name}_provider"] = pass_payload.get("llm_provider", "")
             payload[f"pass_{pass_name}_model"] = pass_payload.get("model_name", "")
@@ -521,6 +522,7 @@ class ReportGenerator:
             payload[f"pass_{pass_name}_min_input_score"] = pass_payload.get("min_input_score")
             payload[f"pass_{pass_name}_skipped"] = pass_payload.get("skipped", False)
         return payload
+
     def _collect_pass_names(self, papers: list[PaperMetadata]) -> list[str]:
         pass_names: set[str] = set()
         for paper in papers:
@@ -541,4 +543,3 @@ class ReportGenerator:
 
     def _format_counts(self, counts: dict[str, int]) -> str:
         return ", ".join(f"{label} ({count})" for label, count in list(counts.items())[:5]) or "none"
-
