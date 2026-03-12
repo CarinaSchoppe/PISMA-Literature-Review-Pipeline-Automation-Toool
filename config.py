@@ -165,6 +165,39 @@ class AnalysisPassConfig(BaseModel):
         return min(max(float(value), 0.0), 100.0)
 
 
+class TopicKeywordRuleConfig(BaseModel):
+    """One weighted keyword rule used by the local research-fit matcher."""
+
+    keyword: str
+    weight: float = 1.0
+    threshold: float = 55.0
+    enabled: bool = True
+
+    @field_validator("keyword")
+    @classmethod
+    def validate_keyword(cls, value: str) -> str:
+        """Require a non-empty keyword string for each rule."""
+
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            raise ValueError("keyword cannot be empty")
+        return cleaned
+
+    @field_validator("weight")
+    @classmethod
+    def validate_weight(cls, value: float) -> float:
+        """Clamp keyword weights to a sensible positive range."""
+
+        return max(float(value), 0.0)
+
+    @field_validator("threshold")
+    @classmethod
+    def validate_threshold(cls, value: float) -> float:
+        """Clamp per-keyword thresholds to the supported 0-100 range."""
+
+        return min(max(float(value), 0.0), 100.0)
+
+
 class ResearchConfig(BaseModel):
     """Validated runtime configuration shared across discovery, screening, and reporting."""
 
@@ -394,7 +427,6 @@ class ResearchConfig(BaseModel):
         "google_scholar_page_max",
         "google_scholar_results_per_page",
         "topic_prefilter_max_chars",
-        "topic_prefilter_min_keyword_matches",
     )
     @classmethod
     def validate_positive_ints(cls, value: int) -> int:
@@ -449,6 +481,15 @@ class ResearchConfig(BaseModel):
             raise ValueError("Configuration value must be at least 0")
         return int(value)
 
+    @field_validator("topic_prefilter_min_keyword_matches")
+    @classmethod
+    def validate_non_negative_keyword_match_count(cls, value: int) -> int:
+        """Allow zero-or-more required topic keyword matches for research-fit rules."""
+
+        if int(value) < 0:
+            raise ValueError("Configuration value must be at least 0")
+        return int(value)
+
     @model_validator(mode="after")
     def validate_google_scholar_bounds(self) -> ResearchConfig:
         """Keep Google Scholar page-depth controls internally consistent."""
@@ -463,6 +504,23 @@ class ResearchConfig(BaseModel):
         if self.topic_prefilter_near_fit_threshold > self.topic_prefilter_match_threshold:
             raise ValueError("topic_prefilter_near_fit_threshold must be less than or equal to topic_prefilter_match_threshold")
         return self
+
+    @property
+    def resolved_topic_prefilter_keyword_rules(self) -> list[TopicKeywordRuleConfig]:
+        """Return structured keyword rules derived from the compact stored syntax."""
+
+        rules: list[TopicKeywordRuleConfig] = []
+        for raw_rule in self.topic_prefilter_weighted_keywords:
+            try:
+                rules.append(
+                    parse_topic_prefilter_keyword_rule(
+                        raw_rule,
+                        default_threshold=self.topic_prefilter_match_threshold,
+                    )
+                )
+            except ValueError:
+                continue
+        return rules
 
     @property
     def search_query(self) -> str:
@@ -1325,7 +1383,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--topic-prefilter-weighted-keywords",
         dest="topic_prefilter_weighted_keywords",
-        help="Weighted research-fit keywords using 'keyword|weight' entries separated by commas, semicolons, or newlines",
+        help=(
+            "Weighted research-fit keyword rules using 'keyword|weight|threshold' entries separated by commas, "
+            "semicolons, or newlines. The threshold part is optional and falls back to the global strong-fit threshold."
+        ),
     )
     parser.add_argument(
         "--topic-prefilter-min-keyword-matches",
@@ -1723,3 +1784,28 @@ def parse_analysis_pass(value: str) -> AnalysisPassConfig:
         decision_mode=decision_mode,  # type: ignore[arg-type]
         maybe_threshold_margin=margin_value,
     )
+
+
+def parse_topic_prefilter_keyword_rule(
+    value: str,
+    *,
+    default_threshold: float = 55.0,
+) -> TopicKeywordRuleConfig:
+    """Parse one compact keyword rule from CLI, config files, or the GUI editor."""
+
+    candidate = str(value or "").strip()
+    if not candidate:
+        raise ValueError("Topic prefilter keyword rule cannot be empty")
+    if candidate.startswith("{"):
+        parsed = json.loads(candidate)
+        return TopicKeywordRuleConfig(**parsed)
+    parts = [part.strip() for part in candidate.split("|")]
+    keyword = parts[0]
+    if not keyword:
+        raise ValueError("Topic prefilter keyword rule must include a keyword")
+    weight = float(parts[1]) if len(parts) >= 2 and parts[1] else 1.0
+    threshold = float(parts[2]) if len(parts) >= 3 and parts[2] else float(default_threshold)
+    return TopicKeywordRuleConfig(keyword=keyword, weight=weight, threshold=threshold)
+
+
+

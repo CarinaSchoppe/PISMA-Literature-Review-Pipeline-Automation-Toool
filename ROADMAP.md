@@ -26,7 +26,7 @@ Already implemented and verified:
 - multi-pass screening with provider chaining
 - heuristic, OpenAI-compatible, Gemini, Ollama, and local Hugging Face screening
 - local MiniLM semantic topic prefiltering with configurable thresholds and optional automatic low-relevance filtering
-- extracted paper keyphrases, weighted keyword matching, and research-fit labels (`STRONG_FIT`, `NEAR_FIT`, `WEAK_FIT`)
+- extracted paper keyphrases, weighted keyword matching, per-keyword thresholds, and research-fit labels (`STRONG_FIT`, `NEAR_FIT`, `WEAK_FIT`)
 - included and excluded outputs with rationale
 - PRISMA-style flow output
 - normal, verbose, and ultra-verbose logging

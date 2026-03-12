@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover - optional runtime dependency
 
 from acquisition.full_text_extractor import FullTextExtractor
 from analysis.relevance_scoring import RelevanceScorer
-from config import parse_analysis_pass
+from config import parse_analysis_pass, parse_topic_prefilter_keyword_rule
 from models.paper import PaperMetadata
 from pipeline.pipeline_controller import PipelineController
 from ui.view_model import (
@@ -786,7 +786,7 @@ class DesktopWorkbench:
         ),
         "topic_prefilter_weighted_keywords": (
             "Weighted research keywords used for explicit paper-fit analysis. Use plain keywords or "
-            "'keyword|weight' pairs. The workbench extracts topics from each paper, compares them to these "
+            "'keyword|weight|threshold' rules. The workbench extracts topics from each paper, compares them to these "
             "keywords, and shows per-keyword percentages plus strong, near, or weak fit labels."
         ),
         "topic_prefilter_min_keyword_matches": (
@@ -1138,7 +1138,7 @@ class DesktopWorkbench:
         "google_scholar_pages": "50 pages means the client will attempt up to 50 Scholar result pages per generated query.",
         "topic_prefilter_model": "sentence-transformers/all-MiniLM-L6-v2",
         "topic_prefilter_text_mode": "Use title_abstract for the normal CPU-friendly mode.",
-        "topic_prefilter_weighted_keywords": "systematic review|1.6; large language models|1.5; screening automation|1.2",
+        "topic_prefilter_weighted_keywords": "systematic review|1.6|70; large language models|1.5|60; screening automation|1.2|55",
         "topic_prefilter_min_keyword_matches": "2",
         "topic_prefilter_match_threshold": "55 means the weighted topic-fit score must reach 55/100 for a strong fit.",
         "topic_prefilter_near_fit_threshold": "35 means papers from 35-54/100 are highlighted as near-fit instead of weak-fit.",
@@ -1169,7 +1169,7 @@ class DesktopWorkbench:
         "banned_topics": "Use commas, semicolons, or line breaks. Example: crop irrigation; sports analytics",
         "excluded_title_terms": "Use commas, semicolons, or line breaks. Example: correction; erratum; editorial; retraction",
         "topic_prefilter_weighted_keywords": (
-            "Use commas, semicolons, or line breaks. Example: systematic review|1.6; large language models|1.5; screening automation|1.2"
+            "Use commas, semicolons, or line breaks. Example: systematic review|1.6|70; large language models|1.5|60; screening automation|1.2|55"
         ),
     }
 
@@ -1183,7 +1183,7 @@ class DesktopWorkbench:
         "banned_topics": "Enter banned topics separated by commas, semicolons, or line breaks. Example: crop irrigation; sports analytics",
         "excluded_title_terms": "Enter excluded title markers separated by commas, semicolons, or line breaks. Example: correction; erratum; editorial; retraction",
         "topic_prefilter_weighted_keywords": (
-            "Enter weighted research keywords. Example: systematic review|1.6; large language models|1.5; screening automation|1.2"
+            "Enter weighted research keywords. Example: systematic review|1.6|70; large language models|1.5|60; screening automation|1.2|55"
         ),
     }
 
@@ -3199,6 +3199,40 @@ class DesktopWorkbench:
             self._bind_hover_help(helper, help_text)
             widget.bind("<KeyRelease>", lambda _event: "break")
             self.field_widget_types[field_name] = "pass_builder"
+        elif field_name == "topic_prefilter_weighted_keywords":
+            widget = scrolledtext.ScrolledText(container, height=height, wrap="word", state="disabled")
+            widget.grid(row=0, column=0, sticky="ew")
+            helper = ttk.Label(
+                container,
+                text=(
+                    "Use the visual keyword-rule editor below to define the research terms that matter most, their "
+                    "weights, and the minimum match percentage each rule should reach before it counts as a strong match."
+                ),
+                wraplength=760,
+                justify="left",
+            )
+            helper.grid(row=1, column=0, sticky="w", pady=(6, 0))
+            button_bar = ttk.Frame(container)
+            button_bar.grid(row=2, column=0, sticky="w", pady=(6, 0))
+            edit_button = ttk.Button(button_bar, text="Edit Keyword Rules", command=self._open_topic_keyword_rule_builder)
+            edit_button.pack(side="left")
+            clear_button = ttk.Button(
+                button_bar,
+                text="Clear Rules",
+                command=lambda: self._write_topic_keyword_rules([]),
+            )
+            clear_button.pack(side="left", padx=(6, 0))
+            self._bind_hover_help(
+                edit_button,
+                "Open the visual editor for weighted research-fit keyword rules, per-keyword thresholds, and minimum match guidance.",
+            )
+            self._bind_hover_help(
+                clear_button,
+                "Remove all explicit keyword rules and fall back to the topic, question, objective, and keyword fields.",
+            )
+            self._bind_hover_help(helper, help_text)
+            widget.bind("<KeyRelease>", lambda _event: "break")
+            self.field_widget_types[field_name] = "keyword_rule_builder"
         else:
             widget = tk.Text(container, height=height, wrap="word")
             widget.grid(row=0, column=0, sticky="ew")
@@ -4830,6 +4864,302 @@ class DesktopWorkbench:
         self._set_text_widget_value(widget, "\n".join(lines))
         self._refresh_settings_overview()
 
+    def _current_topic_keyword_rules(self) -> list[dict[str, Any]]:
+        """Parse the keyword-rule summary field into structured research-fit rules."""
+
+        widget = self.text_widgets.get("topic_prefilter_weighted_keywords")
+        if widget is None:
+            return []
+        raw_text = widget.get("1.0", tk.END).strip()
+        lines: list[str] = []
+        for raw_line in raw_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if "{" in line:
+                lines.append(line)
+                continue
+            lines.extend(segment.strip() for segment in line.split(";") if segment.strip())
+        rules: list[dict[str, Any]] = []
+        for line in lines:
+            parsed = parse_topic_prefilter_keyword_rule(
+                line,
+                default_threshold=float(self.scalar_vars.get("topic_prefilter_match_threshold", tk.DoubleVar(value=55.0)).get()),
+            )
+            rules.append(
+                {
+                    "keyword": parsed.keyword,
+                    "weight": parsed.weight,
+                    "threshold": parsed.threshold,
+                }
+            )
+        return rules
+
+    def _write_topic_keyword_rules(self, rules: list[dict[str, Any]]) -> None:
+        """Rewrite the keyword-rule summary field from structured research-fit rules."""
+
+        widget = self.text_widgets.get("topic_prefilter_weighted_keywords")
+        if widget is None:
+            return
+        lines = [
+            "|".join(
+                [
+                    str(entry["keyword"]).strip(),
+                    f"{float(entry['weight']):.2f}",
+                    f"{float(entry['threshold']):.0f}",
+                ]
+            )
+            for entry in rules
+            if str(entry.get("keyword", "")).strip()
+        ]
+        self._set_text_widget_value(widget, "\n".join(lines))
+        self._refresh_settings_overview()
+
+    def _open_topic_keyword_rule_builder(self) -> None:
+        """Open a visual editor for weighted research-fit keyword rules."""
+
+        rules = self._current_topic_keyword_rules()
+        if not rules:
+            rules = [
+                {
+                    "keyword": "systematic review",
+                    "weight": 1.5,
+                    "threshold": float(self.scalar_vars["topic_prefilter_match_threshold"].get()),
+                }
+            ]
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Research Keyword Rule Builder")
+        dialog.geometry("980x620")
+        dialog.transient(self.root)
+        dialog.columnconfigure(0, weight=1)
+        dialog.rowconfigure(1, weight=1)
+
+        header = ttk.Frame(dialog, padding=12, style="PageHero.TFrame")
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(0, weight=1)
+        ttk.Label(header, text="Research keyword rule builder", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            header,
+            text=(
+                "Define the paper topics or keyphrases you want to check explicitly. Each rule has a weight and a "
+                "minimum match percentage. The Research Fit tab then shows actual match %, threshold, and whether the "
+                "rule matched, nearly matched, or missed."
+            ),
+            wraplength=820,
+            justify="left",
+            style="PageBody.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+
+        shell = ttk.Panedwindow(dialog, orient="horizontal")
+        shell.grid(row=1, column=0, sticky="nsew")
+        left = ttk.Frame(shell, padding=10, style="Surface.TFrame")
+        right = ttk.Frame(shell, padding=10, style="Surface.TFrame")
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(1, weight=1)
+        left.rowconfigure(3, weight=1)
+        right.columnconfigure(1, weight=1)
+        right.rowconfigure(7, weight=1)
+        shell.add(left, weight=3)
+        shell.add(right, weight=2)
+
+        ttk.Label(left, text="Rule overview", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
+        tree_shell = ttk.Frame(left, style="Surface.TFrame")
+        tree_shell.grid(row=1, column=0, sticky="nsew")
+        tree_shell.columnconfigure(0, weight=1)
+        tree_shell.rowconfigure(0, weight=1)
+        tree = ttk.Treeview(
+            tree_shell,
+            columns=("keyword", "weight", "threshold"),
+            show="headings",
+            height=14,
+        )
+        for column, title, width, anchor in (
+            ("keyword", "Keyword or topic", 360, "w"),
+            ("weight", "Weight", 90, "e"),
+            ("threshold", "Threshold %", 110, "e"),
+        ):
+            tree.heading(column, text=title)
+            tree.column(column, width=width, anchor=anchor)
+        tree.grid(row=0, column=0, sticky="nsew")
+        tree_scrollbar = ttk.Scrollbar(tree_shell, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=tree_scrollbar.set)
+        tree_scrollbar.grid(row=0, column=1, sticky="ns")
+        summary = scrolledtext.ScrolledText(left, height=10, wrap="word", state="disabled")
+        summary.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
+
+        form_vars = {
+            "keyword": tk.StringVar(value=""),
+            "weight": tk.DoubleVar(value=1.0),
+            "threshold": tk.DoubleVar(value=float(self.scalar_vars["topic_prefilter_match_threshold"].get())),
+        }
+        weight_label = ttk.Label(right, width=8, anchor="e")
+        threshold_label = ttk.Label(right, width=8, anchor="e")
+        preview = scrolledtext.ScrolledText(right, height=10, wrap="word", state="disabled")
+
+        def refresh_tree() -> None:
+            for item in tree.get_children():
+                tree.delete(item)
+            for index, entry in enumerate(rules):
+                tree.insert(
+                    "",
+                    tk.END,
+                    iid=str(index),
+                    values=(
+                        entry["keyword"],
+                        f"{float(entry['weight']):.2f}",
+                        f"{float(entry['threshold']):.0f}",
+                    ),
+                )
+            summary_lines = []
+            for index, entry in enumerate(rules, start=1):
+                summary_lines.append(
+                    f"{index}. {entry['keyword']} uses weight {float(entry['weight']):.2f} and requires "
+                    f"at least {float(entry['threshold']):.0f}% topic match before it counts as a strong match."
+                )
+            self._write_summary_widget(summary, "\n\n".join(summary_lines) if summary_lines else "No keyword rules are defined.")
+            if rules:
+                selected = tree.selection() or (tree.get_children()[0],)
+                tree.selection_set(selected[0])
+                tree.focus(selected[0])
+                load_selected()
+
+        def sync_labels() -> None:
+            weight_label.configure(text=f"{float(form_vars['weight'].get()):.2f}")
+            threshold_label.configure(text=f"{float(form_vars['threshold'].get()):.0f}")
+            refresh_preview()
+
+        def refresh_preview() -> None:
+            keyword = form_vars["keyword"].get().strip() or "(empty)"
+            preview_lines = [
+                f"Keyword or topic: {keyword}",
+                f"Weight: {float(form_vars['weight'].get()):.2f}",
+                f"Threshold: {float(form_vars['threshold'].get()):.0f}%",
+                "",
+                "Status logic:",
+                "- MATCHED if actual match % is at or above the threshold.",
+                "- NEAR if actual match % is below the threshold by at most 5 points.",
+                "- MISSED if actual match % is more than 5 points below the threshold.",
+            ]
+            self._write_summary_widget(preview, "\n".join(preview_lines))
+
+        def load_selected(_event: Any | None = None) -> None:
+            selection = tree.selection()
+            if not selection:
+                return
+            entry = rules[int(selection[0])]
+            form_vars["keyword"].set(str(entry["keyword"]))
+            form_vars["weight"].set(float(entry["weight"]))
+            form_vars["threshold"].set(float(entry["threshold"]))
+            sync_labels()
+
+        def validate_rule(parent: tk.Misc) -> bool:
+            if form_vars["keyword"].get().strip():
+                return True
+            messagebox.showerror("Keyword required", "Enter a keyword or topic phrase before saving.", parent=parent)
+            return False
+
+        def save_current() -> None:
+            if not validate_rule(dialog):
+                return
+            entry = {
+                "keyword": form_vars["keyword"].get().strip(),
+                "weight": float(form_vars["weight"].get()),
+                "threshold": float(form_vars["threshold"].get()),
+            }
+            selection = tree.selection()
+            if selection:
+                rules[int(selection[0])] = entry
+            else:
+                rules.append(entry)
+            refresh_tree()
+
+        def add_rule() -> None:
+            if not validate_rule(dialog):
+                return
+            rules.append(
+                {
+                    "keyword": form_vars["keyword"].get().strip(),
+                    "weight": float(form_vars["weight"].get()),
+                    "threshold": float(form_vars["threshold"].get()),
+                }
+            )
+            refresh_tree()
+            tree.selection_set(str(len(rules) - 1))
+            load_selected()
+
+        def duplicate_rule() -> None:
+            selection = tree.selection()
+            if not selection:
+                return
+            current = dict(rules[int(selection[0])])
+            current["keyword"] = f"{current['keyword']} copy"
+            rules.insert(int(selection[0]) + 1, current)
+            refresh_tree()
+            tree.selection_set(str(int(selection[0]) + 1))
+            load_selected()
+
+        def remove_rule() -> None:
+            selection = tree.selection()
+            if not selection:
+                return
+            rules.pop(int(selection[0]))
+            refresh_tree()
+
+        tree.bind("<<TreeviewSelect>>", load_selected)
+
+        ttk.Label(right, text="Selected rule", style="PageTitle.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+        ttk.Label(
+            right,
+            text=(
+                "Use stronger weights for terms that are central to the review, and raise the threshold when a rule "
+                "should only count if the paper is very clearly about that keyword."
+            ),
+            wraplength=360,
+            justify="left",
+            style="PageBody.TLabel",
+        ).grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, 10))
+        ttk.Label(right, text="Keyword or topic").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Entry(right, textvariable=form_vars["keyword"]).grid(row=2, column=1, columnspan=2, sticky="ew", pady=4)
+        ttk.Label(right, text="Weight").grid(row=3, column=0, sticky="w", pady=4)
+        weight_scale = ttk.Scale(right, from_=0.1, to=3.0, variable=form_vars["weight"], command=lambda _value: sync_labels())
+        weight_scale.grid(row=3, column=1, sticky="ew", pady=4)
+        weight_label.grid(row=3, column=2, sticky="e", padx=(8, 0))
+        ttk.Label(right, text="Threshold (%)").grid(row=4, column=0, sticky="w", pady=4)
+        threshold_scale = ttk.Scale(right, from_=0, to=100, variable=form_vars["threshold"], command=lambda _value: sync_labels())
+        threshold_scale.grid(row=4, column=1, sticky="ew", pady=4)
+        threshold_label.grid(row=4, column=2, sticky="e", padx=(8, 0))
+        ttk.Label(right, text="Rule preview").grid(row=6, column=0, sticky="nw", pady=(10, 4))
+        preview.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(0, 4))
+
+        button_bar = ttk.Frame(right)
+        button_bar.grid(row=8, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        ttk.Button(button_bar, text="Add Rule", command=add_rule).pack(side="left")
+        ttk.Button(button_bar, text="Update Rule", command=save_current).pack(side="left", padx=(6, 0))
+        ttk.Button(button_bar, text="Duplicate Rule", command=duplicate_rule).pack(side="left", padx=(6, 0))
+        ttk.Button(button_bar, text="Remove Rule", command=remove_rule).pack(side="left", padx=(6, 0))
+
+        footer = ttk.Frame(right)
+        footer.grid(row=9, column=0, columnspan=3, sticky="e", pady=(16, 0))
+        ttk.Button(footer, text="Cancel", command=dialog.destroy).pack(side="right")
+        ttk.Button(
+            footer,
+            text="Apply",
+            command=lambda: (
+                self._write_topic_keyword_rules(rules),
+                self._set_status("Updated research keyword rules."),
+                dialog.destroy(),
+            ),
+        ).pack(side="right", padx=(0, 8))
+
+        if rules:
+            first = rules[0]
+            form_vars["keyword"].set(str(first["keyword"]))
+            form_vars["weight"].set(float(first["weight"]))
+            form_vars["threshold"].set(float(first["threshold"]))
+        sync_labels()
+        refresh_tree()
+
     def _validate_pass_builder_name(self, name: str, parent: tk.Misc) -> bool:
         """Return ``True`` when a pass builder row has a valid name, else show an error."""
 
@@ -5750,7 +6080,7 @@ class DesktopWorkbench:
         self.research_fit_tree.heading("title", text="Title")
         self.research_fit_tree.heading("fit_label", text="Research fit")
         self.research_fit_tree.heading("weighted_score", text="Weighted score")
-        self.research_fit_tree.heading("matched_keywords", text="Strong matches")
+        self.research_fit_tree.heading("matched_keywords", text="Matched rules")
         self.research_fit_tree.heading("semantic_label", text="Semantic label")
         self.research_fit_tree.column("title", width=440, anchor="w")
         self.research_fit_tree.column("fit_label", width=120, anchor="w")
@@ -5826,7 +6156,7 @@ class DesktopWorkbench:
                     str(row_payload.get("title", ""))[:120],
                     fit_label.replace("_", " ").title(),
                     self._display_table_value("topic_prefilter_weighted_score", row_payload),
-                    self._display_table_value("topic_prefilter_matched_keyword_count", row_payload),
+                    self._format_research_fit_match_summary(row_payload),
                     self._display_table_value("topic_prefilter_label", row_payload),
                 ),
                 tags=(tag,),
@@ -5865,6 +6195,7 @@ class DesktopWorkbench:
         research_fit_label = self._row_value(row, "topic_prefilter_research_fit_label")
         weighted_score = self._row_value(row, "topic_prefilter_weighted_score")
         matched_count = self._row_value(row, "topic_prefilter_matched_keyword_count")
+        rule_count = self._row_value(row, "topic_prefilter_keyword_rule_count")
         min_matches = self._row_value(row, "topic_prefilter_min_keyword_matches")
         semantic_label = self._row_value(row, "topic_prefilter_label")
         semantic_similarity = self._row_value(row, "topic_prefilter_similarity")
@@ -5873,8 +6204,8 @@ class DesktopWorkbench:
             f"Research fit: {research_fit_label or '(not available)'}",
             f"Weighted score: {weighted_score or '(not available)'}",
             (
-                f"Matched keywords: {matched_count or '0'} / "
-                f"{min_matches or '0'} minimum"
+                f"Matched rules: {matched_count or '0'} / "
+                f"{rule_count or '0'} total, minimum strong matches required: {min_matches or '0'}"
             ),
             f"Semantic label: {semantic_label or '(not available)'}",
             f"Semantic similarity: {semantic_similarity or '(not available)'}",
@@ -5889,10 +6220,13 @@ class DesktopWorkbench:
         if keyword_details:
             for detail in keyword_details:
                 lines.append(
-                    "- {keyword}: {match_percent:.1f}% ({status}, weight {weight}, best topic: {best_topic})".format(
+                    "- {keyword}: {match_percent:.1f}% vs threshold {threshold_percent:.1f}% "
+                    "({status}, delta {threshold_delta:+.1f}, weight {weight}, best topic: {best_topic})".format(
                         keyword=detail.get("keyword", ""),
                         match_percent=float(detail.get("match_percent", 0.0)),
                         status=str(detail.get("status", "")).upper(),
+                        threshold_percent=float(detail.get("threshold_percent", 0.0)),
+                        threshold_delta=float(detail.get("threshold_delta", 0.0)),
                         weight=detail.get("weight", ""),
                         best_topic=detail.get("best_topic", "") or "n/a",
                     )
@@ -5916,6 +6250,21 @@ class DesktopWorkbench:
         if not row:
             return
         self._show_document_preview(row, source_label="Research Fit")
+
+    def _format_research_fit_match_summary(self, row: dict[str, Any]) -> str:
+        """Return the matched-rule summary shown in the Research Fit table."""
+
+        matched = self._row_value(row, "topic_prefilter_matched_keyword_count")
+        total = self._row_value(row, "topic_prefilter_keyword_rule_count")
+        try:
+            matched_value = int(float(matched or 0))
+        except (TypeError, ValueError):
+            matched_value = 0
+        try:
+            total_value = int(float(total or 0))
+        except (TypeError, ValueError):
+            total_value = 0
+        return f"{matched_value} / {total_value}"
 
     def _apply_form_values(self, values: dict[str, Any]) -> None:
         """Populate the visible form controls from a flat dictionary of values."""
@@ -6997,6 +7346,7 @@ class DesktopWorkbench:
         research_fit_label = str(self._row_value(row, "topic_prefilter_research_fit_label") or "").strip()
         weighted_score = str(self._row_value(row, "topic_prefilter_weighted_score") or "").strip()
         matched_count = str(self._row_value(row, "topic_prefilter_matched_keyword_count") or "").strip()
+        keyword_rule_count = str(self._row_value(row, "topic_prefilter_keyword_rule_count") or "").strip()
         min_matches = str(self._row_value(row, "topic_prefilter_min_keyword_matches") or "").strip()
         semantic_label = str(self._row_value(row, "topic_prefilter_label") or "").strip()
         semantic_similarity = str(self._row_value(row, "topic_prefilter_similarity") or "").strip()
@@ -7007,7 +7357,8 @@ class DesktopWorkbench:
                     "Research fit snapshot",
                     f"- Research fit label: {research_fit_label or '(not available)'}",
                     f"- Weighted keyword score: {weighted_score or '(not available)'}",
-                    f"- Matched keywords: {matched_count or '0'} / {min_matches or '0'} minimum",
+                    f"- Matched rules: {matched_count or '0'} / {keyword_rule_count or '0'} total",
+                    f"- Minimum strong matches required: {min_matches or '0'}",
                     f"- Semantic topic label: {semantic_label or '(not available)'}",
                     f"- Semantic similarity: {semantic_similarity or '(not available)'}",
                 ]
@@ -7033,10 +7384,8 @@ class DesktopWorkbench:
                             "Research fit snapshot",
                             f"- Research fit label: {topic_match.research_fit_label}",
                             f"- Weighted keyword score: {topic_match.weighted_keyword_score:.2f}",
-                            (
-                                f"- Matched keywords: {topic_match.matched_keyword_count} / "
-                                f"{topic_match.min_keyword_matches} minimum"
-                            ),
+                            f"- Matched rules: {topic_match.matched_keyword_count} / {topic_match.keyword_rule_count} total",
+                            f"- Minimum strong matches required: {topic_match.min_keyword_matches}",
                             f"- Semantic topic label: {topic_match.classification}",
                             f"- Semantic similarity: {topic_match.similarity:.2f}",
                         ]

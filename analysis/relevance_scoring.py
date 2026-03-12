@@ -201,6 +201,7 @@ class RelevanceScorer:
             topic_prefilter_weighted_score=topic_match.weighted_keyword_score if topic_match else None,
             topic_prefilter_min_keyword_matches=topic_match.min_keyword_matches if topic_match else None,
             topic_prefilter_matched_keyword_count=topic_match.matched_keyword_count if topic_match else None,
+            topic_prefilter_keyword_rule_count=topic_match.keyword_rule_count if topic_match else None,
             topic_prefilter_extracted_topics=list(topic_match.extracted_topics) if topic_match else [],
             topic_prefilter_keyword_details=list(topic_match.keyword_match_details) if topic_match else [],
             explanation=explanation,
@@ -232,6 +233,7 @@ class RelevanceScorer:
                         "topic_prefilter_keyword_overlap": round(topic_match.keyword_overlap_score, 4) if topic_match else 0.0,
                         "topic_prefilter_weighted_score": round(topic_match.weighted_keyword_score, 2) if topic_match else round(keyword_topic_score, 2),
                         "topic_prefilter_matched_keyword_count": topic_match.matched_keyword_count if topic_match else 0,
+                        "topic_prefilter_keyword_rule_count": topic_match.keyword_rule_count if topic_match else 0,
                     }
                     if semantic_topic_score is not None
                     else {}

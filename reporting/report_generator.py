@@ -368,6 +368,7 @@ class ReportGenerator:
             "topic_prefilter_weighted_score",
             "topic_prefilter_min_keyword_matches",
             "topic_prefilter_matched_keyword_count",
+            "topic_prefilter_keyword_rule_count",
             "topic_prefilter_extracted_topics",
             "topic_prefilter_keyword_details",
             "inclusion_decision",
@@ -471,6 +472,7 @@ class ReportGenerator:
             "topic_prefilter_weighted_score": paper.screening_details.get("topic_prefilter_weighted_score"),
             "topic_prefilter_min_keyword_matches": paper.screening_details.get("topic_prefilter_min_keyword_matches"),
             "topic_prefilter_matched_keyword_count": paper.screening_details.get("topic_prefilter_matched_keyword_count"),
+            "topic_prefilter_keyword_rule_count": paper.screening_details.get("topic_prefilter_keyword_rule_count"),
             "topic_prefilter_extracted_topics": json.dumps(
                 paper.screening_details.get("topic_prefilter_extracted_topics", []),
                 ensure_ascii=False,

@@ -551,7 +551,9 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.workbench.field_widget_types["incremental_report_regeneration"], "checkbutton")
         self.assertEqual(self.workbench.field_widget_types["enable_async_network_stages"], "checkbutton")
         self.assertEqual(self.workbench.field_widget_types["analysis_passes"], "pass_builder")
+        self.assertEqual(self.workbench.field_widget_types["topic_prefilter_weighted_keywords"], "keyword_rule_builder")
         self.assertEqual(str(self.workbench.text_widgets["analysis_passes"].cget("state")), "disabled")
+        self.assertEqual(str(self.workbench.text_widgets["topic_prefilter_weighted_keywords"].cget("state")), "disabled")
 
     def test_theme_styles_are_configured_for_modern_toolbar_and_tabs(self) -> None:
         self.assertEqual(self.workbench.active_theme, "clam")
@@ -657,6 +659,19 @@ class DesktopWorkbenchTests(unittest.TestCase):
         updated_model_text = self.workbench.model_summary_text.get("1.0", tk.END)
         self.assertIn("gpt-oss:20b", updated_model_text)
         self.assertIn("start if previous >= 70", updated_model_text)
+
+    def test_topic_keyword_rule_round_trip_supports_thresholds(self) -> None:
+        rules = [
+            {"keyword": "systematic review", "weight": 1.6, "threshold": 70.0},
+            {"keyword": "screening automation", "weight": 1.2, "threshold": 55.0},
+        ]
+
+        self.workbench._write_topic_keyword_rules(rules)
+        round_trip = self.workbench._current_topic_keyword_rules()
+
+        self.assertEqual(round_trip, rules)
+        summary_text = self.workbench.text_widgets["topic_prefilter_weighted_keywords"].get("1.0", tk.END)
+        self.assertIn("systematic review|1.60|70", summary_text)
 
     def test_settings_search_can_find_output_controls(self) -> None:
         self.workbench.settings_search_var.set("sqlite")

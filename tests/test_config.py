@@ -7,7 +7,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from config import AnalysisPassConfig, ResearchConfig, build_arg_parser, parse_analysis_pass
+from config import (
+    AnalysisPassConfig,
+    ResearchConfig,
+    build_arg_parser,
+    parse_analysis_pass,
+    parse_topic_prefilter_keyword_rule,
+)
 
 
 class ConfigTests(unittest.TestCase):
@@ -105,6 +111,22 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.topic_prefilter_min_keyword_matches, 2)
         self.assertEqual(config.topic_prefilter_match_threshold, 55.0)
         self.assertEqual(config.topic_prefilter_near_fit_threshold, 35.0)
+
+    def test_parse_topic_prefilter_keyword_rule_supports_thresholds_and_zero_minimum(self) -> None:
+        parsed = parse_topic_prefilter_keyword_rule("systematic review|1.6|70", default_threshold=55.0)
+
+        self.assertEqual(parsed.keyword, "systematic review")
+        self.assertEqual(parsed.weight, 1.6)
+        self.assertEqual(parsed.threshold, 70.0)
+
+        config = ResearchConfig(
+            research_topic="Topic",
+            search_keywords=["llm"],
+            topic_prefilter_min_keyword_matches=0,
+            topic_prefilter_weighted_keywords=["systematic review|1.6|70"],
+        )
+        self.assertEqual(config.topic_prefilter_min_keyword_matches, 0)
+        self.assertEqual(config.resolved_topic_prefilter_keyword_rules[0].threshold, 70.0)
 
     def test_google_scholar_page_bounds_are_configurable_and_validated_together(self) -> None:
         config = ResearchConfig(

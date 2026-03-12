@@ -149,7 +149,7 @@ Result inspection tabs:
 - `Charts`: lightweight on-device chart preview for screening decisions and source mix
 - `Run History`: persistent JSON-backed record of recent runs, including status, topic, and artifact paths
 - `Screening Audit`: per-paper explanations, retain reasons, exclusion reasons, and extracted passages from `papers.csv`
-- `Research Fit`: extracted topics, weighted keyword percentages, minimum-match counts, semantic labels, and strong/near/weak fit badges
+- `Research Fit`: extracted topics, weighted keyword percentages, per-keyword thresholds, minimum-match counts, semantic labels, and strong/near/weak fit badges
 - `Document Viewer`: double-click a paper row to inspect local document text, embedded PDF pages, screening rationale, and research-fit context without leaving the workbench
 
 Run log styling:
@@ -585,15 +585,19 @@ These settings control scoring, pass chains, and model behavior.
 - Format:
   - `keyword`
   - `keyword|weight`
+  - `keyword|weight|threshold`
 - Example:
-  - `systematic review|1.8`
-  - `large language models|1.4`
+  - `systematic review|1.8|70`
+  - `large language models|1.4|60`
+- If the threshold is omitted, the global strong-fit threshold is used.
+- GUI uses a visual keyword-rule builder so you can add, duplicate, remove, and scroll longer rule lists.
 - GUI: `AI Screening`
 - CLI: `--topic-prefilter-weighted-keywords`
 
 `topic_prefilter_min_keyword_matches`
 
 - Minimum number of matched keywords required for a strong keyword-fit.
+- `0` is allowed.
 - GUI: `AI Screening`
 - CLI: `--topic-prefilter-min-keyword-matches`
 

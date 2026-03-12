@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any, ClassVar, Literal
 
-from config import ResearchConfig
+from config import ResearchConfig, TopicKeywordRuleConfig
 from models.paper import PaperMetadata
 from utils.text_processing import extract_keyphrases, keyword_overlap_score, normalize_title
 
@@ -34,6 +34,7 @@ class TopicMatchResult:
     weighted_keyword_score: float
     min_keyword_matches: int
     matched_keyword_count: int
+    keyword_rule_count: int
     matched_keywords: list[str] = field(default_factory=list)
     extracted_topics: list[str] = field(default_factory=list)
     keyword_match_details: list[dict[str, Any]] = field(default_factory=list)
@@ -87,7 +88,7 @@ class LocalTopicMatcher(BaseTopicMatcher):
         self._model: Any | None = None
         self._device: Any | None = None
         self._review_text = self._build_review_text()
-        self._weighted_review_terms = self._build_weighted_review_terms()
+        self._keyword_rules = self._build_keyword_rules()
         try:
             LOGGER.info(
                 "Initializing local topic prefilter model '%s'. The first run can take longer while loading local model files.",
@@ -117,7 +118,7 @@ class LocalTopicMatcher(BaseTopicMatcher):
         matched_keywords = [
             detail["keyword"]
             for detail in keyword_match_details
-            if float(detail["match_score"]) >= 0.55
+            if bool(detail.get("met_threshold"))
         ]
         matched_keyword_count = len(matched_keywords)
         weighted_keyword_score = self._weighted_keyword_score(keyword_match_details)
@@ -192,6 +193,7 @@ class LocalTopicMatcher(BaseTopicMatcher):
             weighted_keyword_score=round(weighted_keyword_score, 2),
             min_keyword_matches=self.config.topic_prefilter_min_keyword_matches,
             matched_keyword_count=matched_keyword_count,
+            keyword_rule_count=len(keyword_match_details),
             matched_keywords=matched_keywords,
             extracted_topics=extracted_topics,
             keyword_match_details=keyword_match_details,
@@ -240,22 +242,25 @@ class LocalTopicMatcher(BaseTopicMatcher):
         ]
         return " ".join(part.strip() for part in [*parts, *weighted_focus] if part and part.strip())
 
-    def _build_weighted_review_terms(self) -> list[tuple[str, float]]:
-        """Build weighted review terms from explicit entries or sensible defaults."""
+    def _build_keyword_rules(self) -> list[TopicKeywordRuleConfig]:
+        """Build weighted keyword rules from explicit entries or sensible defaults."""
 
-        if self.config.topic_prefilter_weighted_keywords:
-            weighted = [
-                self._parse_weighted_keyword(item)
-                for item in self.config.topic_prefilter_weighted_keywords
-            ]
-            return [(term, weight) for term, weight in weighted if term]
+        if self.config.resolved_topic_prefilter_keyword_rules:
+            return list(self.config.resolved_topic_prefilter_keyword_rules)
         weighted_terms: list[tuple[str, float]] = []
         weighted_terms.extend(self._dedupe_weighted_terms([self.config.research_topic], 1.6))
         weighted_terms.extend(self._dedupe_weighted_terms([self.config.research_question], 1.35, weighted_terms))
         weighted_terms.extend(self._dedupe_weighted_terms([self.config.review_objective], 1.2, weighted_terms))
         weighted_terms.extend(self._dedupe_weighted_terms(self.config.search_keywords, 1.0, weighted_terms))
         weighted_terms.extend(self._dedupe_weighted_terms(self.config.inclusion_criteria, 0.9, weighted_terms))
-        return weighted_terms
+        return [
+            TopicKeywordRuleConfig(
+                keyword=term,
+                weight=weight,
+                threshold=self.config.topic_prefilter_match_threshold,
+            )
+            for term, weight in weighted_terms
+        ]
 
     def _dedupe_weighted_terms(
         self,
@@ -274,21 +279,6 @@ class LocalTopicMatcher(BaseTopicMatcher):
             deduped.append((term.strip(), weight))
             existing_terms.add(normalized)
         return deduped
-
-    def _parse_weighted_keyword(self, raw_value: str) -> tuple[str, float]:
-        """Parse one `keyword|weight` definition from config or GUI state."""
-
-        candidate = str(raw_value or "").strip()
-        if not candidate:
-            return "", 0.0
-        if "|" not in candidate:
-            return candidate, 1.0
-        keyword, raw_weight = candidate.split("|", 1)
-        try:
-            weight = max(float(raw_weight.strip()), 0.0)
-        except ValueError:
-            weight = 1.0
-        return keyword.strip(), weight
 
     def _build_paper_text(self, paper: PaperMetadata) -> tuple[str, list[str]]:
         """Select the paper text window used for semantic topic comparison."""
@@ -350,8 +340,8 @@ class LocalTopicMatcher(BaseTopicMatcher):
         normalized_paper_tokens = set(normalized_text.split())
         normalized_topics = [(topic, normalize_title(topic)) for topic in extracted_topics]
         details: list[dict[str, Any]] = []
-        for keyword, weight in self._weighted_review_terms:
-            normalized_keyword = normalize_title(keyword)
+        for rule in self._keyword_rules:
+            normalized_keyword = normalize_title(rule.keyword)
             keyword_tokens = [token for token in normalized_keyword.split() if len(token) >= 4]
             if not normalized_keyword or not keyword_tokens:
                 continue
@@ -359,7 +349,7 @@ class LocalTopicMatcher(BaseTopicMatcher):
             best_topic = ""
             if normalized_keyword in normalized_text:
                 best_score = 1.0
-                best_topic = keyword
+                best_topic = rule.keyword
             else:
                 for topic, normalized_topic in normalized_topics:
                     topic_tokens = [token for token in normalized_topic.split() if len(token) >= 4]
@@ -376,13 +366,19 @@ class LocalTopicMatcher(BaseTopicMatcher):
                     if token_score > best_score:
                         best_score = token_score
                         best_topic = "paper text"
-            status = "matched" if best_score >= 0.55 else "near" if best_score >= 0.35 else "missed"
+            match_percent = round(best_score * 100.0, 2)
+            threshold_delta = round(match_percent - rule.threshold, 2)
+            met_threshold = threshold_delta >= 0.0
+            status = "matched" if threshold_delta >= 0.0 else "near" if threshold_delta >= -5.0 else "missed"
             details.append(
                 {
-                    "keyword": keyword,
-                    "weight": round(weight, 2),
+                    "keyword": rule.keyword,
+                    "weight": round(rule.weight, 2),
                     "match_score": round(best_score, 4),
-                    "match_percent": round(best_score * 100.0, 2),
+                    "match_percent": match_percent,
+                    "threshold_percent": round(rule.threshold, 2),
+                    "threshold_delta": threshold_delta,
+                    "met_threshold": met_threshold,
                     "status": status,
                     "best_topic": best_topic,
                 }
@@ -408,7 +404,7 @@ class LocalTopicMatcher(BaseTopicMatcher):
             return "STRONG_FIT"
         if (
             weighted_keyword_score >= self.config.topic_prefilter_near_fit_threshold
-            or matched_keyword_count >= max(self.config.topic_prefilter_min_keyword_matches - 1, 1)
+            or matched_keyword_count >= max(self.config.topic_prefilter_min_keyword_matches - 1, 0)
         ):
             return "NEAR_FIT"
         return "WEAK_FIT"
