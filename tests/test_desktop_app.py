@@ -64,6 +64,8 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("Retry-After", self.workbench._help_text_for_field("http_retry_base_delay_seconds"))
         self.assertIn("If you set this to Yes", self.workbench._help_text_for_field("download_pdfs"))
         self.assertIn("If you set this to No", self.workbench._help_text_for_field("download_pdfs"))
+        self.assertIn("backward reference expansion", self.workbench._help_text_for_field("citation_snowballing_enabled"))
+        self.assertIn("does not rerun citation snowballing", self.workbench._help_text_for_field("skip_discovery"))
         self.assertIn("Available choices", self.workbench._help_text_for_field("llm_provider"))
         self.assertIn("Example path", self.workbench._help_text_for_field("database_path"))
         self.assertIn("What higher values do", self.workbench._help_text_for_field("relevance_threshold"))
@@ -73,6 +75,14 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.workbench.LABELS["boolean_operators"], "Boolean operators")
         self.assertEqual(self.workbench.LABELS["discovery_strategy"], "Discovery strategy")
         self.assertEqual(self.workbench.LABELS["llm_provider"], "LLM provider")
+        self.assertEqual(
+            self.workbench.LABELS["citation_snowballing_enabled"],
+            "Use backward + forward citation snowballing",
+        )
+        self.assertEqual(
+            self.workbench.LABELS["skip_discovery"],
+            "Reuse stored records (skip new discovery)",
+        )
         self.assertEqual(self.workbench.LABELS["download_pdfs"], "Download paper PDFs")
         self.assertEqual(self.workbench.LABELS["output_sqlite_exports"], "Write SQLite exports")
         self.assertEqual(self.workbench.LABELS["database_path"], "Main SQLite database path")
@@ -94,6 +104,34 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.workbench.LABELS["pdf_batch_size"], "PDF batch size")
         self.assertEqual(self.workbench.LABELS["topic_prefilter_weighted_keywords"], "Weighted research keywords")
         self.assertEqual(self.workbench.LABELS["topic_prefilter_match_threshold"], "Research-fit strong threshold")
+
+    def test_discovery_fields_show_visible_inline_help(self) -> None:
+        skip_help = self.workbench.inline_help_labels["skip_discovery"].cget("text")
+        snowball_help = self.workbench.inline_help_labels["citation_snowballing_enabled"].cget("text")
+
+        self.assertIn("stored in SQLite", skip_help)
+        self.assertIn("backward references and forward citations", snowball_help)
+
+        self.workbench.scalar_vars["skip_discovery"].set(True)
+        self.workbench.root.update_idletasks()
+
+        updated_snowball_help = self.workbench.inline_help_labels["citation_snowballing_enabled"].cget("text")
+        self.assertIn("Currently inactive", updated_snowball_help)
+
+    def test_discovery_strategy_options_render_visible_descriptions(self) -> None:
+        discovery_strategy_widget = self.workbench.field_input_widgets["discovery_strategy"]
+        visible_texts: list[str] = []
+        for widget in _walk_widgets(discovery_strategy_widget):
+            try:
+                text = widget.cget("text")
+            except tk.TclError:
+                continue
+            if text:
+                visible_texts.append(text)
+
+        self.assertIn("Tighter query with less noise and lower API traffic.", visible_texts)
+        self.assertIn("Default middle ground between recall, precision, and runtime.", visible_texts)
+        self.assertIn("More query variants for higher recall, with more noise and follow-up screening.", visible_texts)
 
     def test_keyword_and_filter_fields_have_placeholders_and_guidance(self) -> None:
         expected_fields = {
@@ -356,6 +394,19 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertIn("document_canvas", self.workbench.canvas_scrollbars)
         self.assertIn("vertical", self.workbench.canvas_scrollbars["document_canvas"])
         self.assertIn("horizontal", self.workbench.canvas_scrollbars["document_canvas"])
+
+    def test_all_papers_table_uses_vertical_resizable_splitter(self) -> None:
+        self.workbench.root.update_idletasks()
+
+        panes = self.workbench.table_panedwindows.get("all_papers")
+        self.assertIsNotNone(panes)
+        self.assertEqual(str(panes.cget("orient")), "vertical")
+        self.assertEqual(str(panes.cget("cursor")), "sb_v_double_arrow")
+        self.assertEqual(len(panes.panes()), 2)
+        first_pane = str(panes.panes()[0])
+        second_pane = str(panes.panes()[1])
+        self.assertIn("frame", first_pane.lower())
+        self.assertIn("frame", second_pane.lower())
 
     def test_log_widget_uses_semantic_badges_and_tags(self) -> None:
         self.workbench._append_log("2026-03-12 10:00:00 | INFO | pipeline.pipeline_controller | Pipeline finished in 0.02 seconds.")

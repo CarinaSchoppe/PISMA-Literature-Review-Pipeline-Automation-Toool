@@ -83,7 +83,7 @@ class ApiSettings(BaseModel):
     core_calls_per_second: float = Field(default_factory=lambda: float(os.getenv("CORE_CALLS_PER_SECOND", "1.5")))
     unpaywall_calls_per_second: float = Field(default_factory=lambda: float(os.getenv("UNPAYWALL_CALLS_PER_SECOND", "2.0")))
     topic_prefilter_model: str = Field(
-        default_factory=lambda: os.getenv("HF_TOPIC_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+        default_factory=lambda: os.getenv("HF_TOPIC_MODEL", "BAAI/bge-small-en-v1.5")
     )
     google_scholar_calls_per_second: float = Field(
         default_factory=lambda: float(os.getenv("GOOGLE_SCHOLAR_CALLS_PER_SECOND", "0.2"))

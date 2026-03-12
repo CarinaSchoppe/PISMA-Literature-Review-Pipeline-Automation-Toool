@@ -257,9 +257,11 @@ class DesktopWorkbench:
         "llm_provider": ["auto", "heuristic", "openai_compatible", "gemini", "ollama", "huggingface_local"],
         "topic_prefilter_text_mode": ["title_only", "title_abstract", "title_abstract_full_text"],
         "topic_prefilter_model": [
+            "BAAI/bge-small-en-v1.5",
+            "answerdotai/ModernBERT-base",
             "sentence-transformers/all-MiniLM-L6-v2",
             "sentence-transformers/all-MiniLM-L12-v2",
-            "BAAI/bge-small-en-v1.5",
+            "BAAI/bge-base-en-v1.5",
         ],
         "semantic_scholar_retry_backoff_strategy": ["fixed", "linear", "exponential"],
         "partial_rerun_mode": ["off", "reporting_only", "screening_and_reporting", "pdfs_screening_reporting"],
@@ -502,7 +504,7 @@ class DesktopWorkbench:
     LABELS = {
         "boolean_operators": "Boolean operators",
         "discovery_strategy": "Discovery strategy",
-        "citation_snowballing_enabled": "Enable citation snowballing",
+        "citation_snowballing_enabled": "Use backward + forward citation snowballing",
         "google_scholar_enabled": "Use Google Scholar",
         "google_scholar_pages": "Google Scholar pages",
         "google_scholar_page_min": "Google Scholar page minimum",
@@ -527,9 +529,9 @@ class DesktopWorkbench:
         "year_range_start": "Year start",
         "year_range_end": "Year end",
         "max_papers_to_analyze": "Max papers to analyze",
-        "discovery_stage_enabled": "Run discovery and scraping stage",
+        "discovery_stage_enabled": "Run fresh discovery stage",
         "ai_evaluation_enabled": "Run AI evaluation stage",
-        "skip_discovery": "Skip discovery",
+        "skip_discovery": "Reuse stored records (skip new discovery)",
         "relevance_threshold": "Relevance threshold",
         "topic_prefilter_enabled": "Enable local semantic topic prefilter",
         "topic_prefilter_filter_low_relevance": "Auto-filter low semantic relevance",
@@ -833,11 +835,13 @@ class DesktopWorkbench:
         ),
         "skip_discovery": (
             "Skip new discovery API calls for this run and continue from records already stored in SQLite for the "
-            "current query. This is useful when you want to re-run screening or reporting without searching again."
+            "current query. This is useful when you want to re-run screening or reporting without searching again. "
+            "Because no fresh discovery runs, citation snowballing is also not re-executed in this mode."
         ),
         "citation_snowballing_enabled": (
-            "Enable backward and forward citation expansion after initial discovery. This can improve recall but "
-            "adds more API calls and follow-up papers."
+            "Enable backward reference expansion and forward citation expansion after initial discovery. This can "
+            "improve recall but adds more API calls and follow-up papers. The live citation backend currently comes "
+            "from OpenAlex when that source is enabled."
         ),
         "openalex_enabled": (
             "Search OpenAlex for broad scholarly metadata, abstracts, concepts, and citation links. It is one of the "
@@ -1144,7 +1148,7 @@ class DesktopWorkbench:
         "google_scholar_import_path": "C:/imports/google_scholar_export.csv",
         "researchgate_import_path": "C:/imports/researchgate_export.json",
         "google_scholar_pages": "50 pages means the client will attempt up to 50 Scholar result pages per generated query.",
-        "topic_prefilter_model": "sentence-transformers/all-MiniLM-L6-v2",
+        "topic_prefilter_model": "BAAI/bge-small-en-v1.5",
         "discovery_stage_enabled": "Choose Yes when you want the pipeline to fetch or scrape paper records before any analysis.",
         "ai_evaluation_enabled": "Choose Yes when you want AI screening and research-fit evaluation to run on the collected papers.",
         "topic_prefilter_text_mode": "Use title_abstract for the normal CPU-friendly mode.",
@@ -1225,8 +1229,8 @@ class DesktopWorkbench:
             "When this is No, only the main runtime SQLite database is maintained.",
         ),
         "citation_snowballing_enabled": (
-            "When this is Yes, the pipeline expands the seed set with references and citing papers after initial discovery.",
-            "When this is No, only the directly discovered seed records are screened.",
+            "When this is Yes, the pipeline adds backward references and forward citations after fresh discovery when a citation-capable backend is active.",
+            "When this is No, only the directly discovered seed records are screened without citation expansion.",
         ),
         "discovery_stage_enabled": (
             "When this is Yes, the run performs paper discovery, import, and metadata/PDF enrichment before any optional analysis stage.",
@@ -1237,8 +1241,8 @@ class DesktopWorkbench:
             "When this is No, the run only collects or refreshes papers and does not execute AI evaluation.",
         ),
         "skip_discovery": (
-            "When this is Yes, the run skips new API discovery and starts from records already stored for the current query.",
-            "When this is No, the run performs fresh discovery against the enabled sources before screening.",
+            "When this is Yes, the run skips new API discovery, loads stored records for the current query, and does not rerun citation snowballing for that execution.",
+            "When this is No, the run performs fresh discovery against the enabled sources before optional snowballing and screening.",
         ),
         "analyze_full_text": (
             "When this is Yes, extracted PDF text is added to title and abstract screening when a PDF is available.",
@@ -1287,6 +1291,50 @@ class DesktopWorkbench:
             "Discovery strategy controls how aggressively the system expands or narrows search queries.",
             "Broad usually improves recall, while precise reduces noise and API traffic.",
         ),
+        "topic_prefilter_model": (
+            "This local embedding model drives semantic topic matching, extracted-topic scoring, and rule-vs-topic weighting before or alongside screening.",
+            "The default BAAI/bge-small-en-v1.5 is the recommended local BERT-family choice because it is lightweight, strong for semantic matching, and stable on CPU.",
+        ),
+    }
+
+    INLINE_FIELD_SUMMARIES = {
+        "discovery_stage_enabled": (
+            "Runs fresh collection against the enabled discovery sources before downstream enrichment and screening."
+        ),
+        "skip_discovery": (
+            "Loads records already stored in SQLite for this query and skips new discovery API calls."
+        ),
+        "citation_snowballing_enabled": (
+            "After fresh discovery, adds backward references and forward citations from citation-capable backends."
+        ),
+        "openalex_enabled": (
+            "Best default scholarly source for metadata recall and the current live citation-expansion backend."
+        ),
+        "semantic_scholar_enabled": (
+            "Adds another broad index with abstracts and ranking signals that can complement OpenAlex."
+        ),
+        "crossref_enabled": (
+            "Adds DOI-first registry metadata, which is useful for normalization and DOI recovery."
+        ),
+        "google_scholar_enabled": (
+            "Runs bounded live Scholar collection, which can improve recall but is slower and more rate-limit sensitive."
+        ),
+        "springer_enabled": "Adds Springer-hosted metadata when you want stronger publisher-specific recall.",
+        "arxiv_enabled": "Adds preprints, especially useful for recent AI and machine-learning topics.",
+        "include_pubmed": "Adds PubMed for biomedical and clinical discovery.",
+        "europe_pmc_enabled": "Adds Europe PMC for biomedical and life-science coverage plus extra full-text links.",
+        "core_enabled": "Adds repository and open-access discovery from institutional and aggregator sources.",
+        "discovery_strategy": (
+            "Controls how tightly or broadly the query variants are generated before source collection starts."
+        ),
+    }
+
+    RADIO_OPTION_SUMMARIES = {
+        "discovery_strategy": {
+            "precise": "Tighter query with less noise and lower API traffic.",
+            "balanced": "Default middle ground between recall, precision, and runtime.",
+            "broad": "More query variants for higher recall, with more noise and follow-up screening.",
+        }
     }
 
     NUMERIC_HELP_OVERRIDES = {
@@ -1413,6 +1461,8 @@ class DesktopWorkbench:
         self.outputs_refresh_button: ttk.Button | None = None
         self.settings_page_intro_labels: dict[str, ttk.Label] = {}
         self.settings_section_summary_labels: dict[str, ttk.Label] = {}
+        self.inline_help_labels: dict[str, ttk.Label] = {}
+        self.table_panedwindows: dict[str, ttk.Panedwindow] = {}
         self.run_history_entries: list[dict[str, Any]] = []
         self.artifact_details: dict[str, dict[str, str]] = {}
         self.table_rows: dict[str, dict[str, dict[str, Any]]] = {}
@@ -1491,6 +1541,7 @@ class DesktopWorkbench:
 
         self._build_layout()
         self._apply_form_values(self.form_values)
+        self._refresh_inline_help_labels()
         self._register_settings_observers()
         self._refresh_settings_search_results()
         self._refresh_settings_overview()
@@ -1599,6 +1650,12 @@ class DesktopWorkbench:
             background=self.PALETTE["shell_bg"],
             foreground=self.PALETTE["muted_text"],
             font=("Segoe UI", 10),
+        )
+        self.style.configure(
+            "InlineHelp.TLabel",
+            background=self.PALETTE["surface_bg"],
+            foreground=self.PALETTE["muted_text"],
+            font=("Segoe UI", 9),
         )
         self.style.configure(
             "PageTitle.TLabel",
@@ -3189,13 +3246,17 @@ class DesktopWorkbench:
 
         if field_name in BOOLEAN_FIELD_DEFAULTS:
             variable = tk.BooleanVar(value=BOOLEAN_FIELD_DEFAULTS[field_name])
-            widget = ttk.Checkbutton(frame, text=label, variable=variable)
-            widget.grid(row=row, column=0, columnspan=2, sticky="w", padx=4, pady=4)
+            container = ttk.Frame(frame)
+            container.grid(row=row, column=0, columnspan=2, sticky="ew", padx=4, pady=4)
+            container.columnconfigure(0, weight=1)
+            widget = ttk.Checkbutton(container, text=label, variable=variable)
+            widget.grid(row=0, column=0, sticky="w")
             self.scalar_vars[field_name] = variable
             self.field_input_widgets[field_name] = widget
             self.field_focus_widgets[field_name] = widget
             self.field_widget_types[field_name] = "checkbutton"
             self._bind_hover_help(widget, help_text)
+            self._render_inline_field_help(container, field_name, row=1, column=0, pady=(2, 0))
             return
 
         label_widget = ttk.Label(frame, text=label)
@@ -3318,11 +3379,30 @@ class DesktopWorkbench:
         variable = tk.StringVar(value=str(SCALAR_FIELD_DEFAULTS.get(field_name, "")))
         container = ttk.Frame(frame)
         container.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        option_summaries = self.RADIO_OPTION_SUMMARIES.get(field_name, {})
         for index, option in enumerate(self.RADIO_FIELDS[field_name]):
             option_label = self.RADIO_LABELS.get(field_name, {}).get(option, option.replace("_", " ").title())
             button = ttk.Radiobutton(container, text=option_label, value=option, variable=variable)
-            button.grid(row=index // 3, column=index % 3, sticky="w", padx=(0, 10), pady=2)
+            if option_summaries:
+                option_row = ttk.Frame(container)
+                option_row.grid(row=index, column=0, sticky="ew", pady=2)
+                option_row.columnconfigure(1, weight=1)
+                button.grid(row=0, column=0, sticky="w", padx=(0, 10))
+                hint = ttk.Label(
+                    option_row,
+                    text=option_summaries.get(option, ""),
+                    wraplength=620,
+                    justify="left",
+                    style="InlineHelp.TLabel",
+                )
+                hint.grid(row=0, column=1, sticky="w")
+                self._bind_hover_help(hint, help_text)
+            else:
+                button.grid(row=index // 3, column=index % 3, sticky="w", padx=(0, 10), pady=2)
             self._bind_hover_help(button, help_text)
+        if self._inline_help_text_for_field(field_name):
+            summary_row = len(self.RADIO_FIELDS[field_name]) if option_summaries else (len(self.RADIO_FIELDS[field_name]) + 2) // 3
+            self._render_inline_field_help(container, field_name, row=summary_row, column=0, columnspan=2, pady=(4, 0))
         self.scalar_vars[field_name] = variable
         self.field_input_widgets[field_name] = container
         self.field_focus_widgets[field_name] = container
@@ -3361,13 +3441,74 @@ class DesktopWorkbench:
         """Render a field as an editable dropdown with suggested presets."""
 
         variable = tk.StringVar(value=str(SCALAR_FIELD_DEFAULTS.get(field_name, "")))
-        widget = ttk.Combobox(frame, textvariable=variable, values=self.COMBOBOX_FIELDS[field_name], state="normal")
-        widget.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        container = ttk.Frame(frame)
+        container.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+        container.columnconfigure(0, weight=1)
+        widget = ttk.Combobox(container, textvariable=variable, values=self.COMBOBOX_FIELDS[field_name], state="normal")
+        widget.grid(row=0, column=0, sticky="ew")
         self.scalar_vars[field_name] = variable
         self.field_input_widgets[field_name] = widget
         self.field_focus_widgets[field_name] = widget
         self.field_widget_types[field_name] = "combobox"
         self._bind_hover_help(widget, help_text)
+        self._render_inline_field_help(container, field_name, row=1, column=0, pady=(4, 0))
+
+    def _render_inline_field_help(
+        self,
+        parent: ttk.Frame,
+        field_name: str,
+        *,
+        row: int,
+        column: int,
+        columnspan: int = 1,
+        pady: tuple[int, int] = (0, 0),
+    ) -> None:
+        """Render a persistent short explanation below discovery controls when configured."""
+
+        summary = self._inline_help_text_for_field(field_name)
+        if not summary:
+            return
+        help_label = ttk.Label(
+            parent,
+            text=summary,
+            wraplength=760,
+            justify="left",
+            style="InlineHelp.TLabel",
+        )
+        help_label.grid(row=row, column=column, columnspan=columnspan, sticky="w", pady=pady)
+        self.inline_help_labels[field_name] = help_label
+        self._bind_hover_help(help_label, self._help_text_for_field(field_name))
+
+    def _inline_help_text_for_field(self, field_name: str) -> str:
+        """Return a short always-visible explanation for selected discovery controls."""
+
+        summary = self.INLINE_FIELD_SUMMARIES.get(field_name, "")
+        if not summary:
+            return ""
+        skip_var = self.scalar_vars.get("skip_discovery")
+        snowball_var = self.scalar_vars.get("citation_snowballing_enabled")
+        skip_enabled = bool(skip_var.get()) if skip_var is not None else bool(self.form_values.get("skip_discovery", False))
+        snowball_enabled = (
+            bool(snowball_var.get()) if snowball_var is not None else bool(self.form_values.get("citation_snowballing_enabled", False))
+        )
+        if field_name == "skip_discovery" and skip_enabled and snowball_enabled:
+            return (
+                f"{summary} With this on, backward and forward citation snowballing is not rerun during the current execution."
+            )
+        if field_name == "citation_snowballing_enabled" and skip_enabled:
+            return (
+                f"{summary} Currently inactive because 'Reuse stored records' is enabled and no fresh discovery run is happening."
+            )
+        return summary
+
+    def _refresh_inline_help_labels(self) -> None:
+        """Keep visible helper copy in sync when related discovery settings change."""
+
+        for field_name, label in self.inline_help_labels.items():
+            try:
+                label.configure(text=self._inline_help_text_for_field(field_name))
+            except tk.TclError:
+                continue
 
     def _render_spinbox_field(self, frame: ttk.LabelFrame, field_name: str, help_text: str, row: int) -> None:
         """Render bounded integer settings as spinboxes."""
@@ -4300,6 +4441,7 @@ class DesktopWorkbench:
         if field_name in self.slider_value_label_groups or field_name in self.slider_value_labels:
             self._sync_slider_label(field_name)
             return
+        self._refresh_inline_help_labels()
         self._refresh_settings_overview()
 
     def _refresh_settings_overview(self) -> None:
@@ -5629,24 +5771,31 @@ class DesktopWorkbench:
         container = ttk.Frame(parent, padding=8, style="Surface.TFrame")
         container.pack(fill="both", expand=True)
         container.columnconfigure(0, weight=1)
-        container.rowconfigure(2, weight=1)
         titles = {
             "all_papers": ("All discovered papers", "Inspect the full merged record set, then narrow it with filters and search."),
             "included_papers": ("Included papers", "Positive screening outcomes stay grouped here for synthesis and export."),
             "excluded_papers": ("Excluded papers", "Rejected records stay visible with reasons for auditability."),
         }
         title_text, body_text = titles.get(key, ("Paper table", "Inspect current table content."))
-        ttk.Label(container, text=title_text, style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
-        ttk.Label(
-            container,
-            text=body_text,
-            style="HeroSubtitle.TLabel",
-            wraplength=1000,
-            justify="left",
-        ).grid(row=1, column=0, sticky="ew", pady=(0, 8))
         if include_filters:
-            filter_bar = ttk.Frame(container)
-            filter_bar.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+            container.rowconfigure(0, weight=1)
+            panes = ttk.Panedwindow(container, orient="vertical", cursor="sb_v_double_arrow")
+            panes.grid(row=0, column=0, sticky="nsew")
+            self.table_panedwindows[key] = panes
+
+            header_panel = ttk.Frame(panes, padding=(0, 0, 0, 8), style="Surface.TFrame")
+            header_panel.columnconfigure(0, weight=1)
+            ttk.Label(header_panel, text=title_text, style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+            ttk.Label(
+                header_panel,
+                text=body_text,
+                style="HeroSubtitle.TLabel",
+                wraplength=1000,
+                justify="left",
+            ).grid(row=1, column=0, sticky="ew", pady=(0, 8))
+
+            filter_bar = ttk.Frame(header_panel)
+            filter_bar.grid(row=2, column=0, sticky="ew")
             ttk.Label(filter_bar, text="Filter:").pack(side="left")
             filter_combo = ttk.Combobox(
                 filter_bar,
@@ -5682,11 +5831,40 @@ class DesktopWorkbench:
                 command=self._add_manual_pdf,
             ).pack(side="left")
 
-        tree_shell, tree = self._create_scrolled_tree_widget(container, key=key, show="headings")
-        tree_shell.grid(row=3 if include_filters else 2, column=0, sticky="nsew")
+            tree_shell, tree = self._create_scrolled_tree_widget(container, key=key, show="headings")
+            panes.add(header_panel)
+            panes.add(tree_shell)
+            self.root.after(0, lambda pane=panes, top=header_panel: self._initialize_table_pane_position(pane, top))
+        else:
+            container.rowconfigure(2, weight=1)
+            ttk.Label(container, text=title_text, style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+            ttk.Label(
+                container,
+                text=body_text,
+                style="HeroSubtitle.TLabel",
+                wraplength=1000,
+                justify="left",
+            ).grid(row=1, column=0, sticky="ew", pady=(0, 8))
+            tree_shell, tree = self._create_scrolled_tree_widget(container, key=key, show="headings")
+            tree_shell.grid(row=2, column=0, sticky="nsew")
         tree.bind("<Double-1>", lambda _event, table_key=key: self._open_document_from_table(table_key))
         self.treeviews[key] = tree
         self.table_frames[key] = container
+
+    def _initialize_table_pane_position(self, pane: ttk.Panedwindow, top_panel: ttk.Frame) -> None:
+        """Set a readable default split for vertically resizable table tabs."""
+
+        try:
+            if not pane.winfo_exists():
+                return
+            pane.update_idletasks()
+            preferred_height = max(int(top_panel.winfo_reqheight() or 0) + 18, 120)
+            total_height = int(pane.winfo_height() or 0)
+            if total_height <= 0:
+                return
+            pane.sashpos(0, min(preferred_height, max(total_height - 180, 120)))
+        except tk.TclError:
+            return
 
     def _build_document_tab(self) -> None:
         """Create an embedded document viewer for selected paper rows."""
@@ -6310,10 +6488,13 @@ class DesktopWorkbench:
             for detail in keyword_details:
                 lines.append(
                     "- {keyword}: {match_percent:.1f}% vs threshold {threshold_percent:.1f}% "
+                    "[{match_weight:.2f} vs {threshold_weight:.2f}] "
                     "({status}, delta {threshold_delta:+.1f}, weight {weight}, best topic: {best_topic})".format(
                         keyword=detail.get("keyword", ""),
                         match_percent=float(detail.get("match_percent", 0.0)),
+                        match_weight=float(detail.get("match_weight", detail.get("match_score", 0.0))),
                         status=str(detail.get("status", "")).upper(),
+                        threshold_weight=float(detail.get("threshold_weight", 0.0)),
                         threshold_percent=float(detail.get("threshold_percent", 0.0)),
                         threshold_delta=float(detail.get("threshold_delta", 0.0)),
                         weight=detail.get("weight", ""),
@@ -7792,7 +7973,7 @@ class DesktopWorkbench:
                 lines.append(f"- Extracted topics: {', '.join(extracted_topics[:8])}")
             if keyword_details:
                 top_matches = ", ".join(
-                    f"{detail.get('keyword', '')} {float(detail.get('match_percent', 0.0)):.0f}%"
+                    f"{detail.get('keyword', '')} {float(detail.get('match_weight', detail.get('match_score', 0.0))):.2f}"
                     for detail in keyword_details[:5]
                 )
                 lines.append(f"- Top keyword matches: {top_matches}")
@@ -7819,7 +8000,7 @@ class DesktopWorkbench:
                         lines.append(f"- Extracted topics: {', '.join(topic_match.extracted_topics[:8])}")
                     if topic_match.keyword_match_details:
                         top_matches = ", ".join(
-                            f"{detail.get('keyword', '')} {float(detail.get('match_percent', 0.0)):.0f}%"
+                            f"{detail.get('keyword', '')} {float(detail.get('match_weight', detail.get('match_score', 0.0))):.2f}"
                             for detail in topic_match.keyword_match_details[:5]
                         )
                         lines.append(f"- Top keyword matches: {top_matches}")

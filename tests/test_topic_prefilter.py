@@ -1,4 +1,4 @@
-"""Tests for the local semantic topic prefilter and MiniLM-style screening integration."""
+"""Tests for the local semantic topic prefilter and BERT-style screening integration."""
 
 from __future__ import annotations
 
@@ -188,6 +188,7 @@ class TopicPrefilterTests(unittest.TestCase):
             topic_prefilter_enabled=True,
             topic_prefilter_filter_low_relevance=True,
             topic_prefilter_text_mode="title_abstract_full_text",
+            analyze_full_text=True,
         )
         paper = self._paper(raw_payload={"keywords": ["AI governance", "deployment"], "full_text_excerpt": "Detailed governance analysis for healthcare AI."})
 
@@ -202,12 +203,14 @@ class TopicPrefilterTests(unittest.TestCase):
         self.assertEqual(result.classification, "HIGH_RELEVANCE")
         self.assertFalse(result.should_exclude)
         self.assertIn("title", result.source_sections)
-        self.assertIn("abstract", result.source_sections)
         self.assertIn("keywords", result.source_sections)
         self.assertIn("full_text_excerpt", result.source_sections)
         self.assertIn("AI governance", result.matched_keywords)
         self.assertGreaterEqual(result.keyword_overlap_score, 0.1)
+        self.assertNotIn("abstract", result.source_sections)
         self.assertIn("cosine similarity 0.82", result.explanation)
+        self.assertIn("Local BERT topic prefilter model", result.explanation)
+        self.assertIn("Topic-rule gate decision: PASS", result.explanation)
         self.assertIn("topic 'AI governance for healthcare systems'", result.explanation)
         self.assertIn("question 'How relevant are papers to AI governance in health?'", result.explanation)
         self.assertIn("objective 'Retain papers focused on AI governance, evaluation, and deployment.'", result.explanation)
@@ -247,8 +250,17 @@ class TopicPrefilterTests(unittest.TestCase):
         self.assertIn("systematic review", [topic.lower() for topic in result.extracted_topics])
         self.assertTrue(result.keyword_match_details)
         self.assertEqual(result.keyword_match_details[0]["status"], "matched")
+        self.assertIn("match_weight", result.keyword_match_details[0])
+        self.assertIn("threshold_weight", result.keyword_match_details[0])
+        self.assertGreaterEqual(result.keyword_match_details[0]["match_weight"], 0.0)
+        self.assertLessEqual(result.keyword_match_details[0]["match_weight"], 1.0)
         self.assertIn("Extracted paper topics", result.explanation)
         self.assertIn("Research fit: STRONG_FIT", result.explanation)
+
+    def test_default_topic_prefilter_model_uses_bge_small(self) -> None:
+        config = self._config(topic_prefilter_enabled=True)
+
+        self.assertEqual(config.api_settings.topic_prefilter_model, "BAAI/bge-small-en-v1.5")
 
     def test_local_topic_matcher_marks_near_and_missed_keyword_thresholds(self) -> None:
         config = self._config(
@@ -321,6 +333,25 @@ class TopicPrefilterTests(unittest.TestCase):
         self.assertEqual(result.classification, "LOW_RELEVANCE")
         self.assertTrue(result.should_exclude)
         self.assertIn("Automatic filtering is enabled", result.explanation)
+
+    def test_build_paper_text_prefers_full_text_when_full_text_analysis_is_enabled(self) -> None:
+        config = self._config(
+            topic_prefilter_enabled=True,
+            analyze_full_text=True,
+            topic_prefilter_text_mode="title_abstract",
+        )
+        paper = self._paper(
+            abstract="Short abstract.",
+            raw_payload={"full_text_excerpt": "Longer full text excerpt with governance-specific implementation detail."},
+        )
+
+        with patch("analysis.topic_prefilter.load_embedding_runtime", return_value=(_FakeTorch, _FakeTokenizerLoader, _FakeModelLoader)):
+            matcher = LocalTopicMatcher(config)
+        paper_text, sections = matcher._build_paper_text(paper)
+
+        self.assertIn("Longer full text excerpt", paper_text)
+        self.assertNotIn("Short abstract.", paper_text)
+        self.assertIn("full_text_excerpt", sections)
 
     def test_keyword_match_details_skip_empty_rules_and_can_end_as_weak_fit(self) -> None:
         config = self._config(
