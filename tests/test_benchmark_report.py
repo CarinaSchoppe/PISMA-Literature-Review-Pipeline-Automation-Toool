@@ -63,8 +63,8 @@ class BenchmarkReportTests(unittest.TestCase):
         )
 
         with patch(
-            "benchmark_report.time.perf_counter",
-            side_effect=[0.0, 1.1, 2.0, 3.4],
+                "benchmark_report.time.perf_counter",
+                side_effect=[0.0, 1.1, 2.0, 3.4],
         ):
             results = benchmark_report.run_benchmark_suite(
                 [case],
@@ -127,8 +127,8 @@ class BenchmarkReportTests(unittest.TestCase):
             )
 
             with patch(
-                "benchmark_report.time.perf_counter",
-                side_effect=[0.0, 0.5],
+                    "benchmark_report.time.perf_counter",
+                    side_effect=[0.0, 0.5],
             ):
                 exit_code = benchmark_report.run_benchmark_report(
                     [
@@ -159,8 +159,8 @@ class BenchmarkReportTests(unittest.TestCase):
                 runner=lambda _project_root: 4,
             )
             with patch(
-                "benchmark_report.time.perf_counter",
-                side_effect=[0.0, 0.5],
+                    "benchmark_report.time.perf_counter",
+                    side_effect=[0.0, 0.5],
             ):
                 regression_exit_code = benchmark_report.run_benchmark_report(
                     [

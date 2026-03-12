@@ -286,7 +286,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
             load_outputs.assert_called_once()
 
         with patch("ui.desktop_app.form_values_to_config", side_effect=ValueError("bad config")), patch(
-            "ui.desktop_app.messagebox.showerror"
+                "ui.desktop_app.messagebox.showerror"
         ) as showerror:
             self.workbench._start_run()
         showerror.assert_called_once()
@@ -323,7 +323,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
         config = SimpleNamespace(results_dir=Path("results"))
 
         with patch.object(self.workbench, "_load_dataframe_into_tree"), patch.object(self.workbench, "_load_outputs"), patch(
-            "ui.desktop_app.messagebox.showerror"
+                "ui.desktop_app.messagebox.showerror"
         ) as showerror:
             self.workbench._handle_result(
                 {
@@ -334,7 +334,7 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
         showerror.assert_called_once()
 
         with patch.object(self.workbench, "_load_dataframe_into_tree"), patch.object(self.workbench, "_load_outputs"), patch(
-            "ui.desktop_app.messagebox.showwarning"
+                "ui.desktop_app.messagebox.showwarning"
         ) as showwarning:
             self.workbench._handle_result(
                 {

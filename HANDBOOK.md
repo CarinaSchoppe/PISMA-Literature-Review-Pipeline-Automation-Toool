@@ -164,17 +164,17 @@ Pass-chain builder:
 
 - the pass builder is a visual dialog rather than a raw text field
 - each pass can set:
-  - pass name
-  - provider
-  - decision mode
-  - threshold
-  - maybe margin
-  - model override
-  - minimum previous-pass score required to enter the pass
+    - pass name
+    - provider
+    - decision mode
+    - threshold
+    - maybe margin
+    - model override
+    - minimum previous-pass score required to enter the pass
 - the builder also shows:
-  - a chain overview on the left
-  - a selected-pass preview on the right
-  - a `Duplicate Pass` action for quick branching
+    - a chain overview on the left
+    - a selected-pass preview on the right
+    - a `Duplicate Pass` action for quick branching
 
 Important stop behavior:
 
@@ -496,12 +496,12 @@ These settings control scoring, pass chains, and model behavior.
 
 - Top-level provider mode for single-pass or default behavior.
 - Allowed values:
-  - `auto`
-  - `heuristic`
-  - `openai_compatible`
-  - `gemini`
-  - `ollama`
-  - `huggingface_local`
+    - `auto`
+    - `heuristic`
+    - `openai_compatible`
+    - `gemini`
+    - `ollama`
+    - `huggingface_local`
 - GUI: `AI Screening`
 - CLI: `--llm-provider`
 
@@ -560,9 +560,9 @@ These settings control scoring, pass chains, and model behavior.
 
 - Controls which paper sections feed the local MiniLM matcher.
 - Allowed values:
-  - `title_only`
-  - `title_abstract`
-  - `title_abstract_full_text`
+    - `title_only`
+    - `title_abstract`
+    - `title_abstract_full_text`
 - GUI: `AI Screening`
 - CLI: `--topic-prefilter-text-mode`
 
@@ -776,8 +776,8 @@ What the SQLite files mean:
 - GUI: `Advanced Runtime`
 - CLI: `--verbosity`
 - Flags:
-  - `--verbose` is a shortcut for `--verbosity verbose`
-  - `--ultra-verbose` is a shortcut for `--verbosity ultra_verbose`
+    - `--verbose` is a shortcut for `--verbosity verbose`
+    - `--ultra-verbose` is a shortcut for `--verbosity ultra_verbose`
 
 `log_file_path`
 
@@ -802,9 +802,9 @@ What the SQLite files mean:
 - `screening_workers` tunes AI-screening concurrency unless a local Hugging Face path forces serial execution.
 - GUI: `Advanced Runtime`
 - CLI:
-  - `--discovery-workers`
-  - `--io-workers`
-  - `--screening-workers`
+    - `--discovery-workers`
+    - `--io-workers`
+    - `--screening-workers`
 
 `request_timeout_seconds`
 
@@ -816,10 +816,10 @@ What the SQLite files mean:
 
 - Controls whether the pipeline should rerun everything or only the affected downstream stages.
 - Choices:
-  - `off`: full run
-  - `reporting_only`: rebuild reports from stored paper state without redoing discovery or screening
-  - `screening_and_reporting`: rerun screening on stored records, then regenerate reports
-  - `pdfs_screening_reporting`: refresh PDF enrichment first, then rerun screening and reports
+    - `off`: full run
+    - `reporting_only`: rebuild reports from stored paper state without redoing discovery or screening
+    - `screening_and_reporting`: rerun screening on stored records, then regenerate reports
+    - `pdfs_screening_reporting`: refresh PDF enrichment first, then rerun screening and reports
 - Example:
   If you changed only report settings or export toggles, `reporting_only` is often enough.
 - GUI: `Advanced Runtime`

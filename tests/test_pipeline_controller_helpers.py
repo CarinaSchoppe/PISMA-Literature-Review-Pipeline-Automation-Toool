@@ -355,7 +355,7 @@ class PipelineControllerHelperTests(unittest.TestCase):
                     return paper.model_copy(update={"pdf_link": paper.pdf_link or "https://example.org/fetched.pdf"})
 
                 with patch.object(controller.pdf_fetcher, "fetch_for_paper", side_effect=fake_fetch_for_paper), patch(
-                    "pipeline.pipeline_controller.LOGGER.debug"
+                        "pipeline.pipeline_controller.LOGGER.debug"
                 ) as log_debug:
                     enriched = controller._enrich_with_pdfs([existing, linked, missing, PaperMetadata(title="Broken", source="fixture")])
 
@@ -366,9 +366,9 @@ class PipelineControllerHelperTests(unittest.TestCase):
                 log_debug.assert_called()
 
                 with patch.object(
-                    controller.pdf_fetcher,
-                    "fetch_for_paper",
-                    side_effect=[PaperMetadata(title="Relevant", source="fixture", pdf_path="kept.pdf"), RuntimeError("boom")],
+                        controller.pdf_fetcher,
+                        "fetch_for_paper",
+                        side_effect=[PaperMetadata(title="Relevant", source="fixture", pdf_path="kept.pdf"), RuntimeError("boom")],
                 ):
                     downloaded = controller._download_relevant_pdfs(
                         [
@@ -724,7 +724,7 @@ class PipelineControllerHelperTests(unittest.TestCase):
                 self.assertEqual(no_pass_controller._final_threshold(), no_pass_controller.config.relevance_threshold)
                 self.assertFalse(no_pass_controller._paper_meets_pdf_download_threshold(PaperMetadata(title="Unset", source="fixture")))
                 with patch("pipeline.pipeline_controller.LOGGER.info") as info_mock, patch(
-                    "pipeline.pipeline_controller.LOGGER.debug"
+                        "pipeline.pipeline_controller.LOGGER.debug"
                 ) as debug_mock, patch("pipeline.pipeline_controller.LOGGER.log") as trace_mock:
                     no_pass_controller._log_verbose("hello %s", "world")
                     no_pass_controller._log_debug("debug %s", "world")
@@ -765,4 +765,3 @@ class PipelineControllerHelperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

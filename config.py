@@ -229,7 +229,7 @@ class ResearchConfig(BaseModel):
     decision_mode: Literal["strict", "triage"] = "strict"
     maybe_threshold_margin: float = 10.0
     run_mode: Literal["collect", "analyze"] = "analyze"
-    verbosity: Literal["normal", "verbose", "ultra_verbose"] = "normal"
+    verbosity: Literal["normal", "verbose", "ultra_verbose"] = "ultra_verbose"
     output_csv: bool = True
     output_json: bool = True
     output_markdown: bool = True
@@ -350,9 +350,6 @@ class ResearchConfig(BaseModel):
 
         return parse_search_terms(value)
 
-
-
-
     @field_validator("analysis_passes", mode="before")
     @classmethod
     def validate_analysis_passes(cls, value: Any) -> list[AnalysisPassConfig]:
@@ -386,7 +383,6 @@ class ResearchConfig(BaseModel):
         if value < year_start:
             raise ValueError("year_range_end must be greater than or equal to year_range_start")
         return value
-
 
     @field_validator("topic_prefilter_high_threshold", "topic_prefilter_review_threshold")
     @classmethod
@@ -793,17 +789,17 @@ class ResearchConfig(BaseModel):
 
         research_question = value_for("research_question", getattr(args, "research_question", None), "")
         if (
-            not args.config_file
-            and getattr(args, "research_question", None) is None
-            and "research_question" not in file_config
+                not args.config_file
+                and getattr(args, "research_question", None) is None
+                and "research_question" not in file_config
         ):
             research_question = ask("Optional research question", "")
 
         review_objective = value_for("review_objective", getattr(args, "review_objective", None), "")
         if (
-            not args.config_file
-            and getattr(args, "review_objective", None) is None
-            and "review_objective" not in file_config
+                not args.config_file
+                and getattr(args, "review_objective", None) is None
+                and "review_objective" not in file_config
         ):
             review_objective = ask("Optional review objective", "")
 
@@ -813,18 +809,18 @@ class ResearchConfig(BaseModel):
 
         inclusion_criteria = value_for("inclusion_criteria", getattr(args, "inclusion_criteria", None), [])
         if (
-            not args.config_file
-            and getattr(args, "inclusion_criteria", None) is None
-            and "inclusion_criteria" not in file_config
+                not args.config_file
+                and getattr(args, "inclusion_criteria", None) is None
+                and "inclusion_criteria" not in file_config
         ):
             raw_inclusion = ask("Optional inclusion criteria separated by semicolon", "")
             inclusion_criteria = parse_search_terms(raw_inclusion)
 
         exclusion_criteria = value_for("exclusion_criteria", getattr(args, "exclusion_criteria", None), [])
         if (
-            not args.config_file
-            and getattr(args, "exclusion_criteria", None) is None
-            and "exclusion_criteria" not in file_config
+                not args.config_file
+                and getattr(args, "exclusion_criteria", None) is None
+                and "exclusion_criteria" not in file_config
         ):
             raw_exclusion = ask("Optional exclusion criteria separated by semicolon", "")
             exclusion_criteria = parse_search_terms(raw_exclusion)

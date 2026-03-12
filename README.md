@@ -191,12 +191,12 @@ The guided workbench includes:
 - a refreshed light theme with higher-contrast tabs, accent actions, danger-stop styling, and cleaner tables
 - English-only visible text across the GUI, CLI prompts, handbook entries, hover help, and status guidance
 - settings pages:
-  - `Review Setup`
-  - `Discovery`
-  - `AI Screening`
-  - `Connections and Keys`
-  - `Storage and Output`
-  - `Advanced Runtime`
+    - `Review Setup`
+    - `Discovery`
+    - `AI Screening`
+    - `Connections and Keys`
+    - `Storage and Output`
+    - `Advanced Runtime`
 - a left-hand page rail so the settings follow the review workflow instead of one long stacked panel
 - a resizable three-pane settings shell, so you can widen the editor or the inspector instead of being stuck with one fixed layout
 - a right-hand inspector with dedicated `Find`, `Quick Edit`, `Guides`, and `Summary` tabs

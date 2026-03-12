@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from models.paper import PaperMetadata
 from tqdm import tqdm
 
 from config import ResearchConfig
 from database import DatabaseManager
 from discovery.protocols import CitationProviderProtocol
+from models.paper import PaperMetadata
 from utils.deduplication import deduplicate_papers
 
 
@@ -15,10 +15,10 @@ class CitationExpander:
     """Expand the current review set through reference and citation lookups."""
 
     def __init__(
-        self,
-        config: ResearchConfig,
-        database: DatabaseManager,
-        citation_provider: CitationProviderProtocol,
+            self,
+            config: ResearchConfig,
+            database: DatabaseManager,
+            citation_provider: CitationProviderProtocol,
     ) -> None:
         self.config = config
         self.database = database
@@ -36,10 +36,10 @@ class CitationExpander:
 
         discovered: list[PaperMetadata] = []
         for seed in tqdm(
-            seeds,
-            desc="Citation expansion",
-            unit="paper",
-            disable=self.config.disable_progress_bars,
+                seeds,
+                desc="Citation expansion",
+                unit="paper",
+                disable=self.config.disable_progress_bars,
         ):
             backward = self.citation_provider.fetch_references(seed, limit=10)
             forward = self.citation_provider.fetch_citations(seed, limit=10)

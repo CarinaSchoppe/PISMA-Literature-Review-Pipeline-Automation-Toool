@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from models.paper import PaperMetadata
-
 from config import ResearchConfig
+from models.paper import PaperMetadata
 from utils.http import RateLimiter, build_session, request_text
 from utils.text_processing import normalize_text, safe_year
 

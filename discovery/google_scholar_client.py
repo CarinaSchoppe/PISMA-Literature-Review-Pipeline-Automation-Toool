@@ -216,9 +216,3 @@ class GoogleScholarClient:
         """Collapse HTML fragments into plain display text."""
 
         return " ".join(strip_markup(unescape(value)).split())
-
-
-
-
-
-

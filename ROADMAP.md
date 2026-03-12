@@ -160,12 +160,12 @@ If broader intake is needed, the better direction is:
 ### Next high-value additions
 
 - document-type classification:
-  - primary study
-  - review
-  - editorial
-  - correction
-  - protocol
-  - benchmark paper
+    - primary study
+    - review
+    - editorial
+    - correction
+    - protocol
+    - benchmark paper
 - study-design extraction
 - method taxonomy extraction
 - dataset / benchmark extraction
