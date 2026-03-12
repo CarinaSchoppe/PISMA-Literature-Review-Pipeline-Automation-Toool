@@ -86,6 +86,24 @@ These fields define the screening concept used in discovery, semantic topic matc
 
 These settings control where the pipeline searches and how broad the search is.
 
+### Stage Controls
+
+`discovery_stage_enabled`
+
+- Enables paper discovery and scraping before later stages run.
+- When disabled, the pipeline expects stored or manually added papers to already exist.
+
+`ai_evaluation_enabled`
+
+- Enables AI screening, research-fit evaluation, and downstream analysis.
+- When disabled, the pipeline can still discover, deduplicate, enrich, and export papers.
+
+Legacy compatibility:
+
+- `run_mode=collect` maps to discovery without AI evaluation
+- `run_mode=analyze` maps to AI evaluation enabled
+- `skip_discovery=true` maps to discovery disabled
+
 ### Source Toggles
 
 Live API sources:
@@ -232,6 +250,7 @@ This is the local CPU-friendly semantic relevance layer.
 `topic_prefilter_enabled`
 
 - Enables the MiniLM semantic gate.
+- Default: `true`
 - Reuses one cached local model instance per process so repeated paper scoring avoids unnecessary reloads.
 
 `topic_prefilter_filter_low_relevance`

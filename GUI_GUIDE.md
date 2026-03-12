@@ -42,6 +42,11 @@ Main tabs:
 - `Document Viewer`
 - `Handbook`
 
+The `All Papers` tab also includes two manual intake actions:
+
+- `Add Paper Link`
+- `Add Local PDF`
+
 ## Settings Shell
 
 The `Settings` tab uses a three-pane layout:
@@ -188,6 +193,8 @@ Use this page for:
 - full-text analysis
 - pass-chain editing
 
+The local MiniLM topic prefilter is enabled by default in fresh profiles. Disable it only if you explicitly want to skip the local research-fit layer.
+
 The pass-chain builder is visual and allows:
 
 - add pass
@@ -227,6 +234,31 @@ The Research Fit workspace uses those settings to show:
   - `MATCHED` when the keyword's actual match percentage is at or above its threshold
   - `NEAR` when the keyword is below threshold by at most 5 points
   - `MISSED` when the keyword is more than 5 points below threshold
+
+## Manual Paper Intake
+
+Use the `All Papers` tab when you want to add one paper directly into the active review without rerunning broad discovery.
+
+`Add Paper Link` accepts:
+
+- DOI strings
+- DOI URLs
+- arXiv identifiers
+- arXiv links
+- paper landing pages
+- direct PDF links
+
+`Add Local PDF` accepts one already-downloaded PDF from disk.
+
+The manual intake flow then:
+
+- resolves metadata where possible
+- extracts local text excerpts when possible
+- persists the paper into the active query in SQLite
+- runs the current screening and research-fit logic
+- refreshes `All Papers`, `Included`, `Excluded`, `Research Fit`, `Outputs`, and `Document Viewer`
+
+If a source does not expose every field, the paper is still added with the best metadata available.
 
 ## Connections And Keys Page
 
@@ -269,7 +301,9 @@ Common switches:
 
 Use this page for:
 
-- run mode
+- discovery-stage toggle
+- AI-evaluation toggle
+- legacy run mode compatibility display
 - verbosity
 - worker counts
 - partial rerun mode
@@ -282,8 +316,20 @@ Use this page for:
 Toolbar actions:
 
 - `Start Run`
+- `Discover Only`
 - `Analyze Stored Results`
 - `Force Stop`
+
+`Start Run`
+
+- honors the current `Run discovery and scraping before analysis` toggle
+- honors the current `Run AI evaluation and screening` toggle
+- can therefore execute discovery only, AI only, or both in sequence
+
+`Discover Only`
+
+- temporarily forces discovery on and AI evaluation off for that run
+- is useful when you want to refresh the paper list without changing screening results
 
 `Analyze Stored Results`
 
@@ -324,6 +370,7 @@ What it shows:
 - local PDF text excerpt when a downloaded PDF exists
 - fallback abstract or extracted passage when no local PDF is present
 - a compact research-fit snapshot using the current topic, research question, and review objective
+- manually added papers from link or local PDF after their refreshed screening and research-fit pass
 
 If a local file exists, `Open External File` opens it with the operating-system default viewer.
 
@@ -363,6 +410,7 @@ If the workbench feels crowded:
 `All Papers`
 
 - full discovered or analyzed paper list
+- includes `Add Paper Link` and `Add Local PDF` actions for one-off manual intake
 
 `Included`
 

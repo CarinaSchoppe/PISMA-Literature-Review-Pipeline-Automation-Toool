@@ -551,6 +551,52 @@ class PipelineIntegrationTests(unittest.TestCase):
             papers = pd.read_csv(root / "results" / "papers.csv")
             self.assertTrue(papers["inclusion_decision"].notna().any())
 
+    def test_stage_toggles_support_discovery_only_and_ai_only_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            base_kwargs = {
+                "research_topic": "AI-assisted literature reviews",
+                "search_keywords": ["large language models", "screening", "systematic review"],
+                "pages_to_retrieve": 1,
+                "results_per_page": 10,
+                "year_range_start": 2020,
+                "year_range_end": 2026,
+                "max_papers_to_analyze": 5,
+                "openalex_enabled": False,
+                "semantic_scholar_enabled": False,
+                "crossref_enabled": False,
+                "include_pubmed": False,
+                "disable_progress_bars": True,
+                "fixture_data_path": Path("tests/fixtures/offline_papers.json"),
+                "data_dir": root / "data",
+                "papers_dir": root / "papers",
+                "results_dir": root / "results",
+                "database_path": root / "data" / "literature_review.db",
+            }
+
+            discover_only_config = ResearchConfig(
+                **base_kwargs,
+                discovery_stage_enabled=True,
+                ai_evaluation_enabled=False,
+                citation_snowballing_enabled=False,
+            ).finalize()
+            ai_only_config = ResearchConfig(
+                **{**base_kwargs, "fixture_data_path": None},
+                discovery_stage_enabled=False,
+                ai_evaluation_enabled=True,
+                citation_snowballing_enabled=False,
+                llm_provider="heuristic",
+                relevance_threshold=50,
+            ).finalize()
+
+            first_result = PipelineController(discover_only_config).run()
+            second_result = PipelineController(ai_only_config).run()
+
+            self.assertEqual(first_result["run_status"], "completed")
+            self.assertEqual(second_result["run_status"], "completed")
+            papers = pd.read_csv(root / "results" / "papers.csv")
+            self.assertTrue(papers["inclusion_decision"].notna().any())
+
     def test_partial_rerun_reporting_only_can_regenerate_reports_incrementally(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

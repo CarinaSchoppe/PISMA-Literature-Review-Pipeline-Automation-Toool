@@ -986,11 +986,13 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             self.workbench._load_dataframe_into_tree("all_papers", csv_path)
             self.assertNotIn("old", str(tree.item(tree.get_children()[0]).get("values")))
 
+        self.workbench.current_result = {"papers_snapshot": [{"title": "Snapshot paper"}]}
         with patch("ui.desktop_app.form_values_to_config", return_value=SimpleNamespace(results_dir=Path("results/mock"))), patch.object(
-                self.workbench, "_load_dataframe_into_tree"
-        ) as load_tree:
+            self.workbench, "_load_dataframe_into_tree"
+        ) as load_tree, patch.object(self.workbench, "_load_records_into_tree") as load_records:
             self.workbench._refresh_all_table()
-        load_tree.assert_called_once()
+        load_tree.assert_not_called()
+        load_records.assert_called_once()
 
         outputs_tree = self.workbench.outputs_tree
         outputs_tree.insert("", tk.END, values=["old", "value"])
@@ -1105,7 +1107,8 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
         )
 
         self.workbench.document_status_var.set("No paper selected yet.")
-        self.workbench._open_document_external()
+        with patch("ui.desktop_app.filedialog.askopenfilename", return_value=""):
+            self.workbench._open_document_external()
 
         preview_summary, preview_content = self.workbench._build_document_preview(
             {

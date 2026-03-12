@@ -84,6 +84,7 @@ Use the docs in this order:
 * `pyproject.toml`-based tooling unification
 * GitHub Actions quality gates for lint, type-checking, tests, coverage, and benchmark smoke runs
 * profile save/load in the GUI
+* manual paper intake from DOI strings, arXiv links, landing pages, direct PDF URLs, and local PDFs
 
 ---
 
@@ -136,7 +137,7 @@ This supports:
 
 ### Local semantic topic prefilter
 
-The pipeline can also run a local CPU-friendly semantic relevance prefilter before deeper screening.
+The pipeline now runs a local CPU-friendly semantic relevance prefilter by default before deeper screening unless you explicitly disable it.
 
 Default local embedding model:
 
@@ -229,14 +230,22 @@ The guided workbench includes:
   - `Run History`
   - `Screening Audit`
   - `Document Viewer`
+- manual intake actions inside `All Papers`:
+  - `Add Paper Link`
+  - `Add Local PDF`
 - double-click result and audit rows to open the embedded document viewer
 - document previews combine local PDF excerpts when available with screening rationale, retain/exclude reasoning, and research-fit context
 - the `Research Fit` tab shows extracted topics, per-keyword match percentages, per-keyword thresholds, threshold deltas, matched-rule counts, and strong/near/weak fit badges
 - the weighted-keyword field in `AI Screening` now uses a visual keyword-rule builder so you can add, remove, duplicate, and tune rule rows without editing raw text
+- manual intake resolves metadata where possible, persists the paper into the current review query, runs the current screening and research-fit logic, and refreshes `All Papers`, `Included`, `Excluded`, `Research Fit`, `Document Viewer`, and exported outputs
 - the embedded document viewer can render local PDF pages directly inside the tab when `Pillow` and `pypdfium2` are available
 - the document viewer includes page navigation, zoom controls, source/decision/file badges, and falls back to text preview when no renderable local PDF exists
 - export preview before the run starts, so you can confirm which files and folders the current settings will produce
 - an artifact browser with summary panes and open-folder actions for generated files
+- independent stage toggles for discovery/scraping and AI evaluation, so one `Start Run` action can run:
+  - discovery only
+  - AI evaluation only against stored papers
+  - both stages in sequence
 - `Analyze Stored Results` button to skip discovery and rerun screening/reporting
 - `Force Stop` button for controlled stop requests
 - path pickers for database, results, PDF, cache, and import paths
@@ -261,6 +270,7 @@ Runtime settings can be configured through:
 That includes:
 
 * discovery source toggles
+* discovery-stage and AI-evaluation stage toggles
 * discovery breadth and result limits
 * provider and model selection
 * pass-chain setup

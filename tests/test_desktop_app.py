@@ -181,6 +181,7 @@ class DesktopWorkbenchTests(unittest.TestCase):
                 toolbar_texts.append(text)
 
         self.assertIn("Analyze Stored Results", toolbar_texts)
+        self.assertIn("Discover Only", toolbar_texts)
         self.assertIn("Force Stop", toolbar_texts)
 
     def test_slider_fields_exist_for_threshold_controls(self) -> None:
@@ -426,10 +427,15 @@ class DesktopWorkbenchTests(unittest.TestCase):
                 source_label="fixture",
             )
 
-            with patch.object(self.workbench, "_open_path") as open_path:
+            with patch("ui.desktop_app.filedialog.askopenfilename", return_value=str(pdf_path)), patch.object(
+                self.workbench,
+                "_load_document_render",
+            ) as load_render:
                 self.workbench._open_document_external()
 
-            open_path.assert_called_once_with(pdf_path)
+            self.assertEqual(self.workbench.document_external_path, pdf_path)
+            self.assertIn("Selected local document", self.workbench.document_status_var.get())
+            load_render.assert_called_once_with(pdf_path)
 
     def test_result_tables_render_visible_decision_badges(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -527,6 +533,8 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.workbench.field_widget_types["pdf_download_mode"], "radiogroup")
         self.assertEqual(self.workbench.field_widget_types["run_mode"], "radiogroup")
         self.assertEqual(self.workbench.field_widget_types["verbosity"], "radiogroup")
+        self.assertEqual(self.workbench.field_widget_types["discovery_stage_enabled"], "checkbutton")
+        self.assertEqual(self.workbench.field_widget_types["ai_evaluation_enabled"], "checkbutton")
         self.assertEqual(self.workbench.field_widget_types["log_file_path"], "path")
         self.assertEqual(self.workbench.field_widget_types["partial_rerun_mode"], "combobox")
         self.assertEqual(self.workbench.field_widget_types["pages_to_retrieve"], "spinbox")
@@ -559,8 +567,11 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertEqual(self.workbench.active_theme, "clam")
         self.assertEqual(self.workbench.root.cget("bg"), self.workbench.PALETTE["shell_bg"])
         self.assertEqual(self.workbench.toolbar_buttons["Start Run"].cget("style"), "Accent.TButton")
+        self.assertEqual(self.workbench.toolbar_buttons["Discover Only"].cget("style"), "Secondary.TButton")
         self.assertEqual(self.workbench.toolbar_buttons["Analyze Stored Results"].cget("style"), "Secondary.TButton")
         self.assertEqual(self.workbench.toolbar_buttons["Force Stop"].cget("style"), "Danger.TButton")
+        self.assertEqual(self.workbench.toolbar_buttons["Save Profile"].cget("style"), "Success.TButton")
+        self.assertEqual(self.workbench.toolbar_buttons["Reset"].cget("style"), "Warning.TButton")
         self.assertEqual(self.workbench.notebook.cget("style"), "Workbench.TNotebook")
         self.assertEqual(self.workbench.status_label.cget("style"), "Status.TLabel")
         self.assertEqual(str(self.workbench.style.lookup("HeroPanel.TFrame", "background")), self.workbench.PALETTE["hero_bg"])
@@ -755,6 +766,24 @@ class DesktopWorkbenchTests(unittest.TestCase):
         self.assertNotIn("Jump to Outputs", joined)
         self.assertNotIn("Open Model Guide", joined)
         self.assertNotIn("Open Output Guide", joined)
+
+    def test_log_history_and_audit_tabs_expose_clear_and_export_actions(self) -> None:
+        visible_texts: list[str] = []
+        for child in _walk_widgets(self.workbench.root):
+            try:
+                text = child.cget("text")
+            except tk.TclError:
+                continue
+            if text:
+                visible_texts.append(text)
+
+        joined = " ".join(visible_texts)
+        self.assertIn("Export Log", joined)
+        self.assertIn("Clear Log", joined)
+        self.assertIn("Export History", joined)
+        self.assertIn("Clear History", joined)
+        self.assertIn("Export Audit", joined)
+        self.assertIn("Clear Audit", joined)
 
 
 if __name__ == "__main__":  # pragma: no cover - direct module execution helper

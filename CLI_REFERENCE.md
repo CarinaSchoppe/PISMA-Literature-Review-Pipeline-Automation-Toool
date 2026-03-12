@@ -51,6 +51,25 @@ GUI-only conveniences such as semantic badges, scrollable inspector surfaces, an
 
 ## Common Run Patterns
 
+### Discovery only
+
+```powershell
+py -3 main.py ^
+  --topic "AI governance" ^
+  --keywords "AI governance,large language models,policy" ^
+  --discovery-stage-enabled ^
+  --no-ai-evaluation-enabled
+```
+
+### AI evaluation only against stored papers
+
+```powershell
+py -3 main.py ^
+  --config-file tests\fixtures\offline_config.json ^
+  --no-discovery-stage-enabled ^
+  --ai-evaluation-enabled
+```
+
 ### Metadata collection only
 
 ```powershell
@@ -83,6 +102,14 @@ py -3 main.py ^
   --skip-discovery ^
   --run-mode analyze
 ```
+
+Stage-toggle note:
+
+- `--discovery-stage-enabled` / `--no-discovery-stage-enabled`
+- `--ai-evaluation-enabled` / `--no-ai-evaluation-enabled`
+
+These are the preferred explicit controls for stage behavior.
+`--run-mode` and `--skip-discovery` remain supported as compatibility flags.
 
 ### Regenerate reports only
 

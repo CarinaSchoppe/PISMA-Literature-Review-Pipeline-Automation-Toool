@@ -14,7 +14,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 from typing import Any, Callable
 
 import pandas as pd
@@ -28,11 +28,15 @@ try:
 except ImportError:  # pragma: no cover - optional runtime dependency
     pdfium = None
 
+from acquisition.manual_paper_ingestor import ManualPaperIngestor
 from acquisition.full_text_extractor import FullTextExtractor
+from analysis.ai_screener import AIScreener
 from analysis.relevance_scoring import RelevanceScorer
 from config import parse_analysis_pass, parse_topic_prefilter_keyword_rule
+from database import DatabaseManager
 from models.paper import PaperMetadata
 from pipeline.pipeline_controller import PipelineController
+from reporting.report_generator import ReportGenerator
 from ui.view_model import (
     BOOLEAN_FIELD_DEFAULTS,
     ProfileManager,
@@ -280,7 +284,7 @@ class DesktopWorkbench:
         "max_papers_to_analyze": {"from_": 1, "to": 10000, "increment": 1},
         "full_text_max_chars": {"from_": 500, "to": 200000, "increment": 500},
         "topic_prefilter_max_chars": {"from_": 250, "to": 20000, "increment": 250},
-        "topic_prefilter_min_keyword_matches": {"from_": 1, "to": 50, "increment": 1},
+        "topic_prefilter_min_keyword_matches": {"from_": 0, "to": 50, "increment": 1},
         "max_workers": {"from_": 1, "to": 64, "increment": 1},
         "discovery_workers": {"from_": 0, "to": 64, "increment": 1},
         "io_workers": {"from_": 0, "to": 64, "increment": 1},
@@ -334,6 +338,7 @@ class DesktopWorkbench:
         (
         "Discovery",
         [
+            "discovery_stage_enabled",
             "boolean_operators",
             "discovery_strategy",
             "pages_to_retrieve",
@@ -393,6 +398,7 @@ class DesktopWorkbench:
         (
             "Screening and Models",
             [
+                "ai_evaluation_enabled",
                 "llm_provider",
                 "analysis_passes",
                 "relevance_threshold",
@@ -521,6 +527,8 @@ class DesktopWorkbench:
         "year_range_start": "Year start",
         "year_range_end": "Year end",
         "max_papers_to_analyze": "Max papers to analyze",
+        "discovery_stage_enabled": "Run discovery and scraping stage",
+        "ai_evaluation_enabled": "Run AI evaluation stage",
         "skip_discovery": "Skip discovery",
         "relevance_threshold": "Relevance threshold",
         "topic_prefilter_enabled": "Enable local semantic topic prefilter",
@@ -1137,6 +1145,8 @@ class DesktopWorkbench:
         "researchgate_import_path": "C:/imports/researchgate_export.json",
         "google_scholar_pages": "50 pages means the client will attempt up to 50 Scholar result pages per generated query.",
         "topic_prefilter_model": "sentence-transformers/all-MiniLM-L6-v2",
+        "discovery_stage_enabled": "Choose Yes when you want the pipeline to fetch or scrape paper records before any analysis.",
+        "ai_evaluation_enabled": "Choose Yes when you want AI screening and research-fit evaluation to run on the collected papers.",
         "topic_prefilter_text_mode": "Use title_abstract for the normal CPU-friendly mode.",
         "topic_prefilter_weighted_keywords": "systematic review|1.6|70; large language models|1.5|60; screening automation|1.2|55",
         "topic_prefilter_min_keyword_matches": "2",
@@ -1218,6 +1228,14 @@ class DesktopWorkbench:
             "When this is Yes, the pipeline expands the seed set with references and citing papers after initial discovery.",
             "When this is No, only the directly discovered seed records are screened.",
         ),
+        "discovery_stage_enabled": (
+            "When this is Yes, the run performs paper discovery, import, and metadata/PDF enrichment before any optional analysis stage.",
+            "When this is No, the run starts from papers that are already stored or manually added and skips fresh discovery.",
+        ),
+        "ai_evaluation_enabled": (
+            "When this is Yes, the run performs AI screening, research-fit scoring, and related analysis outputs for the available papers.",
+            "When this is No, the run only collects or refreshes papers and does not execute AI evaluation.",
+        ),
         "skip_discovery": (
             "When this is Yes, the run skips new API discovery and starts from records already stored for the current query.",
             "When this is No, the run performs fresh discovery against the enabled sources before screening.",
@@ -1250,8 +1268,8 @@ class DesktopWorkbench:
             "Changing this setting changes which API keys, model names, and runtime controls matter for the run.",
         ),
         "run_mode": (
-            "Run mode decides how far the pipeline continues after discovery.",
-            "Collect is useful for building a corpus first, while analyze is the full end-to-end review pipeline.",
+            "Run mode is kept for backward compatibility and is derived automatically from the discovery and AI stage toggles.",
+            "Use the stage toggles when you want explicit control over discovery-only, AI-only, or full pipeline runs.",
         ),
         "pdf_download_mode": (
             "This setting decides whether PDFs are downloaded immediately for every discoverable paper or only after a paper passes screening.",
@@ -1881,6 +1899,28 @@ class DesktopWorkbench:
             "Danger.TButton",
             background=[("active", self.PALETTE["danger_active"])],
             foreground=[("disabled", "#f8e4e1")],
+        )
+        self.style.configure(
+            "Success.TButton",
+            background=self.PALETTE["success"],
+            foreground="#ffffff",
+            padding=(16, 12),
+        )
+        self.style.map(
+            "Success.TButton",
+            background=[("active", "#0f9f5e")],
+            foreground=[("disabled", "#e5faf0")],
+        )
+        self.style.configure(
+            "Warning.TButton",
+            background="#f4d77b",
+            foreground=self.PALETTE["text"],
+            padding=(16, 12),
+        )
+        self.style.map(
+            "Warning.TButton",
+            background=[("active", "#ebca63")],
+            foreground=[("disabled", self.PALETTE["muted_text"])],
         )
         self.style.configure(
             "TCheckbutton",
@@ -2655,10 +2695,17 @@ class DesktopWorkbench:
 
         start_button = ttk.Button(primary_actions, text="Start Run", command=self._start_run, style="Accent.TButton")
         start_button.pack(side="left", padx=(0, 6))
+        discover_only_button = ttk.Button(
+            primary_actions,
+            text="Discover Only",
+            command=lambda: self._start_run(discovery_stage_override=True, ai_evaluation_override=False),
+            style="Secondary.TButton",
+        )
+        discover_only_button.pack(side="left", padx=(0, 6))
         analyze_button = ttk.Button(
             primary_actions,
             text="Analyze Stored Results",
-            command=lambda: self._start_run(skip_discovery_override=True, run_mode_override="analyze"),
+            command=lambda: self._start_run(discovery_stage_override=False, ai_evaluation_override=True),
             style="Secondary.TButton",
         )
         analyze_button.pack(side="left", padx=(0, 6))
@@ -2667,10 +2714,17 @@ class DesktopWorkbench:
 
         load_config_button = ttk.Button(utility_actions, text="Load Config", command=self._load_config_file, style="Secondary.TButton")
         load_config_button.pack(side="left", padx=(0, 6))
-        save_profile_button = ttk.Button(utility_actions, text="Save Profile", command=self._save_profile, style="Secondary.TButton")
+        save_profile_button = ttk.Button(utility_actions, text="Save Profile", command=self._save_profile, style="Success.TButton")
         save_profile_button.pack(side="left", padx=(0, 6))
         load_profile_button = ttk.Button(utility_actions, text="Load Profile", command=self._load_profile, style="Secondary.TButton")
         load_profile_button.pack(side="left", padx=(0, 6))
+        reset_button = ttk.Button(
+            utility_actions,
+            text="Reset",
+            command=self._reset_workspace,
+            style="Warning.TButton",
+        )
+        reset_button.pack(side="left", padx=(0, 6))
         refresh_button = ttk.Button(utility_actions, text="Refresh Results", command=self._refresh_results_from_disk, style="Secondary.TButton")
         refresh_button.pack(side="left", padx=(0, 6))
         open_results_button = ttk.Button(
@@ -2682,11 +2736,13 @@ class DesktopWorkbench:
         open_results_button.pack(side="left")
         self.toolbar_buttons = {
             "Start Run": start_button,
+            "Discover Only": discover_only_button,
             "Analyze Stored Results": analyze_button,
             "Force Stop": force_stop_button,
             "Load Config": load_config_button,
             "Save Profile": save_profile_button,
             "Load Profile": load_profile_button,
+            "Reset": reset_button,
             "Refresh Results": refresh_button,
             "Open Results Folder": open_results_button,
         }
@@ -2696,6 +2752,10 @@ class DesktopWorkbench:
             "Collapse or expand the large top overview so the notebook area gets more room in smaller windows.",
         )
         self._bind_hover_help(start_button, "Run the full pipeline using the current UI settings.")
+        self._bind_hover_help(
+            discover_only_button,
+            "Run discovery, import, and enrichment only. AI evaluation is skipped for this launch.",
+        )
         self._bind_hover_help(
             analyze_button,
             "Skip new discovery for this run and go directly into AI analysis using already stored records.",
@@ -2707,6 +2767,7 @@ class DesktopWorkbench:
         self._bind_hover_help(load_config_button, "Load a saved JSON config file into the UI.")
         self._bind_hover_help(save_profile_button, "Save the current UI settings as a reusable profile.")
         self._bind_hover_help(load_profile_button, "Load a saved UI profile.")
+        self._bind_hover_help(reset_button, "Restore the default settings and clear the current UI session state.")
         self._bind_hover_help(refresh_button, "Reload result files from disk without starting a new run.")
         self._bind_hover_help(open_results_button, "Open the configured results directory in the file manager.")
 
@@ -4339,6 +4400,8 @@ class DesktopWorkbench:
         ]
         lines = [
             "This preview is generated from the live UI settings before the run starts.",
+            f"Discovery stage: {'On' if values.get('discovery_stage_enabled') else 'Off'}",
+            f"AI evaluation: {'On' if values.get('ai_evaluation_enabled') else 'Off'}",
             f"Run mode: {values.get('run_mode')}",
             f"Results directory: {results_dir}",
             "",
@@ -5534,7 +5597,7 @@ class DesktopWorkbench:
         container = ttk.Frame(self.log_tab, padding=8, style="Surface.TFrame")
         container.pack(fill="both", expand=True)
         container.columnconfigure(0, weight=1)
-        container.rowconfigure(2, weight=1)
+        container.rowconfigure(3, weight=1)
         ttk.Label(container, text="Run log", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
         metric_strip = self._build_metric_strip(
             container,
@@ -5546,6 +5609,10 @@ class DesktopWorkbench:
             card_padding=(12, 10),
         )
         metric_strip.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        action_bar = ttk.Frame(container, style="Surface.TFrame")
+        action_bar.grid(row=2, column=0, sticky="w", pady=(0, 8))
+        ttk.Button(action_bar, text="Export Log", command=self._export_run_log, style="Secondary.TButton").pack(side="left")
+        ttk.Button(action_bar, text="Clear Log", command=self._clear_run_log, style="Danger.TButton").pack(side="left", padx=(6, 0))
         shell, self.log_widget = self._create_scrolled_text_widget(
             container,
             key="run_log",
@@ -5553,7 +5620,7 @@ class DesktopWorkbench:
             wrap="none",
             horizontal=True,
         )
-        shell.grid(row=2, column=0, sticky="nsew")
+        shell.grid(row=3, column=0, sticky="nsew")
         self._configure_log_widget_tags()
 
     def _build_table_tab(self, parent: ttk.Frame, key: str, *, include_filters: bool = False) -> None:
@@ -5600,6 +5667,20 @@ class DesktopWorkbench:
                 self.SEARCH_WIDGET_PLACEHOLDERS["all_papers_search"],
                 mode="entry",
             )
+            action_bar = ttk.Frame(filter_bar)
+            action_bar.pack(side="right", padx=(12, 0))
+            ttk.Button(
+                action_bar,
+                text="Add Paper Link",
+                style="Secondary.TButton",
+                command=self._add_manual_paper_link,
+            ).pack(side="left", padx=(0, 6))
+            ttk.Button(
+                action_bar,
+                text="Add Local PDF",
+                style="Accent.TButton",
+                command=self._add_manual_pdf,
+            ).pack(side="left")
 
         tree_shell, tree = self._create_scrolled_tree_widget(container, key=key, show="headings")
         tree_shell.grid(row=3 if include_filters else 2, column=0, sticky="nsew")
@@ -5664,7 +5745,7 @@ class DesktopWorkbench:
         self.document_path_label.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         self.document_open_button = ttk.Button(
             left_card,
-            text="Open External File",
+            text="Open External File...",
             style="Secondary.TButton",
             command=self._open_document_external,
         )
@@ -5911,7 +5992,7 @@ class DesktopWorkbench:
         left = ttk.Frame(shell, padding=8, style="Surface.TFrame")
         right = ttk.Frame(shell, padding=8, style="Surface.TFrame")
         left.columnconfigure(0, weight=1)
-        left.rowconfigure(2, weight=1)
+        left.rowconfigure(3, weight=1)
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
         shell.add(left, weight=2)
@@ -5938,6 +6019,10 @@ class DesktopWorkbench:
             style="NeutralBadge.TLabel",
         )
         self.run_history_artifact_badge.grid(row=0, column=2, sticky="w")
+        action_bar = ttk.Frame(left, style="Surface.TFrame")
+        action_bar.grid(row=2, column=0, sticky="w", pady=(0, 8))
+        ttk.Button(action_bar, text="Export History", command=self._export_run_history, style="Secondary.TButton").pack(side="left")
+        ttk.Button(action_bar, text="Clear History", command=self._clear_run_history, style="Danger.TButton").pack(side="left", padx=(6, 0))
         run_history_tree_shell, self.run_history_tree = self._create_scrolled_tree_widget(
             left,
             key="run_history_tree",
@@ -5950,7 +6035,7 @@ class DesktopWorkbench:
         self.run_history_tree.column("time", width=170, anchor="w")
         self.run_history_tree.column("status", width=120, anchor="w")
         self.run_history_tree.column("topic", width=360, anchor="w")
-        run_history_tree_shell.grid(row=2, column=0, sticky="nsew")
+        run_history_tree_shell.grid(row=3, column=0, sticky="nsew")
         self.run_history_tree.bind("<<TreeviewSelect>>", self._handle_run_history_selection)
         ttk.Label(right, text="Run details", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
         run_history_text_shell, self.run_history_text = self._create_scrolled_text_widget(
@@ -5973,7 +6058,7 @@ class DesktopWorkbench:
         left = ttk.Frame(shell, padding=8, style="Surface.TFrame")
         right = ttk.Frame(shell, padding=8, style="Surface.TFrame")
         left.columnconfigure(0, weight=1)
-        left.rowconfigure(2, weight=1)
+        left.rowconfigure(3, weight=1)
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=1)
         shell.add(left, weight=3)
@@ -6000,6 +6085,10 @@ class DesktopWorkbench:
             style="DangerBadge.TLabel",
         )
         self.audit_exclude_badge.grid(row=0, column=2, sticky="w")
+        action_bar = ttk.Frame(left, style="Surface.TFrame")
+        action_bar.grid(row=2, column=0, sticky="w", pady=(0, 8))
+        ttk.Button(action_bar, text="Export Audit", command=self._export_screening_audit, style="Secondary.TButton").pack(side="left")
+        ttk.Button(action_bar, text="Clear Audit", command=self._clear_screening_audit, style="Danger.TButton").pack(side="left", padx=(6, 0))
         screening_tree_shell, self.screening_audit_tree = self._create_scrolled_tree_widget(
             left,
             key="screening_audit_tree",
@@ -6014,7 +6103,7 @@ class DesktopWorkbench:
         self.screening_audit_tree.column("decision", width=110, anchor="w")
         self.screening_audit_tree.column("score", width=70, anchor="e")
         self.screening_audit_tree.column("source", width=120, anchor="w")
-        screening_tree_shell.grid(row=2, column=0, sticky="nsew")
+        screening_tree_shell.grid(row=3, column=0, sticky="nsew")
         self.screening_audit_tree.bind("<<TreeviewSelect>>", self._handle_screening_audit_selection)
         self.screening_audit_tree.bind("<Double-1>", lambda _event: self._open_document_from_screening_audit())
         ttk.Label(right, text="Decision details", style="PageTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
@@ -6432,6 +6521,7 @@ class DesktopWorkbench:
             self.placeholder_active[key] = False
             self._set_placeholder_visual_state(widget, active=False)
             return
+        self._set_widget_content(widget, mode, "")
         self._restore_placeholder_if_empty(key)
 
     def _placeholder_safe_value(self, key: str, raw_value: str) -> str:
@@ -6487,10 +6577,12 @@ class DesktopWorkbench:
             self.profile_combo["values"] = self.profile_manager.list_profiles()
 
     def _start_run(
-            self,
-            *,
-            skip_discovery_override: bool | None = None,
-            run_mode_override: str | None = None,
+        self,
+        *,
+        discovery_stage_override: bool | None = None,
+        ai_evaluation_override: bool | None = None,
+        skip_discovery_override: bool | None = None,
+        run_mode_override: str | None = None,
     ) -> None:
         """Validate the current form and launch the pipeline on a background worker thread."""
 
@@ -6498,10 +6590,18 @@ class DesktopWorkbench:
             messagebox.showinfo("Run in progress", "Wait for the current run to finish before starting another one.")
             return
         values = self._collect_form_values()
-        if skip_discovery_override is not None:
+        if discovery_stage_override is not None:
+            values["discovery_stage_enabled"] = discovery_stage_override
+            values["skip_discovery"] = not discovery_stage_override
+        elif skip_discovery_override is not None:
             values["skip_discovery"] = skip_discovery_override
+            values["discovery_stage_enabled"] = not skip_discovery_override
+        if ai_evaluation_override is not None:
+            values["ai_evaluation_enabled"] = ai_evaluation_override
+            values["run_mode"] = "analyze" if ai_evaluation_override else "collect"
         if run_mode_override is not None:
             values["run_mode"] = run_mode_override
+            values["ai_evaluation_enabled"] = run_mode_override != "collect"
         validation_messages = self._validate_guided_text_inputs(values)
         if validation_messages:
             messagebox.showerror("Invalid text input", "\n\n".join(validation_messages))
@@ -6520,9 +6620,13 @@ class DesktopWorkbench:
         self.log_widget.configure(state="normal")
         self.log_widget.delete("1.0", tk.END)
         self.log_widget.configure(state="disabled")
+        discovery_stage_enabled = getattr(config, "discovery_stage_enabled", not getattr(config, "skip_discovery", False))
+        ai_evaluation_enabled = getattr(config, "ai_evaluation_enabled", getattr(config, "run_mode", "analyze") != "collect")
         run_description = "Running pipeline..."
-        if config.skip_discovery and config.run_mode == "analyze":
+        if not discovery_stage_enabled and ai_evaluation_enabled:
             run_description = "Running analysis from stored records..."
+        elif discovery_stage_enabled and not ai_evaluation_enabled:
+            run_description = "Running discovery-only pipeline..."
         elif config.skip_discovery:
             run_description = "Loading stored records without new discovery..."
         run_description += f" Persistent log file: {config.log_file_path}"
@@ -6655,6 +6759,145 @@ class DesktopWorkbench:
         self._refresh_run_history_tab()
         self._set_status(f"Reloaded results from {config.results_dir}")
 
+    def _export_run_log(self) -> None:
+        """Write the currently visible run log to a text file without clearing it."""
+
+        if self.log_widget is None:
+            return
+        target = filedialog.asksaveasfilename(
+            title="Export run log",
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            initialfile="run_log.txt",
+        )
+        if not target:
+            return
+        content = self.log_widget.get("1.0", tk.END).rstrip()
+        Path(target).write_text(content + ("\n" if content else ""), encoding="utf-8")
+        self._set_status(f"Exported run log to {target}")
+
+    def _clear_run_log(self) -> None:
+        """Clear the visible run-log pane and keep future logging functional."""
+
+        if self.log_widget is None:
+            return
+        self.log_widget.configure(state="normal")
+        self.log_widget.delete("1.0", tk.END)
+        self.log_widget.configure(state="disabled")
+        self._set_status("Cleared the run log view.")
+
+    def _export_run_history(self) -> None:
+        """Write the current run-history entries to CSV without clearing them."""
+
+        target = filedialog.asksaveasfilename(
+            title="Export run history",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile="run_history.csv",
+        )
+        if not target:
+            return
+        pd.DataFrame(self.run_history_entries).to_csv(target, index=False)
+        self._set_status(f"Exported run history to {target}")
+
+    def _clear_run_history(self) -> None:
+        """Clear the run-history pane and remove the backing JSON history file."""
+
+        self.run_history_entries = []
+        path = self._current_history_path()
+        try:
+            if path.exists():
+                path.unlink()
+        except OSError:
+            pass
+        self._refresh_run_history_tab()
+        self._set_status("Cleared run history.")
+
+    def _export_screening_audit(self) -> None:
+        """Write the current screening-audit rows to CSV without clearing them."""
+
+        target = filedialog.asksaveasfilename(
+            title="Export screening audit",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile="screening_audit.csv",
+        )
+        if not target:
+            return
+        pd.DataFrame(list(self.screening_audit_rows.values())).to_csv(target, index=False)
+        self._set_status(f"Exported screening audit to {target}")
+
+    def _clear_screening_audit(self) -> None:
+        """Clear the screening-audit tree and detail panel for the current UI session."""
+
+        self.screening_audit_rows = {}
+        if self.screening_audit_tree is not None:
+            for item in self.screening_audit_tree.get_children():
+                self.screening_audit_tree.delete(item)
+        self._write_summary_widget(
+            self.screening_audit_text,
+            "No screening audit is available yet. Start a run or refresh a results directory to inspect keep/exclude reasons.",
+        )
+        self._set_badge_label(self.audit_include_badge, "[INC] 0", "success")
+        self._set_badge_label(self.audit_maybe_badge, "[MAY] 0", "warning")
+        self._set_badge_label(self.audit_exclude_badge, "[EXC] 0", "danger")
+        self._set_status("Cleared screening audit.")
+
+    def _reset_workspace(self) -> None:
+        """Restore default settings and clear all visible session state in the workbench."""
+
+        self.profile_combo.set("")
+        defaults = default_form_values()
+        self._apply_form_values(defaults)
+        self.all_filter_var.set("all")
+        self.all_search_var.set("")
+        self._set_placeholder_text("all_papers_search", "")
+        self.current_result = {}
+        self.artifact_details = {}
+        self.screening_audit_rows = {}
+        self.research_fit_rows = {}
+        self.run_history_entries = []
+        for table_key in ("all_papers", "included_papers", "excluded_papers"):
+            self._clear_tree_widget(table_key)
+        if self.research_fit_tree is not None:
+            for item in self.research_fit_tree.get_children():
+                self.research_fit_tree.delete(item)
+        if self.outputs_tree is not None:
+            for item in self.outputs_tree.get_children():
+                self.outputs_tree.delete(item)
+        if self.chart_canvas is not None:
+            self.chart_canvas.delete("all")
+            self.chart_canvas.configure(scrollregion=(0, 0, 0, 0))
+        self._clear_run_log()
+        self._clear_run_history()
+        self._clear_screening_audit()
+        self._write_summary_widget(
+            self.research_fit_text,
+            "No research-fit analysis is available yet. Run screening with the topic prefilter enabled to inspect extracted topics and weighted keyword evidence.",
+        )
+        self._set_badge_label(self.research_fit_strong_badge, "[FIT] 0 strong", "success")
+        self._set_badge_label(self.research_fit_near_badge, "[FIT] 0 near", "warning")
+        self._set_badge_label(self.research_fit_weak_badge, "[FIT] 0 weak", "danger")
+        self._write_summary_widget(
+            self.artifact_summary_text,
+            "No artifact paths are available yet. Start a run or refresh a results directory to populate this browser.",
+        )
+        self._write_summary_widget(
+            self.charts_summary_text,
+            "No chart data is available yet. Start a run or refresh a results directory.",
+        )
+        self._write_summary_widget(
+            self.document_summary_text,
+            "No paper is selected yet. Double-click a paper in All Papers, Included, Excluded, or Screening Audit.",
+        )
+        self._write_summary_widget(
+            self.document_content_text,
+            "Document preview will appear here when a local PDF or text-based artifact is available.",
+        )
+        self._clear_document_render("No document loaded.")
+        self._refresh_settings_overview()
+        self._set_status("Reset the workbench to the default settings.")
+
     def _load_dataframe_into_tree(self, key: str, path: Path) -> None:
         """Load a CSV file into one of the result tables."""
 
@@ -6744,7 +6987,150 @@ class DesktopWorkbench:
 
         values = self._collect_form_values()
         config = form_values_to_config(values)
-        self._load_dataframe_into_tree("all_papers", config.results_dir / "papers.csv")
+        papers_path = config.results_dir / "papers.csv"
+        if papers_path.exists():
+            self._load_dataframe_into_tree("all_papers", papers_path)
+            return
+        papers_snapshot = list(self.current_result.get("papers_snapshot", []) or [])
+        self._load_records_into_tree("all_papers", papers_snapshot, path_hint=None)
+
+    def _add_manual_paper_link(self) -> None:
+        """Prompt for one paper URL or DOI and add it to the current review query."""
+
+        link = simpledialog.askstring(
+            "Add paper link",
+            "Enter a DOI, arXiv link, paper landing page, or direct PDF link.",
+            parent=self.root,
+        )
+        if not link:
+            return
+        self._ingest_manual_paper(entry_kind="link", value=link)
+
+    def _add_manual_pdf(self) -> None:
+        """Prompt for one local PDF and add it to the current review query."""
+
+        path = filedialog.askopenfilename(
+            parent=self.root,
+            title="Select a paper PDF",
+            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        self._ingest_manual_paper(entry_kind="pdf", value=path)
+
+    def _ingest_manual_paper(self, *, entry_kind: str, value: str) -> None:
+        """Resolve, persist, evaluate, and refresh one manually supplied paper."""
+
+        try:
+            config = form_values_to_config(self._collect_form_values())
+            config.run_mode = "analyze"
+            config.finalize()
+            ingestor = ManualPaperIngestor(config)
+            database = DatabaseManager(config.database_path)
+            database.initialize()
+            try:
+                if entry_kind == "link":
+                    paper = ingestor.ingest_link(value)
+                else:
+                    paper = ingestor.ingest_pdf(value)
+                stored_paper = self._persist_manual_paper(config, database, paper)
+                all_papers = database.get_papers_for_query(config.query_key)
+            finally:
+                database.close()
+            report_paths = self._regenerate_manual_outputs(config, all_papers)
+            self._refresh_manual_results(
+                config,
+                all_papers,
+                report_paths,
+                focus_paper=stored_paper,
+                status_message=f"Added and evaluated '{stored_paper.title}'.",
+            )
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.exception("Manual paper intake failed: %s", exc)
+            messagebox.showerror("Manual paper intake failed", str(exc))
+
+    def _persist_manual_paper(
+        self,
+        config: Any,
+        database: DatabaseManager,
+        paper: PaperMetadata,
+    ) -> PaperMetadata:
+        """Store one manual paper and run the current screening stack against it."""
+
+        screener = AIScreener(config)
+        stored = database.upsert_papers([paper], config.query_key)
+        stored_paper = stored[0]
+        if stored_paper.pdf_path:
+            excerpt = FullTextExtractor(max_chars=config.full_text_max_chars).extract_excerpt(stored_paper.pdf_path)
+            if excerpt:
+                stored_paper = stored_paper.model_copy(
+                    update={
+                        "raw_payload": {**stored_paper.raw_payload, "full_text_excerpt": excerpt},
+                        "abstract": stored_paper.abstract or excerpt[:1600],
+                    }
+                )
+                stored_paper = database.upsert_papers([stored_paper], config.query_key)[0]
+        result = screener.screen(stored_paper).model_copy(update={"screening_context_key": config.screening_context_key})
+        screening_details = result.model_dump(mode="json")
+        database.update_screening_result(stored_paper.database_id or 0, result, screening_details)
+        refreshed = database.get_papers_for_query(config.query_key)
+        for candidate in refreshed:
+            if candidate.database_id == stored_paper.database_id:
+                return candidate
+        return stored_paper
+
+    def _regenerate_manual_outputs(self, config: Any, papers: list[PaperMetadata]) -> dict[str, str]:
+        """Regenerate the standard report artifacts after a manual paper edit."""
+
+        report_generator = ReportGenerator(config, AIScreener(config))
+        database = DatabaseManager(config.database_path)
+        stats = {
+            "discovered_count": len(papers),
+            "deduplicated_count": len(papers),
+            "screened_count": len([paper for paper in papers if paper.inclusion_decision]),
+            "decision_counts": database.get_decision_counts(config.query_key),
+        }
+        try:
+            return report_generator.generate(papers, stats=stats)
+        finally:
+            database.close()
+
+    def _refresh_manual_results(
+        self,
+        config: Any,
+        papers: list[PaperMetadata],
+        report_paths: dict[str, str],
+        *,
+        focus_paper: PaperMetadata | None = None,
+        status_message: str,
+    ) -> None:
+        """Refresh the UI state from the current database-backed paper list."""
+
+        papers_snapshot = [paper.model_dump(mode="json") for paper in papers]
+        included_snapshot = [record for record in papers_snapshot if str(record.get("inclusion_decision", "")).strip().lower() == "include"]
+        excluded_snapshot = [record for record in papers_snapshot if str(record.get("inclusion_decision", "")).strip().lower() == "exclude"]
+        result_payload: dict[str, Any] = {
+            "run_status": "completed",
+            "run_mode": "manual_update",
+            "results_dir": str(config.results_dir),
+            "papers_snapshot": papers_snapshot,
+            **report_paths,
+        }
+        self.current_result = result_payload
+        self.all_filter_var.set("all")
+        self.all_search_var.set("")
+        self._set_placeholder_text("all_papers_search", "")
+        self._load_records_into_tree("all_papers", papers_snapshot, path_hint=Path(report_paths["papers_csv"]) if "papers_csv" in report_paths else None)
+        self._load_records_into_tree("included_papers", included_snapshot, path_hint=Path(report_paths["included_papers_csv"]) if "included_papers_csv" in report_paths else None)
+        self._load_records_into_tree("excluded_papers", excluded_snapshot, path_hint=Path(report_paths["excluded_papers_csv"]) if "excluded_papers_csv" in report_paths else None)
+        papers_path = Path(report_paths.get("papers_csv", config.results_dir / "papers.csv"))
+        self._load_outputs(result_payload)
+        self._refresh_chart_preview(papers_path)
+        self._refresh_screening_audit(papers_path)
+        self._refresh_research_fit(papers_path, papers_snapshot)
+        if focus_paper is not None:
+            self._show_document_preview(focus_paper.model_dump(mode="json"), source_label="Manual intake")
+        self._set_status(status_message)
 
     def _load_outputs(self, result: dict[str, Any]) -> None:
         """Populate the outputs tab from the latest result payload."""
@@ -7259,11 +7645,50 @@ class DesktopWorkbench:
             file_text = "[FILE] No local file"
             file_tone = "muted"
         self._set_badge_label(self.document_file_badge, file_text, file_tone)
-        if self.document_open_button is not None:
-            if document_path is not None and document_path.exists():
-                self.document_open_button.state(["!disabled"])
-            else:
-                self.document_open_button.state(["disabled"])
+        if self.notebook is not None and self.document_tab is not None:
+            self.notebook.select(self.document_tab)
+
+    def _show_document_preview_for_path(self, document_path: Path) -> None:
+        """Populate the document viewer from a manually selected local document."""
+
+        summary_lines = [
+            "Source surface: Manual document selection",
+            f"Title: {document_path.stem}",
+            "Decision: (not screened)",
+            "Relevance score: (not available)",
+            "Source provider: local file",
+            "Year: (unknown)",
+            "DOI: (not available)",
+            "",
+            f"Selected file: {document_path}",
+        ]
+        content_text = ""
+        if document_path.suffix.lower() == ".pdf":
+            extractor = FullTextExtractor(max_chars=12000)
+            content_text = extractor.extract_excerpt(document_path) or ""
+            summary_lines.extend(["", "A local PDF excerpt is shown in the preview pane when extraction is available."])
+        elif document_path.suffix.lower() in {".txt", ".md"}:
+            try:
+                content_text = document_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                content_text = f"Unable to read {document_path.name}: {exc}"
+        if not content_text:
+            content_text = (
+                "No text excerpt could be extracted from this file. "
+                "If it is a PDF, the embedded renderer can still show pages when rendering support is available."
+            )
+
+        self._write_summary_widget(self.document_summary_text, "\n".join(summary_lines))
+        self._write_summary_widget(self.document_content_text, content_text)
+        self.document_status_var.set(f"Selected local document: {document_path}")
+        self.document_external_path = document_path
+        self._load_document_render(document_path)
+        suffix = document_path.suffix.lower() or "file"
+        file_text = "[PDF] Local PDF" if suffix == ".pdf" else f"[FILE] {suffix.upper().lstrip('.')}"
+        file_tone = "success" if suffix == ".pdf" else "neutral"
+        self._set_badge_label(self.document_decision_badge, "[DECISION] Not screened", "muted")
+        self._set_badge_label(self.document_source_badge, "[SRC] Local file", "info")
+        self._set_badge_label(self.document_file_badge, file_text, file_tone)
         if self.notebook is not None and self.document_tab is not None:
             self.notebook.select(self.document_tab)
 
@@ -7552,11 +7977,24 @@ class DesktopWorkbench:
         self._render_document_page()
 
     def _open_document_external(self) -> None:
-        """Open the currently linked document outside the app when one is available."""
+        """Open a file picker and load a local document into the embedded viewer."""
 
-        if self.document_external_path is None:
+        selected = filedialog.askopenfilename(
+            parent=self.root,
+            title="Select a document to preview",
+            filetypes=[
+                ("PDF files", "*.pdf"),
+                ("Text files", "*.txt *.md"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not selected:
             return
-        self._open_path(self.document_external_path)
+        path = Path(selected)
+        if not path.exists():
+            messagebox.showerror("Path not found", f"{path} does not exist.")
+            return
+        self._show_document_preview_for_path(path)
 
     def _open_path(self, path: Path) -> None:
         """Open a file or directory using the host operating system defaults."""

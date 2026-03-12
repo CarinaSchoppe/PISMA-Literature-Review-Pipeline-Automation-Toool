@@ -218,6 +218,8 @@ class ResearchConfig(BaseModel):
     max_discovered_records: int | None = None
     min_discovered_records: int = 0
     max_papers_to_analyze: int = 50
+    discovery_stage_enabled: bool = True
+    ai_evaluation_enabled: bool = True
     skip_discovery: bool = False
     citation_snowballing_enabled: bool = True
     relevance_threshold: float = 70.0
@@ -250,7 +252,7 @@ class ResearchConfig(BaseModel):
     google_scholar_page_min: int = DEFAULT_GOOGLE_SCHOLAR_PAGE_MIN
     google_scholar_page_max: int = DEFAULT_GOOGLE_SCHOLAR_PAGE_MAX
     google_scholar_results_per_page: int = 10
-    topic_prefilter_enabled: bool = False
+    topic_prefilter_enabled: bool = True
     topic_prefilter_filter_low_relevance: bool = False
     topic_prefilter_high_threshold: float = 0.75
     topic_prefilter_review_threshold: float = 0.55
@@ -315,6 +317,25 @@ class ResearchConfig(BaseModel):
         page_min = payload.get("google_scholar_page_min", DEFAULT_GOOGLE_SCHOLAR_PAGE_MIN)
         if payload.get("google_scholar_pages") in {None, ""}:
             payload["google_scholar_pages"] = page_min
+        return payload
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_stage_defaults_from_legacy_modes(cls, value: Any) -> Any:
+        """Derive stage toggles from legacy run controls when explicit stage settings are absent."""
+
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        has_discovery_toggle = payload.get("discovery_stage_enabled") not in {None, ""}
+        has_ai_toggle = payload.get("ai_evaluation_enabled") not in {None, ""}
+        legacy_skip_discovery = payload.get("skip_discovery")
+        legacy_run_mode = payload.get("run_mode")
+
+        if not has_discovery_toggle:
+            payload["discovery_stage_enabled"] = not bool(legacy_skip_discovery)
+        if not has_ai_toggle:
+            payload["ai_evaluation_enabled"] = legacy_run_mode != "collect"
         return payload
 
     @field_validator("search_keywords", mode="before")
@@ -505,6 +526,18 @@ class ResearchConfig(BaseModel):
             raise ValueError("topic_prefilter_near_fit_threshold must be less than or equal to topic_prefilter_match_threshold")
         return self
 
+    @model_validator(mode="after")
+    def synchronize_stage_modes(self) -> ResearchConfig:
+        """Keep legacy run-mode controls synchronized with the explicit discovery and AI stage toggles."""
+
+        self.discovery_stage_enabled = bool(self.discovery_stage_enabled)
+        self.ai_evaluation_enabled = bool(self.ai_evaluation_enabled)
+        if not self.discovery_stage_enabled and not self.ai_evaluation_enabled:
+            raise ValueError("At least one pipeline stage must remain enabled.")
+        self.skip_discovery = not self.discovery_stage_enabled
+        self.run_mode = "analyze" if self.ai_evaluation_enabled else "collect"
+        return self
+
     @property
     def resolved_topic_prefilter_keyword_rules(self) -> list[TopicKeywordRuleConfig]:
         """Return structured keyword rules derived from the compact stored syntax."""
@@ -567,7 +600,7 @@ class ResearchConfig(BaseModel):
     def resolved_analysis_passes(self) -> list[AnalysisPassConfig]:
         """Resolve the active pass chain, including the implicit default screening pass."""
 
-        if self.run_mode == "collect":
+        if not self.ai_evaluation_enabled:
             return []
         if self.analysis_passes:
             return [analysis_pass for analysis_pass in self.analysis_passes if analysis_pass.enabled]
@@ -783,24 +816,22 @@ class ResearchConfig(BaseModel):
                 return file_config[name]
             return default
 
+        interactive_mode = bool(getattr(args, "wizard", False)) or (
+            not args.config_file
+            and getattr(args, "research_topic", None) is None
+            and getattr(args, "search_keywords", None) is None
+        )
+
         topic = value_for("research_topic", getattr(args, "research_topic", None))
         if not topic:
             topic = ask("Enter research topic")
 
         research_question = value_for("research_question", getattr(args, "research_question", None), "")
-        if (
-                not args.config_file
-                and getattr(args, "research_question", None) is None
-                and "research_question" not in file_config
-        ):
+        if interactive_mode and getattr(args, "research_question", None) is None and "research_question" not in file_config:
             research_question = ask("Optional research question", "")
 
         review_objective = value_for("review_objective", getattr(args, "review_objective", None), "")
-        if (
-                not args.config_file
-                and getattr(args, "review_objective", None) is None
-                and "review_objective" not in file_config
-        ):
+        if interactive_mode and getattr(args, "review_objective", None) is None and "review_objective" not in file_config:
             review_objective = ask("Optional review objective", "")
 
         keywords = value_for("search_keywords", getattr(args, "search_keywords", None))
@@ -808,25 +839,17 @@ class ResearchConfig(BaseModel):
             keywords = ask("Enter search keywords separated by comma")
 
         inclusion_criteria = value_for("inclusion_criteria", getattr(args, "inclusion_criteria", None), [])
-        if (
-                not args.config_file
-                and getattr(args, "inclusion_criteria", None) is None
-                and "inclusion_criteria" not in file_config
-        ):
+        if interactive_mode and getattr(args, "inclusion_criteria", None) is None and "inclusion_criteria" not in file_config:
             raw_inclusion = ask("Optional inclusion criteria separated by semicolon", "")
             inclusion_criteria = parse_search_terms(raw_inclusion)
 
         exclusion_criteria = value_for("exclusion_criteria", getattr(args, "exclusion_criteria", None), [])
-        if (
-                not args.config_file
-                and getattr(args, "exclusion_criteria", None) is None
-                and "exclusion_criteria" not in file_config
-        ):
+        if interactive_mode and getattr(args, "exclusion_criteria", None) is None and "exclusion_criteria" not in file_config:
             raw_exclusion = ask("Optional exclusion criteria separated by semicolon", "")
             exclusion_criteria = parse_search_terms(raw_exclusion)
 
         banned_topics = value_for("banned_topics", getattr(args, "banned_topics", None), [])
-        if not args.config_file and getattr(args, "banned_topics", None) is None and "banned_topics" not in file_config:
+        if interactive_mode and getattr(args, "banned_topics", None) is None and "banned_topics" not in file_config:
             raw_banned = ask("Optional banned topics separated by semicolon", "")
             banned_topics = parse_search_terms(raw_banned)
 
@@ -835,11 +858,7 @@ class ResearchConfig(BaseModel):
             getattr(args, "excluded_title_terms", None),
             list(DEFAULT_EXCLUDED_TITLE_TERMS),
         )
-        if (
-                not args.config_file
-                and getattr(args, "excluded_title_terms", None) is None
-                and "excluded_title_terms" not in file_config
-        ):
+        if interactive_mode and getattr(args, "excluded_title_terms", None) is None and "excluded_title_terms" not in file_config:
             raw_excluded_titles = ask(
                 "Optional excluded title terms separated by semicolon",
                 "; ".join(DEFAULT_EXCLUDED_TITLE_TERMS),
@@ -847,26 +866,26 @@ class ResearchConfig(BaseModel):
             excluded_title_terms = parse_search_terms(raw_excluded_titles)
 
         boolean_operators = value_for("boolean_operators", getattr(args, "boolean_operators", None), "AND")
-        if getattr(args, "boolean_operators", None) is None and "boolean_operators" not in file_config:
+        if interactive_mode and getattr(args, "boolean_operators", None) is None and "boolean_operators" not in file_config:
             boolean_operators = ask("Optional boolean operator or expression", "AND")
 
         pages_to_retrieve = value_for("pages_to_retrieve", getattr(args, "pages_to_retrieve", None))
         if pages_to_retrieve is None:
-            pages_to_retrieve = ask_int("Number of pages or result batches to retrieve per source", 2)
+            pages_to_retrieve = ask_int("Number of pages or result batches to retrieve per source", 2) if interactive_mode else 2
 
         results_per_page = value_for("results_per_page", args.results_per_page, 25)
 
         year_start = value_for("year_range_start", getattr(args, "year_range_start", None))
         if year_start is None:
-            year_start = ask_int("Year range start", 2018)
+            year_start = ask_int("Year range start", 2018) if interactive_mode else 2018
 
         year_end = value_for("year_range_end", getattr(args, "year_range_end", None))
         if year_end is None:
-            year_end = ask_int("Year range end", 2026)
+            year_end = ask_int("Year range end", 2026) if interactive_mode else 2026
 
         max_papers = value_for("max_papers_to_analyze", getattr(args, "max_papers_to_analyze", None))
         if max_papers is None:
-            max_papers = ask_int("Max results to analyze", 50)
+            max_papers = ask_int("Max results to analyze", 50) if interactive_mode else 50
 
         citation_snowballing = (
             getattr(args, "citation_snowballing_enabled", None)
@@ -874,7 +893,23 @@ class ResearchConfig(BaseModel):
             else file_config.get("citation_snowballing_enabled")
         )
         if citation_snowballing is None:
-            citation_snowballing = ask_bool("Enable citation snowballing? (yes/no)", True)
+            citation_snowballing = ask_bool("Enable citation snowballing? (yes/no)", True) if interactive_mode else True
+
+        discovery_stage_enabled = value_for(
+            "discovery_stage_enabled",
+            getattr(args, "discovery_stage_enabled", None),
+            None,
+        )
+        if interactive_mode and discovery_stage_enabled is None and getattr(args, "discovery_stage_enabled", None) is None and "discovery_stage_enabled" not in file_config:
+            discovery_stage_enabled = ask_bool("Run paper discovery and scraping before analysis? (yes/no)", True)
+
+        ai_evaluation_enabled = value_for(
+            "ai_evaluation_enabled",
+            getattr(args, "ai_evaluation_enabled", None),
+            None,
+        )
+        if interactive_mode and ai_evaluation_enabled is None and getattr(args, "ai_evaluation_enabled", None) is None and "ai_evaluation_enabled" not in file_config:
+            ai_evaluation_enabled = ask_bool("Run AI evaluation and screening? (yes/no)", True)
 
         relevance_threshold = (
             getattr(args, "relevance_threshold", None)
@@ -882,25 +917,25 @@ class ResearchConfig(BaseModel):
             else file_config.get("relevance_threshold")
         )
         if relevance_threshold is None:
-            relevance_threshold = ask_float("Relevance score threshold", 70.0)
+            relevance_threshold = ask_float("Relevance score threshold", 70.0) if interactive_mode else 70.0
 
         download_pdfs = args.download_pdfs if args.download_pdfs is not None else file_config.get("download_pdfs")
         if download_pdfs is None:
-            download_pdfs = ask_bool("Download PDFs if available? (yes/no)", False)
+            download_pdfs = ask_bool("Download PDFs if available? (yes/no)", False) if interactive_mode else False
 
         analyze_full_text = (
             args.analyze_full_text
             if getattr(args, "analyze_full_text", None) is not None
             else file_config.get("analyze_full_text")
         )
-        if analyze_full_text is None and not args.config_file:
+        if analyze_full_text is None and interactive_mode:
             analyze_full_text = ask_bool("Analyze full text from PDFs when available? (yes/no)", False)
         elif analyze_full_text is None:
             analyze_full_text = False
 
         include_pubmed = args.include_pubmed if args.include_pubmed is not None else file_config.get("include_pubmed")
         if include_pubmed is None:
-            include_pubmed = ask_bool("Include PubMed if the query is biomedical? (yes/no)", True)
+            include_pubmed = ask_bool("Include PubMed if the query is biomedical? (yes/no)", True) if interactive_mode else True
 
         run_mode = value_for("run_mode", getattr(args, "run_mode", None), "analyze")
         verbosity = cast(
@@ -989,6 +1024,16 @@ class ResearchConfig(BaseModel):
             year_range_start=year_start,
             year_range_end=year_end,
             max_papers_to_analyze=max_papers,
+            discovery_stage_enabled=value_for(
+                "discovery_stage_enabled",
+                getattr(args, "discovery_stage_enabled", None),
+                discovery_stage_enabled,
+            ),
+            ai_evaluation_enabled=value_for(
+                "ai_evaluation_enabled",
+                getattr(args, "ai_evaluation_enabled", None),
+                ai_evaluation_enabled,
+            ),
             skip_discovery=value_for("skip_discovery", getattr(args, "skip_discovery", None), False),
             max_discovered_records=value_for(
                 "max_discovered_records",
@@ -1048,7 +1093,7 @@ class ResearchConfig(BaseModel):
             google_scholar_page_min=google_scholar_page_min,
             google_scholar_page_max=google_scholar_page_max,
             google_scholar_results_per_page=value_for("google_scholar_results_per_page", getattr(args, "google_scholar_results_per_page", None), 10),
-            topic_prefilter_enabled=value_for("topic_prefilter_enabled", getattr(args, "topic_prefilter_enabled", None), False),
+            topic_prefilter_enabled=value_for("topic_prefilter_enabled", getattr(args, "topic_prefilter_enabled", None), True),
             topic_prefilter_filter_low_relevance=value_for("topic_prefilter_filter_low_relevance", getattr(args, "topic_prefilter_filter_low_relevance", None), False),
             topic_prefilter_high_threshold=value_for("topic_prefilter_high_threshold", getattr(args, "topic_prefilter_high_threshold", None), 0.75),
             topic_prefilter_review_threshold=value_for("topic_prefilter_review_threshold", getattr(args, "topic_prefilter_review_threshold", None), 0.55),
@@ -1244,6 +1289,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Hard minimum number of unique records required before screening continues",
     )
     parser.add_argument("--max-papers", type=int, dest="max_papers_to_analyze", help="Maximum papers to analyze")
+    parser.add_argument(
+        "--discovery-stage-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        dest="discovery_stage_enabled",
+        help="Enable or disable the discovery and scraping stage before analysis",
+    )
+    parser.add_argument(
+        "--ai-evaluation-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        dest="ai_evaluation_enabled",
+        help="Enable or disable the AI evaluation and screening stage",
+    )
     parser.add_argument(
         "--skip-discovery",
         action=argparse.BooleanOptionalAction,

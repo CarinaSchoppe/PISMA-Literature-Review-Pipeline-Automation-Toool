@@ -67,10 +67,21 @@ The pipeline order is:
 input -> discovery -> deduplication -> database storage -> citation expansion -> pdf enrichment -> AI screening -> scoring -> ranking -> report generation
 ```
 
-Two run modes exist:
+Two stage toggles now drive the workflow:
 
-- `collect`: only discovery, deduplication, storage, enrichment, and export
-- `analyze`: full workflow including AI screening and review summary generation
+- `discovery_stage_enabled`
+- `ai_evaluation_enabled`
+
+That produces three practical run shapes:
+
+- discovery only
+- AI evaluation only against stored/manual papers
+- both stages in sequence
+
+The legacy `run_mode` values still exist for compatibility:
+
+- `collect`: discovery without AI evaluation
+- `analyze`: AI evaluation enabled
 
 ## GUI Layout
 
@@ -139,7 +150,8 @@ Important visibility behavior:
 
 Toolbar actions:
 
-- `Start Run`: run discovery and analysis using the current form values
+- `Start Run`: run the currently enabled stages using the current form values
+- `Discover Only`: force a discovery-only run regardless of the current AI toggle
 - `Analyze Stored Results`: skip new discovery and analyze papers that already exist in the active database
 - `Force Stop`: request a controlled stop
 
@@ -151,6 +163,7 @@ Result inspection tabs:
 - `Screening Audit`: per-paper explanations, retain reasons, exclusion reasons, and extracted passages from `papers.csv`
 - `Research Fit`: extracted topics, weighted keyword percentages, per-keyword thresholds, minimum-match counts, semantic labels, and strong/near/weak fit badges
 - `Document Viewer`: double-click a paper row to inspect local document text, embedded PDF pages, screening rationale, and research-fit context without leaving the workbench
+- `All Papers`: includes `Add Paper Link` and `Add Local PDF` actions so operators can insert one paper directly into the current review query and evaluate it immediately
 
 Run log styling:
 
@@ -159,6 +172,31 @@ Run log styling:
 - red error lines mark failed stages or run-level faults
 - trace lines stay visually muted so the important states remain easier to scan
 - outputs, run history, result tables, screening audit, and the document viewer also use compact semantic badges so high-signal states stand out before you open a details pane
+
+### Manual paper intake
+
+The guided workbench can add one paper directly from the `All Papers` tab without rerunning full discovery.
+
+`Add Paper Link` accepts:
+
+- DOI strings
+- DOI URLs
+- arXiv identifiers
+- arXiv links
+- paper landing pages
+- direct PDF links
+
+`Add Local PDF` accepts one already-downloaded PDF from disk.
+
+After intake, the workbench:
+
+- resolves metadata where possible
+- extracts local text when possible
+- stores the paper in SQLite for the active query
+- runs the current AI screening and research-fit configuration
+- refreshes `All Papers`, `Included`, `Excluded`, `Research Fit`, `Outputs`, and `Document Viewer`
+
+This is intended for operator-driven “evaluate this exact paper now” workflows.
 
 Pass-chain builder:
 
@@ -529,6 +567,7 @@ These settings control scoring, pass chains, and model behavior.
 `topic_prefilter_enabled`
 
 - Enables the local MiniLM-based semantic topic prefilter.
+- Default: enabled.
 - `Yes` means a lightweight local embedding model evaluates semantic fit before or alongside deeper screening.
 - `No` means the pipeline skips this local semantic gate.
 - GUI: `AI Screening`

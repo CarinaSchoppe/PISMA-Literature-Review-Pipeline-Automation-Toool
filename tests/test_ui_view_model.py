@@ -32,6 +32,8 @@ class UIViewModelTests(unittest.TestCase):
                 "google_scholar_page_max": 40,
                 "max_discovered_records": "120",
                 "min_discovered_records": "10",
+                "discovery_stage_enabled": False,
+                "ai_evaluation_enabled": True,
                 "skip_discovery": True,
                 "discovery_workers": 2,
                 "io_workers": 3,
@@ -86,6 +88,8 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(config.google_scholar_page_max, 40)
         self.assertEqual(config.max_discovered_records, 120)
         self.assertEqual(config.min_discovered_records, 10)
+        self.assertFalse(config.discovery_stage_enabled)
+        self.assertTrue(config.ai_evaluation_enabled)
         self.assertTrue(config.skip_discovery)
         self.assertEqual(config.discovery_workers, 2)
         self.assertEqual(config.io_workers, 3)
@@ -138,6 +142,12 @@ class UIViewModelTests(unittest.TestCase):
         self.assertEqual(values["review_objective"], "")
         self.assertEqual(values["search_keywords"], "")
         self.assertEqual(values["inclusion_criteria"], "")
+
+    def test_default_form_values_enable_topic_prefilter(self) -> None:
+        values = default_form_values()
+        self.assertTrue(values["topic_prefilter_enabled"])
+        self.assertTrue(values["discovery_stage_enabled"])
+        self.assertTrue(values["ai_evaluation_enabled"])
         self.assertEqual(values["exclusion_criteria"], "")
         self.assertEqual(values["banned_topics"], "")
         self.assertEqual(values["excluded_title_terms"], "")
@@ -176,6 +186,8 @@ class UIViewModelTests(unittest.TestCase):
                 discovery_strategy="balanced",
                 max_discovered_records=75,
                 min_discovered_records=5,
+                discovery_stage_enabled=False,
+                ai_evaluation_enabled=True,
                 analysis_passes=[
                     {
                         "name": "fast",
@@ -222,6 +234,8 @@ class UIViewModelTests(unittest.TestCase):
             self.assertEqual(values["search_keywords"], "llm, screening")
             self.assertEqual(values["max_discovered_records"], 75)
             self.assertEqual(values["min_discovered_records"], 5)
+            self.assertFalse(values["discovery_stage_enabled"])
+            self.assertTrue(values["ai_evaluation_enabled"])
             self.assertEqual(values["ui_settings_mode"], "advanced")
             self.assertTrue(values["ui_show_advanced_settings"])
             self.assertEqual(values["google_scholar_page_min"], 3)

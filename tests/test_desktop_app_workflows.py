@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import tkinter as tk
 import unittest
@@ -11,6 +12,7 @@ from unittest.mock import Mock, patch
 
 import pandas as pd
 
+from models.paper import PaperMetadata, ScreeningResult
 from ui.desktop_app import DesktopWorkbench
 
 
@@ -233,6 +235,169 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
             self.assertFalse(self.workbench.treeviews["included_papers"]["columns"])
             self.workbench._refresh_results_from_disk()
             self.assertTrue(self.workbench.current_result)
+
+    def test_export_and_clear_actions_write_files_and_reset_views(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            log_target = root / "run_log.txt"
+            history_target = root / "run_history.csv"
+            audit_target = root / "screening_audit.csv"
+            self.workbench.scalar_vars["data_dir"].set(str(root / "data"))
+
+            self.workbench.log_widget.configure(state="normal")
+            self.workbench.log_widget.insert("1.0", "hello log\n")
+            self.workbench.log_widget.configure(state="disabled")
+            self.workbench.run_history_entries = [
+                {"timestamp": "2026-03-12T09:00:00", "status": "completed", "topic": "LLM review", "run_mode": "analyze"}
+            ]
+            (root / "data").mkdir(parents=True, exist_ok=True)
+            self.workbench._current_history_path().write_text(
+                json.dumps(self.workbench.run_history_entries, indent=2),
+                encoding="utf-8",
+            )
+            self.workbench._refresh_run_history_tab()
+            self.workbench.screening_audit_rows = {
+                "audit-0": {"title": "Paper A", "inclusion_decision": "include", "relevance_score": 88.0, "source": "manual"}
+            }
+            self.workbench.screening_audit_tree.insert(
+                "",
+                tk.END,
+                iid="audit-0",
+                values=("Paper A", "include", "88.0", "manual"),
+                tags=("include",),
+            )
+
+            targets = iter([str(log_target), str(history_target), str(audit_target)])
+            with patch("ui.desktop_app.filedialog.asksaveasfilename", side_effect=lambda **_: next(targets)):
+                self.workbench._export_run_log()
+                self.workbench._export_run_history()
+                self.workbench._export_screening_audit()
+
+            self.assertIn("hello log", log_target.read_text(encoding="utf-8"))
+            self.assertIn("LLM review", history_target.read_text(encoding="utf-8"))
+            self.assertIn("Paper A", audit_target.read_text(encoding="utf-8"))
+
+            self.workbench._clear_run_log()
+            self.workbench._clear_run_history()
+            self.workbench._clear_screening_audit()
+
+            self.assertEqual(self.workbench.log_widget.get("1.0", tk.END).strip(), "")
+            self.assertEqual(self.workbench.run_history_tree.get_children(), ())
+            self.assertEqual(self.workbench.screening_audit_tree.get_children(), ())
+
+    def test_reset_workspace_restores_defaults_and_clears_visible_state(self) -> None:
+        self.workbench.text_widgets["research_topic"].delete("1.0", tk.END)
+        self.workbench.text_widgets["research_topic"].insert("1.0", "Custom topic")
+        self.workbench.scalar_vars["results_dir"].set("results/custom")
+        self.workbench.log_widget.configure(state="normal")
+        self.workbench.log_widget.insert("1.0", "old log")
+        self.workbench.log_widget.configure(state="disabled")
+        self.workbench.run_history_entries = [
+            {"timestamp": "2026-03-12T09:00:00", "status": "completed", "topic": "LLM review", "run_mode": "analyze"}
+        ]
+        self.workbench._refresh_run_history_tab()
+        self.workbench.table_rows["all_papers"] = {"row-0": {"title": "Paper A"}}
+        self.workbench.treeviews["all_papers"]["columns"] = ("title",)
+        self.workbench.treeviews["all_papers"].insert("", tk.END, iid="row-0", values=("Paper A",))
+        self.workbench.current_result = {"papers_snapshot": [{"title": "Paper A"}]}
+
+        self.workbench._reset_workspace()
+
+        self.assertEqual(
+            self.workbench._placeholder_safe_value(
+                "research_topic",
+                self.workbench.text_widgets["research_topic"].get("1.0", tk.END).strip(),
+            ),
+            "",
+        )
+        self.assertEqual(self.workbench.scalar_vars["results_dir"].get(), "results")
+        self.assertEqual(self.workbench.log_widget.get("1.0", tk.END).strip(), "")
+        self.assertEqual(self.workbench.run_history_tree.get_children(), ())
+        self.assertEqual(self.workbench.treeviews["all_papers"].get_children(), ())
+        self.assertEqual(self.workbench.current_result, {})
+
+    def test_add_manual_paper_link_updates_all_papers_and_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            results_dir = root / "results"
+            papers_dir = root / "papers"
+            database_path = root / "data" / "manual.db"
+            self.workbench.scalar_vars["results_dir"].set(str(results_dir))
+            self.workbench.scalar_vars["papers_dir"].set(str(papers_dir))
+            self.workbench.scalar_vars["database_path"].set(str(database_path))
+            self.workbench.text_widgets["research_topic"].delete("1.0", tk.END)
+            self.workbench.text_widgets["research_topic"].insert("1.0", "AI-assisted literature review")
+
+            with patch("ui.desktop_app.simpledialog.askstring", return_value="https://doi.org/10.1000/test"), patch(
+                "ui.desktop_app.ManualPaperIngestor.ingest_link",
+                return_value=self._sample_manual_paper("Manual link paper"),
+            ), patch(
+                "ui.desktop_app.AIScreener.screen",
+                return_value=self._sample_screening_result("include", 82.5),
+            ):
+                self.workbench._add_manual_paper_link()
+
+            children = self.workbench.treeviews["all_papers"].get_children()
+            self.assertEqual(len(children), 1)
+            row = self.workbench.table_rows["all_papers"][children[0]]
+            self.assertEqual(row["title"], "Manual link paper")
+            self.assertEqual(self.workbench.current_result["papers_snapshot"][0]["title"], "Manual link paper")
+            self.assertTrue((results_dir / "papers.csv").exists())
+
+    def test_add_manual_pdf_updates_all_papers_and_document_viewer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            results_dir = root / "results"
+            papers_dir = root / "papers"
+            database_path = root / "data" / "manual.db"
+            pdf_path = root / "downloaded.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4 example")
+            self.workbench.scalar_vars["results_dir"].set(str(results_dir))
+            self.workbench.scalar_vars["papers_dir"].set(str(papers_dir))
+            self.workbench.scalar_vars["database_path"].set(str(database_path))
+            self.workbench.text_widgets["research_topic"].delete("1.0", tk.END)
+            self.workbench.text_widgets["research_topic"].insert("1.0", "AI-assisted literature review")
+
+            with patch("ui.desktop_app.filedialog.askopenfilename", return_value=str(pdf_path)), patch(
+                "ui.desktop_app.ManualPaperIngestor.ingest_pdf",
+                return_value=self._sample_manual_paper("Manual pdf paper", pdf_path=str(pdf_path)),
+            ), patch(
+                "ui.desktop_app.AIScreener.screen",
+                return_value=self._sample_screening_result("maybe", 67.0),
+            ):
+                self.workbench._add_manual_pdf()
+
+            self.assertIn("Manual pdf paper", self.workbench.document_summary_text.get("1.0", tk.END))
+            self.assertEqual(len(self.workbench.treeviews["all_papers"].get_children()), 1)
+
+    def _sample_manual_paper(self, title: str, *, pdf_path: str | None = None):
+        return PaperMetadata(
+            title=title,
+            abstract="A manually supplied paper.",
+            source="manual",
+            pdf_path=pdf_path,
+            raw_payload={"full_text_excerpt": "Manual paper excerpt."},
+        )
+
+    def _sample_screening_result(self, decision: str, score: float) -> ScreeningResult:
+        return ScreeningResult(
+            stage_one_decision="maybe",
+            relevance_score=score,
+            explanation="Manual screening result",
+            extracted_passage="excerpt",
+            methodology_category="review",
+            domain_category="general",
+            decision=decision,
+            topic_prefilter_research_fit_label="STRONG_FIT" if decision == "include" else "NEAR_FIT",
+            topic_prefilter_weighted_score=score,
+            topic_prefilter_matched_keyword_count=2,
+            topic_prefilter_keyword_rule_count=3,
+            topic_prefilter_extracted_topics=["llm screening", "systematic review"],
+            topic_prefilter_keyword_details=[
+                {"keyword": "llm screening", "match_percent": 88.0, "met_threshold": True},
+                {"keyword": "systematic review", "match_percent": 71.0, "met_threshold": True},
+            ],
+        )
 
     def test_start_run_force_stop_poll_messages_and_open_path_branches(self) -> None:
         class FakeThread:

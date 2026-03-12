@@ -126,6 +126,8 @@ class MiscHighCoverageTests(unittest.TestCase):
                 "12",
                 "maybe",
                 "yes",
+                "yes",
+                "yes",
                 "bad",
                 "70",
                 "y",

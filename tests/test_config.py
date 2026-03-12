@@ -82,6 +82,71 @@ class ConfigTests(unittest.TestCase):
                 topic_prefilter_near_fit_threshold=40,
             )
 
+    def test_topic_prefilter_is_enabled_by_default(self) -> None:
+        config = ResearchConfig(
+            research_topic="AI-assisted literature reviews",
+            search_keywords=["llm", "systematic review"],
+        )
+        self.assertTrue(config.topic_prefilter_enabled)
+        self.assertTrue(config.discovery_stage_enabled)
+        self.assertTrue(config.ai_evaluation_enabled)
+
+    def test_stage_toggles_sync_with_legacy_modes_and_validate_combinations(self) -> None:
+        ai_only = ResearchConfig(
+            research_topic="Topic",
+            search_keywords=["llm"],
+            discovery_stage_enabled=False,
+            ai_evaluation_enabled=True,
+        )
+        self.assertTrue(ai_only.skip_discovery)
+        self.assertEqual(ai_only.run_mode, "analyze")
+
+        discover_only = ResearchConfig(
+            research_topic="Topic",
+            search_keywords=["llm"],
+            discovery_stage_enabled=True,
+            ai_evaluation_enabled=False,
+        )
+        self.assertFalse(discover_only.skip_discovery)
+        self.assertEqual(discover_only.run_mode, "collect")
+
+        legacy_collect = ResearchConfig(
+            research_topic="Topic",
+            search_keywords=["llm"],
+            run_mode="collect",
+        )
+        self.assertTrue(legacy_collect.discovery_stage_enabled)
+        self.assertFalse(legacy_collect.ai_evaluation_enabled)
+
+        with self.assertRaisesRegex(ValueError, "At least one pipeline stage must remain enabled"):
+            ResearchConfig(
+                research_topic="Topic",
+                search_keywords=["llm"],
+                discovery_stage_enabled=False,
+                ai_evaluation_enabled=False,
+            )
+
+    def test_cli_parses_explicit_stage_toggles(self) -> None:
+        parser = build_arg_parser()
+        args = parser.parse_args(
+            [
+                "--topic",
+                "Topic",
+                "--keywords",
+                "llm",
+                "--no-discovery-stage-enabled",
+                "--ai-evaluation-enabled",
+            ]
+        )
+
+        with patch("builtins.input", side_effect=AssertionError("input should not be called")):
+            config = ResearchConfig.from_cli(args)
+
+        self.assertFalse(config.discovery_stage_enabled)
+        self.assertTrue(config.ai_evaluation_enabled)
+        self.assertTrue(config.skip_discovery)
+        self.assertEqual(config.run_mode, "analyze")
+
     def test_cli_parses_weighted_topic_fit_controls(self) -> None:
         parser = build_arg_parser()
         args = parser.parse_args(
@@ -642,6 +707,8 @@ class ConfigTests(unittest.TestCase):
                 "2019",
                 "2026",
                 "12",
+                "yes",
+                "yes",
                 "yes",
                 "70",
                 "yes",
