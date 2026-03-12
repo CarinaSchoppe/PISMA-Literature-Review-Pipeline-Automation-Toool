@@ -731,6 +731,55 @@ class DesktopWorkbenchHighCoverageTests(unittest.TestCase):
             self.assertIn(expected, hint_text)
             hint_dialog.destroy()
 
+    def test_topic_keyword_rule_builder_and_research_fit_guard_branches(self) -> None:
+        self.assertEqual(self.workbench._current_topic_keyword_rules(), [])
+        self.workbench._write_topic_keyword_rules([])
+
+        original_widget = self.workbench.text_widgets.pop("topic_prefilter_weighted_keywords")
+        try:
+            self.assertEqual(self.workbench._current_topic_keyword_rules(), [])
+            self.workbench._write_topic_keyword_rules([{"keyword": "ignored", "weight": 1.0, "threshold": 55.0}])
+        finally:
+            self.workbench.text_widgets["topic_prefilter_weighted_keywords"] = original_widget
+
+        self.workbench._set_text_widget_value(
+            self.workbench.text_widgets["topic_prefilter_weighted_keywords"],
+            '\n{"keyword":"llm screening","weight":1.5,"threshold":65}\nreview automation|1.20|55; evidence synthesis|1.10|50\n',
+        )
+        self.workbench._open_topic_keyword_rule_builder()
+        dialog = [widget for widget in self.workbench.root.winfo_children() if isinstance(widget, tk.Toplevel)][-1]
+        dialog.update_idletasks()
+        tree = next(widget for widget in _walk_widgets(dialog) if widget.winfo_class() == "Treeview")
+        entry = next(widget for widget in _walk_widgets(dialog) if widget.winfo_class() == "TEntry")
+
+        tree.selection_set("0")
+        tree.event_generate("<<TreeviewSelect>>")
+        dialog.setvar(str(entry.cget("textvariable")), "topic fit")
+        _find_button(dialog, "Add Rule").invoke()
+        tree.selection_set("0")
+        tree.event_generate("<<TreeviewSelect>>")
+        _find_button(dialog, "Duplicate Rule").invoke()
+        tree.selection_set("1")
+        tree.event_generate("<<TreeviewSelect>>")
+        _find_button(dialog, "Remove Rule").invoke()
+        _find_button(dialog, "Apply").invoke()
+        round_trip = self.workbench._current_topic_keyword_rules()
+        self.assertGreaterEqual(len(round_trip), 1)
+
+        original_tree = self.workbench.research_fit_tree
+        self.workbench.research_fit_tree = None
+        try:
+            self.workbench._refresh_research_fit(Path("missing.csv"))
+            self.workbench._handle_research_fit_selection()
+            self.workbench._open_document_from_research_fit()
+        finally:
+            self.workbench.research_fit_tree = original_tree
+
+        self.workbench._refresh_research_fit(Path("missing.csv"))
+        self.assertIn("workspace is empty", self.workbench.research_fit_text.get("1.0", tk.END))
+        self.assertEqual(self.workbench._format_research_fit_match_summary({"topic_prefilter_matched_keyword_count": "bad"}), "0 / 0")
+        self.workbench._render_research_fit_row("missing")
+
     def test_new_output_history_chart_and_audit_helper_branches(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -10,6 +10,7 @@ from unittest.mock import patch
 from config import (
     AnalysisPassConfig,
     ResearchConfig,
+    TopicKeywordRuleConfig,
     build_arg_parser,
     parse_analysis_pass,
     parse_topic_prefilter_keyword_rule,
@@ -234,6 +235,10 @@ class ConfigTests(unittest.TestCase):
     def test_model_validators_cover_non_dict_input_and_invalid_verbosity(self) -> None:
         validated = ResearchConfig.populate_google_scholar_page_defaults(["not-a-dict"])
         self.assertEqual(validated, ["not-a-dict"])
+        self.assertEqual(
+            ResearchConfig.populate_stage_defaults_from_legacy_modes(("not-a-dict",)),
+            ("not-a-dict",),
+        )
 
         with self.assertRaisesRegex(ValueError, "verbosity must be one of normal, verbose, or ultra_verbose"):
             ResearchConfig(
@@ -263,6 +268,33 @@ class ConfigTests(unittest.TestCase):
             args = parser.parse_args(["--config-file", str(config_path)])
             config = ResearchConfig.from_cli(args)
             self.assertFalse(config.analyze_full_text)
+
+    def test_topic_keyword_rule_validation_and_summary_cover_edge_cases(self) -> None:
+        with self.assertRaisesRegex(ValueError, "cannot be empty"):
+            parse_topic_prefilter_keyword_rule("   ")
+        with self.assertRaisesRegex(ValueError, "must include a keyword"):
+            parse_topic_prefilter_keyword_rule("|1.0|50")
+
+        parsed = parse_topic_prefilter_keyword_rule('{"keyword":"governance","weight":1.2,"threshold":60}')
+        self.assertEqual(parsed.keyword, "governance")
+        self.assertEqual(parsed.threshold, 60.0)
+
+        with self.assertRaisesRegex(ValueError, "at least 0"):
+            ResearchConfig(
+                research_topic="Topic",
+                search_keywords=["llm"],
+                topic_prefilter_min_keyword_matches=-1,
+            )
+
+        config = ResearchConfig(
+            research_topic="Topic",
+            search_keywords=["llm"],
+            topic_prefilter_weighted_keywords=["valid keyword|1.0|60", "bad|oops"],
+        )
+        self.assertEqual(len(config.resolved_topic_prefilter_keyword_rules), 1)
+        self.assertIn("Weighted topic keywords", config.screening_brief)
+        with self.assertRaisesRegex(ValueError, "keyword cannot be empty"):
+            TopicKeywordRuleConfig(keyword="   ")
 
     def test_cli_runtime_destinations_align_with_ui_form_fields(self) -> None:
         from ui.view_model import default_form_values

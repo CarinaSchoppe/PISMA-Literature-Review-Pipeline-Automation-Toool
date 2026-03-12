@@ -322,6 +322,36 @@ class TopicPrefilterTests(unittest.TestCase):
         self.assertTrue(result.should_exclude)
         self.assertIn("Automatic filtering is enabled", result.explanation)
 
+    def test_keyword_match_details_skip_empty_rules_and_can_end_as_weak_fit(self) -> None:
+        config = self._config(
+            topic_prefilter_enabled=True,
+            topic_prefilter_weighted_keywords=["valid keyword|1.0|90"],
+            topic_prefilter_min_keyword_matches=2,
+            topic_prefilter_match_threshold=80.0,
+            topic_prefilter_near_fit_threshold=60.0,
+        )
+        with patch("analysis.topic_prefilter.load_embedding_runtime", return_value=(_FakeTorch, _FakeTokenizerLoader, _FakeModelLoader)):
+            matcher = LocalTopicMatcher(config)
+        matcher._keyword_rules = [SimpleNamespace(keyword="   ", weight=1.0, threshold=50.0)]
+        self.assertEqual(matcher._keyword_match_details("plain text", []), [])
+        self.assertEqual(matcher._weighted_keyword_score([]), 0.0)
+        self.assertEqual(matcher._classify_research_fit(10.0, 0), "WEAK_FIT")
+
+    def test_keyword_match_details_skip_empty_topics_and_use_paper_text_fallback(self) -> None:
+        config = self._config(
+            topic_prefilter_enabled=True,
+            topic_prefilter_weighted_keywords=["clinical governance|1.0|55"],
+            topic_prefilter_min_keyword_matches=0,
+        )
+        with patch("analysis.topic_prefilter.load_embedding_runtime", return_value=(_FakeTorch, _FakeTokenizerLoader, _FakeModelLoader)):
+            matcher = LocalTopicMatcher(config)
+        details = matcher._keyword_match_details(
+            "clinical workflow design",
+            ["", "clinical", "   "],
+        )
+        self.assertEqual(len(details), 1)
+        self.assertEqual(details[0]["best_topic"], "clinical")
+
     def test_local_topic_matcher_fails_gracefully_when_runtime_is_missing(self) -> None:
         config = self._config(topic_prefilter_enabled=True)
 

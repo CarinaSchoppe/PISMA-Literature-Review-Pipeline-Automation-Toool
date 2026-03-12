@@ -172,6 +172,23 @@ class PipelineControllerHelperTests(unittest.TestCase):
             finally:
                 controller.close()
 
+    def test_screening_worker_count_uses_effective_workers_without_local_models(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = self._config(
+                root,
+                topic_prefilter_enabled=False,
+                llm_provider="heuristic",
+                max_workers=5,
+                analysis_passes=[{"name": "default", "llm_provider": "heuristic", "threshold": 65}],
+            )
+            controller = PipelineController(config)
+            try:
+                self.assertFalse(controller._requires_local_llm_serial_execution())
+                self.assertEqual(controller._screening_worker_count(), config.effective_screening_workers)
+            finally:
+                controller.close()
+
     def test_prepare_normalize_counts_and_cache_key_helpers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

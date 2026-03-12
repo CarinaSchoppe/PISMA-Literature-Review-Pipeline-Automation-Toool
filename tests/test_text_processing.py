@@ -68,6 +68,12 @@ class TextProcessingTests(unittest.TestCase):
         )
         self.assertEqual(text_processing.parse_search_terms(None), [])
 
+    def test_extract_keyphrases_handles_empty_and_repeated_tokens(self) -> None:
+        self.assertEqual(text_processing.extract_keyphrases("the and this with"), [])
+        phrases = text_processing.extract_keyphrases("model model model models governance governance", limit=6)
+        self.assertNotIn("model model", phrases)
+        self.assertTrue(any("governance" in phrase for phrase in phrases))
+
     def test_safe_year_chunking_hashing_slug_and_terms(self) -> None:
         self.assertEqual(text_processing.safe_year("2024"), 2024)
         self.assertIsNone(text_processing.safe_year("1799"))
