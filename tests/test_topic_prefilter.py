@@ -243,11 +243,46 @@ class TopicPrefilterTests(unittest.TestCase):
         self.assertEqual(result.research_fit_label, "STRONG_FIT")
         self.assertGreaterEqual(result.weighted_keyword_score, 50.0)
         self.assertGreaterEqual(result.matched_keyword_count, 2)
+        self.assertEqual(result.keyword_rule_count, 3)
         self.assertIn("systematic review", [topic.lower() for topic in result.extracted_topics])
         self.assertTrue(result.keyword_match_details)
         self.assertEqual(result.keyword_match_details[0]["status"], "matched")
         self.assertIn("Extracted paper topics", result.explanation)
         self.assertIn("Research fit: STRONG_FIT", result.explanation)
+
+    def test_local_topic_matcher_marks_near_and_missed_keyword_thresholds(self) -> None:
+        config = self._config(
+            topic_prefilter_enabled=True,
+            topic_prefilter_weighted_keywords=[
+                "systematic review|1.0|70",
+                "screening automation|1.0|55",
+                "clinical governance|1.0|80",
+            ],
+            topic_prefilter_min_keyword_matches=0,
+            topic_prefilter_match_threshold=55.0,
+            topic_prefilter_near_fit_threshold=35.0,
+        )
+        paper = self._paper(
+            title="Systematic review workflow study",
+            abstract="This paper studies workflow design for review teams and automation.",
+            raw_payload={"keywords": ["systematic review", "workflow automation"]},
+        )
+
+        with patch("analysis.topic_prefilter.load_embedding_runtime", return_value=(_FakeTorch, _FakeTokenizerLoader, _FakeModelLoader)), \
+             patch.object(LocalTopicMatcher, "_embed_texts", return_value=[_FakeVector(1.0), _FakeVector(0.60)]):
+            matcher = LocalTopicMatcher(config)
+            result = matcher.score_paper(paper)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        statuses = {detail["keyword"]: detail["status"] for detail in result.keyword_match_details}
+        self.assertEqual(statuses["systematic review"], "matched")
+        self.assertEqual(statuses["screening automation"], "near")
+        self.assertEqual(statuses["clinical governance"], "missed")
+        near_detail = next(detail for detail in result.keyword_match_details if detail["keyword"] == "screening automation")
+        self.assertEqual(near_detail["threshold_percent"], 55.0)
+        self.assertLess(near_detail["threshold_delta"], 0.0)
+        self.assertGreaterEqual(near_detail["threshold_delta"], -5.0)
 
     def test_matched_keywords_can_use_topic_question_and_objective_text(self) -> None:
         config = ResearchConfig(

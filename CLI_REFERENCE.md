@@ -160,8 +160,20 @@ Useful related flags:
 - `--topic-prefilter-match-threshold 55`
 - `--topic-prefilter-near-fit-threshold 35`
 
-The weighted keyword syntax accepts either plain phrases or `keyword|weight`.
+The weighted keyword syntax accepts either plain phrases or `keyword|weight|threshold`.
 These settings drive the GUI `Research Fit` tab and the exported per-paper research-fit fields.
+
+Examples:
+
+- `--topic-prefilter-weighted-keywords "systematic review|1.8|70; large language models|1.4|60"`
+- `--topic-prefilter-min-keyword-matches 0`
+
+Interpretation:
+
+- each keyword rule gets its own required percentage threshold
+- `MATCHED` means the extracted paper topics or text reached that threshold
+- `NEAR` means the paper missed the keyword threshold by at most 5 points
+- `MISSED` means the paper is more clearly below the keyword threshold
 
 ## Google Scholar Page Depth
 

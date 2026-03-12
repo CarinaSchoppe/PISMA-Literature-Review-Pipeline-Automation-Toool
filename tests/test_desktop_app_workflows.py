@@ -367,12 +367,13 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
                                 "inclusion_decision": "include",
                                 "relevance_score": 72.0,
                                 "screening_details": {
-                                    "topic_prefilter_research_fit_label": "STRONG_FIT",
-                                    "topic_prefilter_weighted_score": 81.0,
-                                    "topic_prefilter_matched_keyword_count": 2,
-                                    "topic_prefilter_min_keyword_matches": 1,
-                                    "topic_prefilter_label": "HIGH_RELEVANCE",
-                                },
+                        "topic_prefilter_research_fit_label": "STRONG_FIT",
+                        "topic_prefilter_weighted_score": 81.0,
+                        "topic_prefilter_matched_keyword_count": 2,
+                        "topic_prefilter_keyword_rule_count": 3,
+                        "topic_prefilter_min_keyword_matches": 1,
+                        "topic_prefilter_label": "HIGH_RELEVANCE",
+                    },
                             },
                             {
                                 "title": "Paper B",
@@ -383,12 +384,13 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
                                 "inclusion_decision": "exclude",
                                 "relevance_score": 40.0,
                                 "screening_details": {
-                                    "topic_prefilter_research_fit_label": "NEAR_FIT",
-                                    "topic_prefilter_weighted_score": 48.0,
-                                    "topic_prefilter_matched_keyword_count": 1,
-                                    "topic_prefilter_min_keyword_matches": 2,
-                                    "topic_prefilter_label": "REVIEW",
-                                },
+                        "topic_prefilter_research_fit_label": "NEAR_FIT",
+                        "topic_prefilter_weighted_score": 48.0,
+                        "topic_prefilter_matched_keyword_count": 1,
+                        "topic_prefilter_keyword_rule_count": 3,
+                        "topic_prefilter_min_keyword_matches": 2,
+                        "topic_prefilter_label": "REVIEW",
+                    },
                             },
                         ],
                     },
@@ -416,12 +418,13 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
                         "topic_prefilter_weighted_score": 81.5,
                         "topic_prefilter_min_keyword_matches": 2,
                         "topic_prefilter_matched_keyword_count": 3,
+                        "topic_prefilter_keyword_rule_count": 4,
                         "topic_prefilter_label": "HIGH_RELEVANCE",
                         "topic_prefilter_similarity": 0.82,
                         "topic_prefilter_extracted_topics": '["systematic review", "large language models"]',
                         "topic_prefilter_keyword_details": (
                             '[{"keyword":"systematic review","weight":1.6,"match_percent":100.0,'
-                            '"status":"matched","best_topic":"systematic review"}]'
+                            '"threshold_percent":70.0,"threshold_delta":30.0,"status":"matched","best_topic":"systematic review"}]'
                         ),
                     }
                 ]
@@ -433,11 +436,14 @@ class DesktopWorkbenchWorkflowTests(unittest.TestCase):
             self.assertEqual(len(items), 1)
             self.assertIn("Paper A", self.workbench.research_fit_text.get("1.0", tk.END))
             self.assertIn("systematic review", self.workbench.research_fit_text.get("1.0", tk.END))
+            self.assertIn("Matched rules: 3 / 4 total", self.workbench.research_fit_text.get("1.0", tk.END))
+            self.assertIn("vs threshold 70.0%", self.workbench.research_fit_text.get("1.0", tk.END))
 
             row = self.workbench.research_fit_rows[items[0]]
             summary_text, _content_text = self.workbench._build_document_preview(row, source_label="Research Fit", document_path=None)
             self.assertIn("Research fit snapshot", summary_text)
             self.assertIn("Top keyword matches", summary_text)
+            self.assertIn("Matched rules: 3 / 4 total", summary_text)
 
     def test_run_history_is_written_and_rendered(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

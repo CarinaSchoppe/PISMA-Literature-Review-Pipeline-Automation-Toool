@@ -147,7 +147,7 @@ The prefilter:
 * builds one review brief from the topic, research question, objective, keywords, and inclusion criteria
 * uses the research topic, research question, and review objective directly in the local research-fit explanation path
 * extracts paper keyphrases from title, abstract, and metadata keywords
-* compares extracted topics against weighted research keywords and minimum-match requirements
+* compares extracted topics against weighted research keywords, per-keyword thresholds, and minimum-match requirements
 * embeds the review brief and each paper locally on the machine
 * compares them with cosine similarity
 * classifies each paper as `HIGH_RELEVANCE`, `REVIEW`, or `LOW_RELEVANCE`
@@ -158,11 +158,13 @@ The prefilter:
 
 This path is designed for CPU-only execution on normal desktop hardware and remains usable offline after the initial model download.
 
-Weighted research keywords can be written as plain phrases or `keyword|weight`, for example:
+Weighted research-fit rules can be written as plain phrases or `keyword|weight|threshold`, for example:
 
-* `systematic review|1.8`
-* `large language models|1.4`
+* `systematic review|1.8|70`
+* `large language models|1.4|60`
 * `screening automation`
+
+When the explicit threshold is omitted, the rule falls back to the global strong-fit threshold.
 
 Multi-pass screening is supported. Each pass can define:
 
@@ -229,7 +231,8 @@ The guided workbench includes:
   - `Document Viewer`
 - double-click result and audit rows to open the embedded document viewer
 - document previews combine local PDF excerpts when available with screening rationale, retain/exclude reasoning, and research-fit context
-- the `Research Fit` tab shows extracted topics, weighted keyword percentages, matched-keyword counts, and strong/near/weak fit badges
+- the `Research Fit` tab shows extracted topics, per-keyword match percentages, per-keyword thresholds, threshold deltas, matched-rule counts, and strong/near/weak fit badges
+- the weighted-keyword field in `AI Screening` now uses a visual keyword-rule builder so you can add, remove, duplicate, and tune rule rows without editing raw text
 - the embedded document viewer can render local PDF pages directly inside the tab when `Pillow` and `pypdfium2` are available
 - the document viewer includes page navigation, zoom controls, source/decision/file badges, and falls back to text preview when no renderable local PDF exists
 - export preview before the run starts, so you can confirm which files and folders the current settings will produce

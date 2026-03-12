@@ -276,8 +276,9 @@ Outputs stored for explainability include:
 - extracted topics and keyphrases
 - weighted keyword score
 - matched keyword count
+- total keyword-rule count
 - research-fit label
-- per-keyword match percentages and best matched topic
+- per-keyword match percentages, thresholds, threshold deltas, and best matched topic
 - used text sections
 - keyword overlap
 - reason summary
@@ -290,13 +291,17 @@ Additional weighted-fit controls:
 - Syntax:
   - `keyword`
   - `keyword|weight`
+  - `keyword|weight|threshold`
 - Example:
-  - `systematic review|1.8`
-  - `large language models|1.4`
+  - `systematic review|1.8|70`
+  - `large language models|1.4|60`
+- If the per-keyword threshold is omitted, the rule falls back to `topic_prefilter_match_threshold`.
+- In the GUI this field is managed through a visual keyword-rule builder popup that edits the same stored syntax.
 
 `topic_prefilter_min_keyword_matches`
 
 - Minimum number of keyword matches required before a paper can count as a strong fit.
+- `0` is allowed.
 
 `topic_prefilter_match_threshold`
 

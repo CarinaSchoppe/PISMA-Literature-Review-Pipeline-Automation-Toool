@@ -11,12 +11,12 @@ permissions:
 
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       PYTHONUNBUFFERED: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
@@ -67,7 +67,7 @@ jobs:
         run: python -m pytest tests/test_provider_contracts.py -v
 
       - name: Full test suite
-        run: xvfb-run -a python -m pytest -v
+        run: xvfb-run -a python -m pytest -q
 
       - name: Coverage gate
         run: xvfb-run -a python coverage_report.py --results-dir results/coverage_report --top-files 25 --fail-under 99.5

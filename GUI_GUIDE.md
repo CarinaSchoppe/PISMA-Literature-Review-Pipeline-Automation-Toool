@@ -196,21 +196,37 @@ The pass-chain builder is visual and allows:
 - set provider-specific model overrides
 - set minimum previous-pass score
 
-Weighted research keywords accept either plain phrases or `keyword|weight`, for example:
+Weighted research-fit rules use a dedicated visual builder and also accept compact text syntax.
 
-- `systematic review|1.8`
-- `large language models|1.4`
+The compact syntax supports either plain phrases or `keyword|weight|threshold`, for example:
+
+- `systematic review|1.8|70`
+- `large language models|1.4|60`
 - `evidence synthesis`
+
+Inside the visual builder you can:
+
+- add a keyword or topic phrase
+- set its weight
+- set its per-keyword threshold percentage
+- duplicate or remove rows
+- keep long rule lists scrollable inside the popup
 
 The Research Fit workspace uses those settings to show:
 
 - extracted paper topics and keyphrases
 - per-keyword match percentages
-- matched keyword counts against the configured minimum
+- per-keyword threshold percentages
+- per-keyword threshold deltas
+- matched-rule counts against the configured minimum
 - color-coded fit badges:
   - green for `STRONG_FIT`
   - amber for `NEAR_FIT`
   - red for `WEAK_FIT`
+- per-keyword status logic:
+  - `MATCHED` when the keyword's actual match percentage is at or above its threshold
+  - `NEAR` when the keyword is below threshold by at most 5 points
+  - `MISSED` when the keyword is more than 5 points below threshold
 
 ## Connections And Keys Page
 

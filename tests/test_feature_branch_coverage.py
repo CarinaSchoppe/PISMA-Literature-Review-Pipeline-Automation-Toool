@@ -261,6 +261,7 @@ class FeatureBranchCoverageTests(unittest.TestCase):
             weighted_keyword_score=61.0,
             min_keyword_matches=1,
             matched_keyword_count=1,
+            keyword_rule_count=1,
         )
         result = ScreeningResult(
             stage_one_decision="include",
@@ -423,6 +424,7 @@ class FeatureBranchCoverageTests(unittest.TestCase):
             weighted_keyword_score=12.0,
             min_keyword_matches=1,
             matched_keyword_count=0,
+            keyword_rule_count=1,
         )
 
         self.assertEqual(scorer.quick_screen(include_paper), "include")
@@ -454,6 +456,7 @@ class FeatureBranchCoverageTests(unittest.TestCase):
             weighted_keyword_score=58.0,
             min_keyword_matches=1,
             matched_keyword_count=1,
+            keyword_rule_count=1,
         )
         result = scorer.deep_score(include_paper, stage_one_decision="include", topic_match=review_topic_match)
         self.assertIn("semantic_topic_match", result.evaluation_breakdown)
